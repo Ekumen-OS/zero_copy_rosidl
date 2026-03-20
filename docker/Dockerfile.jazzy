@@ -1,0 +1,200 @@
+FROM ubuntu:jammy AS package_xml_files_cacher
+
+WORKDIR /ws/src
+
+COPY . project/
+
+RUN mkdir -p /tmp/ws/src \
+   && find ./ -name "package.xml" | xargs cp --parents -t /tmp/ws/src \
+   && find ./ -name "COLCON_IGNORE" | xargs cp --parents -t /tmp/ws/src \
+   || true
+
+
+FROM ubuntu:jammy AS zero_rosidl_service_image_devel
+
+ARG USER=developer
+ARG GROUP=developer
+
+ENV ROS_DISTRO=jazzy
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+WORKDIR /root
+
+RUN apt update \
+   && apt install --no-install-recommends -y \
+   bash-completion \
+   ccache \
+   curl \
+   gdb \
+   git \
+   htop \
+   locate \
+   mc \
+   nano \
+   python-is-python3 \
+   python3-pip \
+   screen \
+   sudo \
+   tmux \
+   vim \
+   wget \
+   && rm -rf /var/lib/apt/lists/*
+
+RUN apt update \
+   && apt install --no-install-recommends -y \
+   locales \
+   && locale-gen en_US en_US.UTF-8 \
+   && update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 \
+   && rm -rf /var/lib/apt/lists/*
+ENV LANG=en_US.UTF-8
+
+RUN apt update \
+   && apt install --no-install-recommends -y \
+   software-properties-common \
+   && add-apt-repository universe \
+   && rm -rf /var/lib/apt/lists/*
+
+RUN apt update \
+   && sudo apt install --no-install-recommends -y curl \
+   && export ROS_APT_SOURCE_VERSION=$(curl -s https://api.github.com/repos/ros-infrastructure/ros-apt-source/releases/latest | grep -F "tag_name" | awk -F'"' '{print $4}') \
+   && curl -L -o /tmp/ros2-apt-source.deb "https://github.com/ros-infrastructure/ros-apt-source/releases/download/${ROS_APT_SOURCE_VERSION}/ros2-apt-source_${ROS_APT_SOURCE_VERSION}.$(. /etc/os-release && echo ${UBUNTU_CODENAME:-${VERSION_CODENAME}})_all.deb" \
+   && sudo dpkg -i /tmp/ros2-apt-source.deb \
+   && rm -rf /var/lib/apt/lists/*
+
+RUN apt update \
+   && apt install --no-install-recommends -y \
+   python3-flake8-blind-except \
+   python3-flake8-class-newline \
+   python3-flake8-deprecated \
+   python3-mypy \
+   python3-pip \
+   python3-pytest \
+   python3-pytest-cov \
+   python3-pytest-mock \
+   python3-pytest-repeat \
+   python3-pytest-rerunfailures \
+   python3-pytest-runner \
+   python3-pytest-timeout \
+   ros-dev-tools \
+   && add-apt-repository universe \
+   && rm -rf /var/lib/apt/lists/*
+
+RUN addgroup --gid 1000 $GROUP \
+   && adduser --uid 1000 --ingroup $GROUP --home /home/$USER --shell /bin/bash --disabled-password --gecos "" $USER \
+   && adduser $USER sudo \
+   && adduser $USER dialout \
+   && echo "$USER ALL=NOPASSWD: ALL" >> /etc/sudoers.d/$USER
+
+USER $USER:$GROUP
+
+WORKDIR /home/$USER
+
+COPY --chown=$USER:$GROUP docker/files/colcon_defaults.yaml /home/$USER/.colcon/defaults.yaml
+RUN colcon mixin add default https://raw.githubusercontent.com/colcon/colcon-mixin-repository/master/index.yaml \
+ && colcon mixin update default
+
+RUN sudo rosdep init && rosdep update
+
+#
+# Install ros-base system
+
+ENV ROS_CORE_WS=/home/$USER/ws_ros_core
+RUN mkdir -p $ROS_CORE_WS/src
+
+WORKDIR $ROS_CORE_WS
+
+RUN cd src/ \
+ && vcs import --recursive --input https://raw.githubusercontent.com/ros2/ros2/${ROS_DISTRO}/ros2.repos
+
+COPY docker/files/patches_ros /tmp/patches_ros
+RUN cd src \
+ && bash -c '\
+    for subdep in `ls`; do \
+      pushd $subdep && \
+      if [ -f /tmp/patches_ros/$subdep.sh ]; then \
+        echo "Post-processing $subdep source dependency" && /bin/bash /tmp/patches_ros/$subdep.sh; \
+      fi && \
+      popd; \
+    done'
+
+RUN sudo apt update \
+ && rosdep install --from-paths src --ignore-src -y --skip-keys "fastcdr rti-connext-dds-6.0.1 urdfdom_headers" \
+ && sudo rm -rf /var/lib/apt/lists/*
+
+RUN --mount=type=cache,target=/home/$USER/.ccache,uid=1000,gid=1000 \
+    colcon build
+
+RUN sudo bash -c " \
+    mkdir -p /opt/ros \
+ && mv $ROS_CORE_WS/install /opt/ros \
+ && mv /opt/ros/install /opt/ros/${ROS_DISTRO} \
+ && rm -rf $ROS_CORE_WS"
+
+#
+# Install the project helper dependencies
+
+ENV USER_WS=/home/$USER/ws
+RUN mkdir -p $USER_WS/src
+
+WORKDIR $USER_WS
+
+COPY docker/files/helper_source_dependencies.repos /tmp/helper_source_dependencies.repos
+RUN cd src/ \
+ && mkdir -p external \
+ && cd external \
+ && vcs import --recursive < /tmp/helper_source_dependencies.repos
+
+COPY docker/files/patches_ext /tmp/patches_ext
+RUN cd src/external \
+ && bash -c '\
+    for subdep in `ls`; do \
+      pushd $subdep && \
+      if [ -f /tmp/patches_ext/$subdep.sh ]; then \
+        echo "Post-processing $subdep source dependency" && /bin/bash /tmp/patches_ext/$subdep.sh; \
+      fi && \
+      popd; \
+    done'
+
+RUN /bin/bash -c '\
+    sudo apt update \
+ && . /opt/ros/${ROS_DISTRO}/setup.bash \
+ && rosdep install -i -y --from-path src \
+ && sudo rm -rf /var/lib/apt/lists/*'
+
+COPY --from=package_xml_files_cacher --chown=$USER:$GROUP /tmp/ws/ $USER_WS/
+RUN /bin/bash -c '\
+    sudo apt update \
+ && . /opt/ros/${ROS_DISTRO}/setup.bash \
+ && rosdep install -i -y --from-path src \
+ && sudo rm -rf /var/lib/apt/lists/*'
+
+#
+# Fixuid setup
+
+COPY --chown=root:root docker/files/fixuid_config.yml /etc/fixuid/config.yml
+RUN /bin/bash -c '\
+   ARCH=`uname -m` && if [ "$ARCH" == "aarch64" ]; then FIXUID_ARCH="arm64"; else FIXUID_ARCH="amd64"; fi \
+   && curl -SsL https://github.com/boxboat/fixuid/releases/download/v0.6.0/fixuid-0.6.0-linux-$FIXUID_ARCH.tar.gz | sudo tar -C /usr/local/bin -xzf - \
+   && sudo chmod 4755 /usr/local/bin/fixuid \
+   && cd /etc/fixuid \
+   && sudo sed -i "s/_USER_/$USER/" config.yml \
+   && sudo sed -i "s/_GROUP_/$GROUP/" config.yml \
+   && echo Done installing fixuid for $FIXUID_ARCH'
+
+#
+# Final setup of the workspace
+
+COPY docker/files/bash_aliases /home/$USER/.bash_aliases
+
+RUN mkdir -p $USER_WS/persistence && chmod 777 $USER_WS/persistence
+
+RUN sudo updatedb && sudo apt update
+
+ENV WITHIN_DEV 1
+
+COPY --chown=root:root docker/files/fixuid_wrapper.sh /fixuid_wrapper.sh
+COPY --chown=root:root docker/files/entrypoint.sh /ros_entrypoint.sh
+
+CMD        ["/bin/bash"]
+ENTRYPOINT ["/fixuid_wrapper.sh", "fixuid", "-q", "/ros_entrypoint.sh"]
