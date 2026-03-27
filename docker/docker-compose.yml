@@ -1,0 +1,27 @@
+services:
+  zero_rosidl_devel_base:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.jazzy
+      target: zero_rosidl_service_image_devel
+    environment:
+      - DISPLAY
+      - QT_X11_NO_MITSHM=1
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+      - XAUTHORITY=/tmp/.docker.xauth
+    stdin_open: true
+    tty: true
+    user: ${USERID:-1000}:${GROUPID:-1000}
+    volumes:
+      - ..:/home/developer/ws/src/project
+      - /tmp/.docker.xauth:/tmp/.docker.xauth
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - zero_rosidl_persistence:/home/developer/ws/persistence
+
+  zero_rosidl_devel:
+    extends:
+      service: zero_rosidl_devel_base
+    network_mode: host
+
+volumes:
+  zero_rosidl_persistence:

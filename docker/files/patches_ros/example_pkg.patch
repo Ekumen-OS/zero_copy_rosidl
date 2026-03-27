@@ -1,0 +1,77 @@
+diff --git a/param_configuration/config_layers/ros_package.py b/param_configuration/config_layers/ros_package.py
+index f09bc64..6434f16 100644
+--- a/param_configuration/config_layers/ros_package.py
++++ b/param_configuration/config_layers/ros_package.py
+@@ -13,6 +13,7 @@
+ #   See the License for the specific language governing permissions and
+ #   limitations under the License.
+ #  ------------------------------------------------------------------
++import functools
+ import subprocess
+ from pathlib import Path
+ from typing import Dict, List, Union
+@@ -24,10 +25,16 @@ from ament_index_python.packages import PackageNotFoundError, get_package_share_
+ from param_configuration.config_layer import ConfigLayer
+ from param_configuration.utils import walk_directory
+
++@functools.lru_cache(maxsize=None, typed=True)
++def cached_get_package_share_directory(package: str):
++    return get_package_share_directory(package)
+
+ class RosParamPackageLayer(ConfigLayer):
+     """Configuration layer for getting parameters from a ROS package param directory."""
+
++    def __init__(self, subdir: List[str] = []):
++        self._subdir: List[str] = subdir
++
+     @property
+     def name(self) -> str:
+         return "ros"
+@@ -36,9 +43,11 @@ class RosParamPackageLayer(ConfigLayer):
+         """Try to load the file from the ROS package."""
+         package = str(path).split("/")[2]
+         config_file_path = str(path).replace(f"config://{package}/", "")
++        full_subdir = Path("config").joinpath(*self._subdir)
+         try:
+-            converted_path = Path(get_package_share_directory(package)) / "params" / Path(config_file_path)
+-            return converted_path
++            converted_path = Path(cached_get_package_share_directory(package)) / full_subdir / Path(config_file_path)
++            if converted_path.exists():
++                return converted_path
+         except (PackageNotFoundError, ValueError):
+             pass
+         return None
+@@ -46,9 +55,10 @@ class RosParamPackageLayer(ConfigLayer):
+     def get_files(self) -> Dict[str, Union[List[Path], str]]:
+         packages = subprocess.check_output(["ros2", "pkg", "list"]).decode("utf-8").split("\n")
+         res = {"__files": []}
++        full_subdir = Path("config").joinpath(*self._subdir)
+         for package in packages:
+             try:
+-                package_dir = Path(get_package_share_directory(package)) / "params"
++                package_dir = Path(cached_get_package_share_directory(package)) / full_subdir
+                 if package_dir.exists():
+                     res[package] = walk_directory(directory=package_dir)
+
+diff --git a/param_configuration/path_resolver.py b/param_configuration/path_resolver.py
+index 24021cb..2dcf429 100644
+--- a/param_configuration/path_resolver.py
++++ b/param_configuration/path_resolver.py
+@@ -29,10 +29,13 @@ class PathResolver:
+     def __init__(self):
+         self._layers: list[ConfigLayer] = []
+
+-        # Add the default config layers, order matters!
+-        if os.getenv("PARAM_CONFIG_DIR"):  # Add model and device layers only if ENV variable exists
+-            self.add_layer(layer=FileLocationLayer(layer_folder=os.getenv("PARAM_DEVICE_DIR", "device")))
+-            self.add_layer(layer=FileLocationLayer(layer_folder="model"))
++        vehicle_id = os.getenv("VEHICLE_ID", "default_id")
++        platform_id = os.getenv("PLATFORM_ID", "default_class")
++        event_id = os.getenv("EVENT_ID", "default_event")
++
++        self.add_layer(layer=RosParamPackageLayer(subdir=[platform_id, vehicle_id, event_id]))
++        self.add_layer(layer=RosParamPackageLayer(subdir=[platform_id, vehicle_id]))
++        self.add_layer(layer=RosParamPackageLayer(subdir=[platform_id]))
+         self.add_layer(layer=RosParamPackageLayer())
+
+     def resolve_path(

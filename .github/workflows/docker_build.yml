@@ -1,0 +1,30 @@
+name: Unit tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: '${{ github.workflow }} @ ${{ github.event.pull_request.head.label || github.head_ref || github.ref }}'
+  cancel-in-progress: true
+
+env:
+  ROS_DOMAIN_ID: 89
+jobs:
+  unit_tests:
+    runs-on: self-hosted
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+
+    - name: Pre-build of the docker image
+      run: ./docker/run.sh --build -- true
+
+    - name: Run unit tests
+      run: ./docker/run.sh --build -- bash -c 'rm -rf build/* install/* && . /opt/ros/jazzy/setup.bash && colcon build && colcon test'
