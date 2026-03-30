@@ -1,0 +1,72 @@
+diff --git a/composition_benchmark/CMakeLists.txt b/composition_benchmark/CMakeLists.txt
+index 5053612..4ddf27f 100644
+--- a/composition_benchmark/CMakeLists.txt
++++ b/composition_benchmark/CMakeLists.txt
+@@ -83,6 +83,7 @@ target_include_directories(base_node
+   include
+   ${performance_test_INCLUDE_DIRS}
+   ${performance_metrics_INCLUDE_DIRS}
++  ${performance_test_factory_INCLUDE_DIRS}
+ )
+
+ add_subdirectory(apps)
+diff --git a/performance_test_examples/CMakeLists.txt b/performance_test_examples/CMakeLists.txt
+index ba6889d..1d1fa56 100644
+--- a/performance_test_examples/CMakeLists.txt
++++ b/performance_test_examples/CMakeLists.txt
+@@ -22,6 +22,7 @@ find_package(performance_test_factory REQUIRED)
+ add_executable(publisher_nodes_main src/publisher_nodes_main.cpp)
+ target_include_directories(publisher_nodes_main PUBLIC
+   ${performance_test_INCLUDE_DIRS}
++  ${performance_test_factory_INCLUDE_DIRS}
+ )
+ target_link_libraries(publisher_nodes_main
+   rclcpp::rclcpp
+@@ -32,6 +33,7 @@ target_link_libraries(publisher_nodes_main
+ add_executable(subscriber_nodes_main src/subscriber_nodes_main.cpp)
+ target_include_directories(subscriber_nodes_main PUBLIC
+   ${performance_test_INCLUDE_DIRS}
++  ${performance_test_factory_INCLUDE_DIRS}
+ )
+ target_link_libraries(subscriber_nodes_main
+   rclcpp::rclcpp
+@@ -42,6 +44,7 @@ target_link_libraries(subscriber_nodes_main
+ add_executable(client_nodes_main src/client_nodes_main.cpp)
+ target_include_directories(client_nodes_main PUBLIC
+   ${performance_test_INCLUDE_DIRS}
++  ${performance_test_factory_INCLUDE_DIRS}
+ )
+ target_link_libraries(client_nodes_main
+   rclcpp::rclcpp
+@@ -52,6 +55,7 @@ target_link_libraries(client_nodes_main
+ add_executable(server_nodes_main src/server_nodes_main.cpp)
+ target_include_directories(server_nodes_main PUBLIC
+   ${performance_test_INCLUDE_DIRS}
++  ${performance_test_factory_INCLUDE_DIRS}
+ )
+ target_link_libraries(server_nodes_main
+   rclcpp::rclcpp
+@@ -62,6 +66,7 @@ target_link_libraries(server_nodes_main
+ add_executable(simple_pub_sub_main src/simple_pub_sub_main.cpp)
+ target_include_directories(simple_pub_sub_main PUBLIC
+   ${performance_test_INCLUDE_DIRS}
++  ${performance_test_factory_INCLUDE_DIRS}
+ )
+ target_link_libraries(simple_pub_sub_main
+   rclcpp::rclcpp
+@@ -72,6 +77,7 @@ target_link_libraries(simple_pub_sub_main
+ add_executable(simple_client_service_main src/simple_client_service_main.cpp)
+ target_include_directories(simple_client_service_main PUBLIC
+   ${performance_test_INCLUDE_DIRS}
++  ${performance_test_factory_INCLUDE_DIRS}
+ )
+ target_link_libraries(simple_client_service_main
+   rclcpp::rclcpp
+@@ -82,6 +88,7 @@ target_link_libraries(simple_client_service_main
+ add_executable(json_system_main src/json_system_main.cpp)
+ target_include_directories(json_system_main PUBLIC
+   ${performance_test_INCLUDE_DIRS}
++  ${performance_test_factory_INCLUDE_DIRS}
+ )
+ target_link_libraries(json_system_main
+   rclcpp::rclcpp
