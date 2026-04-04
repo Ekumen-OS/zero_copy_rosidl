@@ -110,10 +110,11 @@ RUN cd src/ \
 COPY docker/files/patches_ros /tmp/patches_ros
 RUN cd src \
  && bash -c '\
-    for subdep in `ls`; do \
-      pushd $subdep && \
-      if [ -f /tmp/patches_ros/$subdep.sh ]; then \
-        echo "Post-processing $subdep source dependency" && /bin/bash /tmp/patches_ros/$subdep.sh; \
+     for repo in `find . -name ".git" -type d -prune -exec sh -c dirname  {} \;`; do \
+      pushd $repo && \
+      repo_name=$(basename $repo) \
+      if [ -f /tmp/patches_ros/$repo_name.sh ]; then \
+        echo "Post-processing $repo_name repository" && /bin/bash /tmp/patches_ros/$repo_name.sh; \
       fi && \
       popd; \
     done'
