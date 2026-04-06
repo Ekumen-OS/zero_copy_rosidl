@@ -40,3 +40,72 @@ To open a shell in a running container:
 ```bash
 docker exec -it <username>_zero_rosidl_devel bash
 ```
+
+Replace `<username>` with your system username (e.g., `ekumen_zero_rosidl_devel`).
+
+## Running Performance Benchmarks
+
+This project includes [iRobot's ros2-performance](https://github.com/irobot-ros/ros2-performance)
+benchmark suite to measure ROS 2 communication performance.
+
+### Building the Workspace
+
+The benchmark packages are built automatically during the Docker image build.
+To rebuild the workspace inside a running container:
+
+```bash
+# Inside the container, rebuild the workspace
+cd $USER_WS
+rm -rf build/* install/*
+source /opt/ros/jazzy/setup.bash
+colcon build
+```
+
+### Running the Benchmark
+
+To run the default Sierra Nevada topology benchmark:
+
+```bash
+# Inside the container, run the benchmark
+cd $USER_WS
+source $USER_WS/install/setup.bash
+cd ./install/irobot_benchmark/lib/irobot_benchmark
+./irobot_benchmark topology/sierra_nevada.json
+```
+
+### Viewing Benchmark Results
+
+Results are saved in the `sierra_nevada_log/` directory:
+
+- **`latency_total.txt`**: Summary statistics (mean latency, late messages, lost messages)
+- **`latency_all.txt`**: Detailed per-message latency data
+- **`metadata.txt`**: Benchmark configuration parameters
+- **`resources.txt`**: CPU and memory usage during the test
+
+To view the summary results:
+
+```bash
+cat $USER_WS/install/irobot_benchmark/lib/irobot_benchmark/sierra_nevada_log/latency_total.txt
+```
+
+Example output:
+```
+received_msgs  mean_us   late_msgs late_perc too_late_msgs  too_late_perc  lost_msgs lost_perc
+5278           131       0         0         0              0              0         0
+```
+
+### Available Topology Configurations
+
+The benchmark includes several predefined topologies in the `topology/` directory:
+
+- `sierra_nevada.json` - Default topology (10 nodes, complex graph)
+- `mont_blanc.json` - Large topology
+- `cedar.json` - Medium complexity
+- `white_mountain.json` - High complexity
+- `debug_*.json` - Smaller topologies for testing
+
+To run a different topology:
+
+```bash
+./irobot_benchmark topology/<topology_name>.json
+```

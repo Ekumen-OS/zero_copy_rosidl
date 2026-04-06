@@ -14,8 +14,7 @@ services:
     user: ${USERID:-1000}:${GROUPID:-1000}
     volumes:
       - ..:/home/developer/ws/src/project
-      - /tmp/.docker.xauth:/tmp/.docker.xauth
-      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - /tmp:/tmp:rw
       - zero_rosidl_persistence:/home/developer/ws/persistence
 
   zero_rosidl_devel:

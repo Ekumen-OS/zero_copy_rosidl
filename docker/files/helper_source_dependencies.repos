@@ -3,7 +3,3 @@ repositories:
     type: git
     url: https://github.com/irobot-ros/ros2-performance.git
     version: 241bf86e9e69760f893869435c9ad2400517f606
-  examples:
-    type: git
-    url: https://github.com/ros2/examples.git
-    vesion: jazzy
