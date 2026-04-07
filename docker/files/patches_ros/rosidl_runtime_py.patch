@@ -1,0 +1,4417 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+new file mode 100644
+index 0000000..5164fb3
+--- /dev/null
++++ b/CMakeLists.txt
+@@ -0,0 +1,79 @@
++cmake_minimum_required(VERSION 3.20)
++
++project(rosidl_runtime_py)
++
++# Default to C11
++if(NOT CMAKE_C_STANDARD)
++  set(CMAKE_C_STANDARD 11)
++endif()
++
++if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_C_COMPILER_ID MATCHES "Clang")
++  add_compile_options(-Wall -Wextra -Wpedantic)
++endif()
++
++find_package(ament_cmake REQUIRED)
++find_package(ament_cmake_python REQUIRED)
++find_package(rosidl_runtime_c REQUIRED)
++
++# Prefer the unversioned system Python (matches rclpy's approach).
++cmake_policy(SET CMP0094 NEW)
++set(Python3_FIND_UNVERSIONED_NAMES FIRST)
++find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
++
++# ---------------------------------------------------------------------------
++# Pure Python package
++# ---------------------------------------------------------------------------
++ament_python_install_package(${PROJECT_NAME})
++
++# ---------------------------------------------------------------------------
++# C extension: rosidl_runtime_py._raw_buffer  (provides RawBuffer)
++# ---------------------------------------------------------------------------
++Python3_add_library(_raw_buffer MODULE src/raw_buffer.c)
++target_include_directories(_raw_buffer PRIVATE
++  "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
++  ${rosidl_runtime_c_INCLUDE_DIRS}
++)
++target_link_libraries(_raw_buffer PRIVATE
++  rosidl_runtime_c::rosidl_runtime_c
++)
++set_target_properties(_raw_buffer PROPERTIES
++  # Output into the rosidl_runtime_py/ subdirectory of the build space so that
++  # PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR} resolves the submodule import
++  # `from rosidl_runtime_py._raw_buffer import RawBuffer` correctly.
++  LIBRARY_OUTPUT_DIRECTORY $<1:${CMAKE_CURRENT_BINARY_DIR}/rosidl_runtime_py>
++)
++
++install(TARGETS _raw_buffer
++  DESTINATION "${PYTHON_INSTALL_DIR}/rosidl_runtime_py"
++)
++
++# ---------------------------------------------------------------------------
++# Testing
++# ---------------------------------------------------------------------------
++if(BUILD_TESTING)
++  find_package(ament_lint_auto REQUIRED)
++  ament_lint_auto_find_test_dependencies()
++
++  find_package(ament_cmake_pytest REQUIRED)
++  set(_pytest_tests
++    test/rosidl_runtime_py/test_convert.py
++    test/rosidl_runtime_py/test_get_interfaces.py
++    test/rosidl_runtime_py/test_import_message.py
++    test/rosidl_runtime_py/test_set_message.py
++    test/rosidl_runtime_py/test_utilities.py
++    test/rosidl_runtime_py/experimental/test_dtype.py
++    test/rosidl_runtime_py/experimental/test_scalar.py
++    test/rosidl_runtime_py/experimental/test_array.py
++    test/rosidl_runtime_py/experimental/test_sequence.py
++    test/rosidl_runtime_py/experimental/test_string.py
++  )
++  foreach(_test_path ${_pytest_tests})
++    get_filename_component(_test_name ${_test_path} NAME_WE)
++    ament_add_pytest_test(${_test_name} ${_test_path}
++      APPEND_ENV PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR}
++      TIMEOUT 60
++    )
++  endforeach()
++endif()
++
++ament_package()
+diff --git a/include/rosidl_runtime_py/raw_buffer.h b/include/rosidl_runtime_py/raw_buffer.h
+new file mode 100644
+index 0000000..0ef2822
+--- /dev/null
++++ b/include/rosidl_runtime_py/raw_buffer.h
+@@ -0,0 +1,99 @@
++// Copyright 2026 Ekumen, Inc.
++//
++// Licensed under the Apache License, Version 2.0 (the "License");
++// you may not use this file except in compliance with the License.
++// You may obtain a copy of the License at
++//
++//     http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing, software
++// distributed under the License is distributed on an "AS IS" BASIS,
++// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++// See the License for the specific language governing permissions and
++// limitations under the License.
++
++/// @file raw_buffer.h
++/// @brief C API for creating external-memory RawBuffer objects from C/C++.
++///
++/// Other C extensions (e.g. rosidl_generator_py) that need to wrap a
++/// rosidl_memory_region_t as a Python RawBuffer should:
++///
++///   #include "rosidl_runtime_py/raw_buffer.h"
++///
++///   // Once, at module init time:
++///   if (RawBuffer_ImportCAPI() < 0) { return NULL; }
++///
++///   // Then, when wrapping a region:
++///   PyObject * buf = RawBuffer_FromRegion(&my_region);
++///
++/// The macro imports the PyCapsule from _rosidl_runtime_py and caches the
++/// function pointer in a static variable — the same pattern numpy uses for
++/// its C API.
++
++#ifndef ROSIDL_RUNTIME_PY__RAW_BUFFER_H_
++#define ROSIDL_RUNTIME_PY__RAW_BUFFER_H_
++
++#include <Python.h>
++#include "rosidl_runtime_c/experimental/memory.h"
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/// @brief Capsule name exported by rosidl_runtime_py._raw_buffer.
++#define ROSIDL_RUNTIME_PY_RAW_BUFFER_CAPSULE_NAME \
++  "rosidl_runtime_py._raw_buffer._C_API"
++
++/// @brief Function pointer type for RawBuffer_FromRegion.
++typedef PyObject * (* RawBuffer_FromRegion_t)(const rosidl_memory_region_t *);
++
++/// @brief C API struct exported via PyCapsule.
++///
++/// A pointer to a static instance of this struct is stored in the capsule.
++/// Callers retrieve it with PyCapsule_Import and cast to RawBuffer_CAPI_t * —
++/// a data-pointer cast, valid in both C and C++.
++typedef struct {
++  RawBuffer_FromRegion_t FromRegion;
++} RawBuffer_CAPI_t;
++
++/// @brief Cached pointer populated by RawBuffer_ImportCAPI().
++static const RawBuffer_CAPI_t * _rosidl_runtime_py_CAPI = NULL;
++
++/// @brief Import the C API from _rosidl_runtime_py.  Call once at init.
++/// @return 0 on success, -1 on failure (Python exception is set).
++static inline int
++RawBuffer_ImportCAPI(void)
++{
++  if (_rosidl_runtime_py_CAPI != NULL) {
++    return 0;
++  }
++  // PyCapsule_Import returns void * directly — not a PyObject *.
++  _rosidl_runtime_py_CAPI = (const RawBuffer_CAPI_t *)PyCapsule_Import(
++    ROSIDL_RUNTIME_PY_RAW_BUFFER_CAPSULE_NAME, 0);
++  return (_rosidl_runtime_py_CAPI != NULL) ? 0 : -1;
++}
++
++/// @brief Wrap a rosidl_memory_region_t as a non-owning external RawBuffer.
++///
++/// The returned RawBuffer holds a copy of *region and does NOT own the
++/// underlying memory.  The region must outlive the returned Python object.
++/// Both managed and external RawBuffers are writable from Python.
++/// @param region Pointer to the memory region; must outlive the returned object.
++/// @return New reference to a RawBuffer Python object, or NULL on failure.
++static inline PyObject *
++RawBuffer_FromRegion(const rosidl_memory_region_t * region)
++{
++  if (_rosidl_runtime_py_CAPI == NULL) {
++    PyErr_SetString(
++      PyExc_RuntimeError,
++      "RawBuffer C API not imported — call RawBuffer_ImportCAPI() first");
++    return NULL;
++  }
++  return _rosidl_runtime_py_CAPI->FromRegion(region);
++}
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif  // ROSIDL_RUNTIME_PY__RAW_BUFFER_H_
+diff --git a/package.xml b/package.xml
+index 230928e..0c398da 100644
+--- a/package.xml
++++ b/package.xml
+@@ -12,6 +12,11 @@
+   <author email="dthomas@osrfoundation.org">Dirk Thomas</author>
+   <author email="jacob@openrobotics.org">Jacob Perron</author>
+ 
++  <buildtool_depend>ament_cmake</buildtool_depend>
++  <buildtool_depend>ament_cmake_python</buildtool_depend>
++
++  <build_depend>rosidl_runtime_c</build_depend>
++
+   <exec_depend>python3-numpy</exec_depend>
+   <exec_depend>python3-yaml</exec_depend>
+   <exec_depend>rosidl_parser</exec_depend>
+@@ -26,6 +31,6 @@
+   <test_depend>test_msgs</test_depend>
+ 
+   <export>
+-    <build_type>ament_python</build_type>
++    <build_type>ament_cmake</build_type>
+   </export>
+ </package>
+diff --git a/rosidl_runtime_py/__init__.py b/rosidl_runtime_py/__init__.py
+index 0e7c354..dcb6c98 100644
+--- a/rosidl_runtime_py/__init__.py
++++ b/rosidl_runtime_py/__init__.py
+@@ -25,6 +25,18 @@ from .get_interfaces import get_service_interfaces
+ from .import_message import import_message_from_namespaced_type
+ from .set_message import set_message_fields
+ 
++from .experimental import (  # noqa: F401
++    Array,
++    BoundedSequence,
++    BoundedString,
++    BoundedWString,
++    Dtype,
++    RawBuffer,
++    Scalar,
++    Sequence,
++    String,
++    WString,
++)
+ 
+ __all__ = [
+     'get_action_interfaces',
+@@ -39,4 +51,15 @@ __all__ = [
+     'message_to_ordereddict',
+     'message_to_yaml',
+     'set_message_fields',
++    # experimental
++    'Array',
++    'BoundedSequence',
++    'BoundedString',
++    'BoundedWString',
++    'Dtype',
++    'RawBuffer',
++    'Scalar',
++    'Sequence',
++    'String',
++    'WString',
+ ]
+diff --git a/rosidl_runtime_py/experimental/__init__.py b/rosidl_runtime_py/experimental/__init__.py
+new file mode 100644
+index 0000000..0654892
+--- /dev/null
++++ b/rosidl_runtime_py/experimental/__init__.py
+@@ -0,0 +1,102 @@
++# Copyright 2026 Ekumen, Inc.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++"""
++Experimental CPython-native container types for rosidl_runtime_py.
++
++These types mirror the ``rosidl_runtime_cpp::experimental`` quartet —
++``Scalar``, ``Array``, ``Sequence``/``BoundedSequence``, and
++``String``/``WString``/``BoundedString``/``BoundedWString`` — as pure Python
++classes backed by a thin C extension (:mod:`_rosidl_runtime_py`) that provides
++the :class:`RawBuffer` type.
++
++Key design properties
++---------------------
++* **Zero-copy numpy interop**: all containers implement both PEP 3118
++  (``__buffer__``, Python >= 3.12) and a ``.numpy()`` method returning a
++  live ``numpy.ndarray`` view over the backing :class:`RawBuffer`.
++
++* **External memory from C/C++**: containers accept a :class:`RawBuffer`
++  keyword argument.  C/C++ code creates external ``RawBuffer`` objects via
++  ``RawBuffer_FromRegion()`` (see ``include/rosidl_runtime_py/raw_buffer.h``).
++
++* **Safe resize**: ``Sequence.append()`` / ``resize()`` replace the backing
++  :class:`RawBuffer` with a fresh block when growth is needed; earlier
++  ``numpy`` views remain valid (pointing to the old block) until GC-collected.
++
++* **Strict external capacity**: sequences backed by external buffers raise
++  :exc:`BufferError` rather than silently promoting to managed memory.
++
++Types
++-----
++.. autosummary::
++   :nosignatures:
++
++   Dtype
++   Scalar
++   Array
++   Sequence
++   BoundedSequence
++   String
++   WString
++   BoundedString
++   BoundedWString
++   RawBuffer
++"""
++
++import collections.abc
++
++from rosidl_runtime_py._raw_buffer import RawBuffer
++
++from rosidl_runtime_py.experimental.dtype import Dtype
++from rosidl_runtime_py.experimental.scalar import Scalar
++from rosidl_runtime_py.experimental.array import Array
++from rosidl_runtime_py.experimental.sequence import Sequence, BoundedSequence
++from rosidl_runtime_py.experimental.string import (
++    String,
++    WString,
++    BoundedString,
++    BoundedWString,
++)
++
++# ---------------------------------------------------------------------------
++# Register abstract base classes so isinstance checks work throughout the
++# Python ecosystem without re-implementing mixin methods in each class.
++# ---------------------------------------------------------------------------
++
++# Array: fixed-length, immutable-length sequence (read-write elements).
++collections.abc.Sequence.register(Array)
++
++# Variable-length sequences: MutableSequence gives free implementations of
++# __contains__, __iter__, __reversed__, index(), count(), and the rest of
++# the MutableSequence interface on top of the primitives defined in each class.
++collections.abc.MutableSequence.register(Sequence)
++collections.abc.MutableSequence.register(BoundedSequence)
++collections.abc.MutableSequence.register(String)
++collections.abc.MutableSequence.register(WString)
++collections.abc.MutableSequence.register(BoundedString)
++collections.abc.MutableSequence.register(BoundedWString)
++
++__all__ = [
++    'Dtype',
++    'RawBuffer',
++    'Scalar',
++    'Array',
++    'Sequence',
++    'BoundedSequence',
++    'String',
++    'WString',
++    'BoundedString',
++    'BoundedWString',
++]
+diff --git a/rosidl_runtime_py/experimental/array.py b/rosidl_runtime_py/experimental/array.py
+new file mode 100644
+index 0000000..89f98db
+--- /dev/null
++++ b/rosidl_runtime_py/experimental/array.py
+@@ -0,0 +1,205 @@
++# Copyright 2026 Ekumen, Inc.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++"""Experimental Array type for rosidl_runtime_py."""
++
++from __future__ import annotations
++
++from typing import Any, Iterator
++
++import numpy as np
++import numpy.typing as npt
++
++from rosidl_runtime_py.experimental.dtype import Dtype
++from rosidl_runtime_py._raw_buffer import RawBuffer
++
++
++class Array:
++    """
++    A fixed-length, homogeneous sequence of ROS interface values.
++
++    Two storage modes are selected automatically based on *dtype*:
++
++    **Primitive** (``dtype`` is a :class:`Dtype`)
++        Elements are stored contiguously in a :class:`RawBuffer` and
++        exposed as a 1-D numpy array.  Zero-copy interoperability with
++        numpy is available via :meth:`numpy` and the PEP 3118 buffer
++        protocol (``__buffer__``, Python >= 3.12).
++
++    **Object** (``dtype`` is a Python type or ``None``)
++        Elements are stored in a numpy object array (``dtype=object``),
++        enabling uniform numpy access for both modes.  ``__buffer__`` is
++        not supported (numpy object arrays do not implement the buffer
++        protocol), but :meth:`numpy` is available.
++
++    Construction
++    ------------
++    ``Array(dtype, length)``
++        Allocate storage for *length* elements of *dtype*.
++
++    ``Array(dtype, length, buffer=buf)``
++        Use an existing :class:`RawBuffer` as backing storage (primitive
++        mode only).  *buf* must have ``size >= length * dtype.itemsize``.
++        The sole mechanism for wrapping an external
++        ``rosidl_memory_region_t`` is to pass a ``RawBuffer`` created in
++        C/C++ via ``RawBuffer_FromRegion()``.
++
++    Notes
++    -----
++    Length is fixed at construction; there is no ``resize``.
++    """
++
++    __slots__ = ('_dtype', '_is_primitive', '_length', '_buffer', '_view')
++
++    def __init__(
++        self,
++        dtype: Dtype | type[Any],
++        length: int,
++        *,
++        data: Any = None,
++        buffer: RawBuffer | None = None,
++    ) -> None:
++        if not isinstance(length, int) or length < 0:
++            raise ValueError(
++                f'length must be a non-negative integer, got {length!r}')
++        self._dtype = dtype
++        self._length = length
++        self._is_primitive = isinstance(dtype, Dtype)
++
++        if self._is_primitive:
++            needed = length * dtype.itemsize
++            if buffer is not None:
++                if not isinstance(buffer, RawBuffer):
++                    raise TypeError(
++                        f'buffer must be a RawBuffer, got {type(buffer).__name__}')
++                if buffer.size < needed:
++                    raise ValueError(
++                        f'buffer size {buffer.size} is smaller than '
++                        f'{needed} bytes needed for {length} × {dtype!r} elements')
++                self._buffer: RawBuffer | None = buffer
++            else:
++                self._buffer = RawBuffer(needed) if needed > 0 else RawBuffer()
++            self._view: npt.NDArray[Any] = (
++                np.frombuffer(self._buffer, dtype=dtype.numpy_dtype, count=length)
++                if length > 0
++                else np.empty(0, dtype=dtype.numpy_dtype)
++            )
++        else:
++            if buffer is not None:
++                raise TypeError(
++                    'buffer= is only supported for Dtype (primitive) arrays')
++            self._buffer = None
++            # numpy object array: stores PyObject* pointers, supports arbitrary
++            # Python objects; initialised to None (numpy zeros object array).
++            self._view = np.full(length, None, dtype=object)
++
++        if data is not None:
++            items = list(data)
++            if len(items) != length:
++                raise ValueError(
++                    f'data length {len(items)} does not match array length {length}')
++            if self._is_primitive:
++                self._view[:] = items
++            else:
++                for i, v in enumerate(items):
++                    self._view[i] = v
++
++    # ------------------------------------------------------------------
++    # Properties
++    # ------------------------------------------------------------------
++
++    @property
++    def dtype(self) -> Dtype | type[Any]:
++        """The element type of this array (a :class:`Dtype` or a Python type)."""
++        return self._dtype
++
++    # ------------------------------------------------------------------
++    # Sequence protocol
++    # ------------------------------------------------------------------
++
++    def __len__(self) -> int:
++        return self._length
++
++    def __getitem__(self, index: int | slice) -> Any:
++        if isinstance(index, int):
++            # numpy scalars from primitive arrays need .item() to become Python
++            # scalars; object-array elements are already Python objects.
++            val = self._view[index]
++            return val.item() if self._is_primitive else val
++        return self._view[index]
++
++    def __setitem__(self, index: int | slice, value: Any) -> None:
++        self._view[index] = value
++
++    def __iter__(self) -> Iterator[Any]:
++        if self._is_primitive:
++            for i in range(self._length):
++                yield self._view[i].item()
++        else:
++            yield from self._view
++
++    def __contains__(self, value: object) -> bool:
++        return bool(np.any(self._view == value))
++
++    def __reversed__(self) -> Iterator[Any]:
++        if self._is_primitive:
++            for i in range(self._length - 1, -1, -1):
++                yield self._view[i].item()
++        else:
++            for i in range(self._length - 1, -1, -1):
++                yield self._view[i]
++
++    # ------------------------------------------------------------------
++    # Comparison
++    # ------------------------------------------------------------------
++
++    def __eq__(self, other: object) -> bool:
++        if isinstance(other, Array):
++            if self._dtype != other._dtype or self._length != other._length:
++                return False
++            return bool(np.array_equal(self._view, other._view))
++        try:
++            return bool(np.array_equal(self._view, other))
++        except (TypeError, ValueError):
++            return NotImplemented  # type: ignore[return-value]
++
++    # ------------------------------------------------------------------
++    # Buffer / numpy protocols
++    # ------------------------------------------------------------------
++
++    def __buffer__(self, flags: int) -> memoryview:
++        """PEP 688 buffer protocol (Python >= 3.12, primitive arrays only)."""
++        if not self._is_primitive:
++            raise TypeError('__buffer__ is not supported for object-typed arrays')
++        return memoryview(self._buffer)  # type: ignore[arg-type]
++
++    def numpy(self) -> npt.NDArray[Any]:
++        """
++        Return a 1-D numpy array backed by this Array's storage.
++
++        For **primitive** arrays the returned array is a live view backed
++        by the :class:`RawBuffer` — mutations are reflected in the Array
++        and vice versa.
++
++        For **object** arrays the returned array is the internal numpy
++        object array itself; elements can be read and replaced through it.
++        """
++        return self._view
++
++    # ------------------------------------------------------------------
++    # Representation
++    # ------------------------------------------------------------------
++
++    def __repr__(self) -> str:
++        return f'Array({self._dtype!r}, {self._length}, data={self._view.tolist()!r})'
+diff --git a/rosidl_runtime_py/experimental/dtype.py b/rosidl_runtime_py/experimental/dtype.py
+new file mode 100644
+index 0000000..deb19c7
+--- /dev/null
++++ b/rosidl_runtime_py/experimental/dtype.py
+@@ -0,0 +1,86 @@
++# Copyright 2026 Ekumen, Inc.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++"""ROS primitive type descriptors used by experimental container types."""
++
++from __future__ import annotations
++
++import enum
++from typing import Any
++
++import numpy as np
++import numpy.typing as npt
++
++
++class Dtype(enum.Enum):
++    """
++    Descriptor for the 15 ROS IDL primitive scalar types.
++
++    Each member carries:
++      numpy_dtype  -- a numpy.dtype object for use with np.frombuffer()
++      format_char  -- struct module format character (native-endian)
++      itemsize     -- byte width of one element (== numpy_dtype.itemsize)
++
++    String / WString are treated as byte-element sequences (1 byte per
++    element for String, 2 bytes per element for WString) rather than
++    fixed-width character arrays, matching the rosidl_runtime_cpp semantics.
++    """
++
++    # Unsigned integers
++    UINT8 = (0, 'uint8', 'B')
++    UINT16 = (1, '<u2', 'H')
++    UINT32 = (2, '<u4', 'I')
++    UINT64 = (3, '<u8', 'Q')
++
++    # Signed integers
++    INT8 = (4, 'int8', 'b')
++    INT16 = (5, '<i2', 'h')
++    INT32 = (6, '<i4', 'i')
++    INT64 = (7, '<i8', 'q')
++
++    # Floating point
++    FLOAT32 = (8, 'float32', 'f')
++    FLOAT64 = (9, 'float64', 'd')
++    LONG_DOUBLE = (10, 'longdouble', None)
++
++    # Character code units (treated as small integers for numpy purposes)
++    CHAR = (11, 'uint8', 'B')              # ROS char  — unsigned 8-bit
++    WCHAR = (12, '<u2', 'H')               # ROS wchar — UTF-16 code unit (LE)
++    # Boolean / byte
++    BOOL = (13, 'bool', '?')
++    BYTE = (14, 'uint8', 'B')              # ROS byte (octet)
++
++    # Runtime-set attributes (assigned in __new__, declared here for type checkers)
++    numpy_dtype: npt.DTypeLike
++    format_char: str | None
++    itemsize: int
++
++    def __new__(cls, value: int, numpy_dtype_str: str, format_char: str) -> Dtype:
++        obj = object.__new__(cls)
++        obj._value_ = value
++        obj.numpy_dtype = np.dtype(numpy_dtype_str)
++        obj.format_char = format_char
++        obj.itemsize = obj.numpy_dtype.itemsize
++        return obj
++
++    def __repr__(self) -> str:
++        return f'Dtype.{self.name}'
++
++    def pack(self, value: Any) -> bytes:
++        """Pack a single Python value into its raw byte representation."""
++        return np.array(value, dtype=self.numpy_dtype).tobytes()
++
++    def unpack(self, data: bytes | bytearray) -> Any:
++        """Unpack a single Python value from its raw byte representation."""
++        return np.frombuffer(data, dtype=self.numpy_dtype, count=1)[0].item()
+diff --git a/rosidl_runtime_py/experimental/scalar.py b/rosidl_runtime_py/experimental/scalar.py
+new file mode 100644
+index 0000000..a0841b2
+--- /dev/null
++++ b/rosidl_runtime_py/experimental/scalar.py
+@@ -0,0 +1,168 @@
++# Copyright 2026 Ekumen, Inc.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++"""Experimental Scalar type for rosidl_runtime_py."""
++
++from __future__ import annotations
++
++from typing import Any
++
++import numpy as np
++import numpy.typing as npt
++
++from rosidl_runtime_py.experimental.dtype import Dtype
++from rosidl_runtime_py._raw_buffer import RawBuffer
++
++
++class Scalar:
++    """
++    A single ROS primitive value backed by a RawBuffer.
++
++    The value is stored as a length-1 numpy array inside a RawBuffer, giving
++    zero-copy interoperability with numpy.  Numeric protocol methods
++    (__int__, __float__, __bool__, __index__) forward to the underlying value.
++
++    Construction
++    ------------
++    Scalar(dtype, value=0)
++        Allocate managed storage and initialise to *value*.
++
++    Scalar(dtype, buffer=buf)
++        Use an existing RawBuffer (managed or external) as backing storage.
++        *buf* must have size >= dtype.itemsize.
++
++    The *buffer* keyword argument is the sole mechanism for wrapping an
++    external rosidl_memory_region_t — callers in C/C++ create the RawBuffer
++    via RawBuffer_FromRegion() and pass it here.
++    """
++
++    __slots__ = ('_dtype', '_buffer', '_view')
++
++    def __init__(
++        self,
++        dtype: Dtype,
++        value: Any = 0,
++        *,
++        buffer: RawBuffer | None = None,
++    ) -> None:
++        """
++        Initialise a Scalar.
++
++        Parameters
++        ----------
++        dtype : Dtype
++            The ROS primitive type of this scalar.
++        value : Any, optional
++            Initial value when *buffer* is None.  Ignored if *buffer* is given.
++        buffer : RawBuffer, optional
++            Existing RawBuffer to use as storage.  Must have size >=
++            dtype.itemsize.  If None, a managed RawBuffer is allocated.
++        """
++        if not isinstance(dtype, Dtype):
++            raise TypeError(f'dtype must be a Dtype, got {type(dtype).__name__}')
++        self._dtype = dtype
++
++        if buffer is not None:
++            if not isinstance(buffer, RawBuffer):
++                raise TypeError(
++                    f'buffer must be a RawBuffer, got {type(buffer).__name__}')
++            if buffer.size < dtype.itemsize:
++                raise ValueError(
++                    f'buffer size {buffer.size} is smaller than '
++                    f'itemsize {dtype.itemsize} for {dtype!r}')
++            self._buffer = buffer
++        else:
++            self._buffer = RawBuffer(dtype.itemsize)
++
++        self._view: npt.NDArray[Any] = np.frombuffer(
++            self._buffer, dtype=dtype.numpy_dtype)
++
++        if buffer is None:
++            self._view[0] = value
++
++    # ------------------------------------------------------------------
++    # Value access
++    # ------------------------------------------------------------------
++
++    @property
++    def dtype(self) -> Dtype:
++        """Dtype: the ROS primitive type of this scalar."""
++        return self._dtype
++
++    @property
++    def value(self) -> Any:
++        """Current scalar value as a Python scalar."""
++        return self._view[0].item()
++
++    @value.setter
++    def value(self, v: Any) -> None:
++        self._view[0] = np.array(v).astype(self._dtype.numpy_dtype)
++
++    # ------------------------------------------------------------------
++    # Numeric protocol
++    # ------------------------------------------------------------------
++
++    def __int__(self) -> int:
++        return int(self._view[0])
++
++    def __float__(self) -> float:
++        return float(self._view[0])
++
++    def __bool__(self) -> bool:
++        return bool(self._view[0])
++
++    def __index__(self) -> int:
++        # Only valid for integer-typed scalars; numpy will raise for floats.
++        if not np.issubdtype(self._dtype.numpy_dtype, np.integer):
++            raise TypeError(f'__index__ is only valid for integer dtypes, got {self._dtype}')
++        return self._view[0].__index__()
++
++    # ------------------------------------------------------------------
++    # Comparison / hashing
++    # ------------------------------------------------------------------
++
++    def __eq__(self, other: object) -> bool:
++        if isinstance(other, Scalar):
++            return self._dtype == other._dtype and self.value == other.value
++        return bool(self.value == other)
++
++    def __hash__(self) -> int:
++        return hash((self._dtype, self.value))
++
++    # ------------------------------------------------------------------
++    # Buffer / numpy protocols
++    # ------------------------------------------------------------------
++
++    def __buffer__(self, flags: int) -> memoryview:
++        """PEP 688 buffer protocol (Python >= 3.12)."""
++        return memoryview(self._buffer)
++
++    def numpy(self) -> npt.NDArray[Any]:
++        """
++        Return a length-1 numpy array backed by this scalar's RawBuffer.
++
++        The returned array is a *live view* for managed buffers; it becomes
++        stale (but valid) if the backing buffer is replaced.
++        """
++        return self._view
++
++    # ------------------------------------------------------------------
++    # Representation
++    # ------------------------------------------------------------------
++
++    def __repr__(self) -> str:
++        return f'Scalar({self._dtype!r}, {self.value!r})'
++
++    def __str__(self) -> str:
++        return str(self.value)
+diff --git a/rosidl_runtime_py/experimental/sequence.py b/rosidl_runtime_py/experimental/sequence.py
+new file mode 100644
+index 0000000..959fb68
+--- /dev/null
++++ b/rosidl_runtime_py/experimental/sequence.py
+@@ -0,0 +1,465 @@
++# Copyright 2026 Ekumen, Inc.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++"""Experimental Sequence and BoundedSequence types for rosidl_runtime_py."""
++
++from __future__ import annotations
++
++from collections.abc import Iterable, Iterator
++from typing import Any
++
++import numpy as np
++import numpy.typing as npt
++
++from rosidl_runtime_py.experimental.dtype import Dtype
++from rosidl_runtime_py._raw_buffer import RawBuffer
++
++
++class Sequence:
++    """
++    A variable-length, homogeneous sequence of ROS interface values.
++
++    Two storage modes are selected automatically based on *dtype*:
++
++    **Primitive** (``dtype`` is a :class:`Dtype`)
++        Elements are stored contiguously in a :class:`RawBuffer` with
++        geometric growth.  Structural mutations may replace the internal
++        buffer; prior numpy views remain valid (though stale) until GC.
++        Zero-copy interoperability is available via :meth:`numpy` and
++        ``__buffer__``.
++
++    **Object** (``dtype`` is a Python type or ``None``)
++        Elements are stored in a numpy object array (``dtype=object``).
++        A capacity-sized backing array ``_store`` (analogous to the
++        primitive ``_buffer``) is managed with geometric growth; ``_view``
++        always holds the logical slice ``_store[:_size]``.  :meth:`numpy`
++        returns the current logical view.
++
++    Construction
++    ------------
++    ``Sequence(dtype)``
++        Empty sequence with managed storage.
++
++    ``Sequence(dtype, buffer=buf)``
++        Use *buf* as backing storage (primitive mode only).  Capacity is
++        ``buf.size // dtype.itemsize``.  Mutations that exceed it raise
++        :exc:`BufferError` for external (non-owning) buffers.
++
++    Notes
++    -----
++    The sequence does NOT silently promote from external to managed storage.
++    Overflow on an external buffer raises :exc:`BufferError`.
++    """
++
++    __slots__ = ('_dtype', '_is_primitive', '_buffer', '_store', '_view', '_size')
++
++    def __init__(
++        self,
++        dtype: Dtype | type[Any],
++        *,
++        data: Any = None,
++        buffer: RawBuffer | None = None,
++    ) -> None:
++        self._dtype = dtype
++        self._is_primitive = isinstance(dtype, Dtype)
++        self._size = 0
++
++        if self._is_primitive:
++            if buffer is not None:
++                if not isinstance(buffer, RawBuffer):
++                    raise TypeError(
++                        f'buffer must be a RawBuffer, got {type(buffer).__name__}')
++                self._buffer: RawBuffer | None = buffer
++            else:
++                self._buffer = RawBuffer()
++            self._store: npt.NDArray[Any] | None = None
++            self._view: npt.NDArray[Any] = self._make_view()
++        else:
++            if buffer is not None:
++                raise TypeError(
++                    'buffer= is only supported for Dtype (primitive) sequences')
++            self._buffer = None
++            # Capacity-sized numpy object array: stores PyObject* pointers.
++            self._store = np.empty(0, dtype=object)
++            self._view = self._make_view()
++
++        if data is not None:
++            self.extend(data)
++
++    # ------------------------------------------------------------------
++    # Internal helpers
++    # ------------------------------------------------------------------
++
++    def _make_view(self) -> npt.NDArray[Any]:
++        if self._is_primitive:
++            if self._size == 0:
++                return np.empty(0, dtype=self._dtype.numpy_dtype)
++            return np.frombuffer(
++                self._buffer, dtype=self._dtype.numpy_dtype, count=self._size)
++        return self._store[:self._size]  # view of the object store
++
++    def _capacity(self) -> int:
++        if self._is_primitive:
++            return self._buffer.size // self._dtype.itemsize
++        return len(self._store)
++
++    def _ensure_capacity(self, needed: int) -> None:
++        """Grow backing storage to hold at least *needed* elements."""
++        if needed <= self._capacity():
++            return
++        if self._is_primitive:
++            if not self._buffer.is_owner:
++                raise BufferError(
++                    f'Sequence capacity {self._capacity()} exceeded for fixed '
++                    f'external buffer (needed {needed})')
++            new_cap = max(1, self._capacity())
++            while new_cap < needed:
++                new_cap *= 2
++            self._buffer.reserve(new_cap * self._dtype.itemsize)
++        else:
++            new_cap = max(4, len(self._store))
++            while new_cap < needed:
++                new_cap *= 2
++            new_store: npt.NDArray[Any] = np.empty(new_cap, dtype=object)
++            new_store[:self._size] = self._store[:self._size]
++            self._store = new_store
++
++    def _refresh_view(self) -> None:
++        self._view = self._make_view()
++
++    # ------------------------------------------------------------------
++    # Properties
++    # ------------------------------------------------------------------
++
++    @property
++    def dtype(self) -> Dtype | type[Any]:
++        """The element type (a :class:`Dtype` or a Python type)."""
++        return self._dtype
++
++    @property
++    def capacity(self) -> int:
++        """int: element capacity without reallocation."""
++        return self._capacity()
++
++    # ------------------------------------------------------------------
++    # MutableSequence protocol
++    # ------------------------------------------------------------------
++
++    def __len__(self) -> int:
++        return self._size
++
++    def __getitem__(self, index: int | slice) -> Any:
++        if isinstance(index, int):
++            if index < 0:
++                index += self._size
++            if not (0 <= index < self._size):
++                raise IndexError('sequence index out of range')
++            if self._is_primitive:
++                return self._view[index].item()
++            return self._store[index]
++        if self._is_primitive:
++            return list(self._view[index])
++        return list(self._view[index])  # view[slice] → object ndarray → list
++
++    def __setitem__(self, index: int | slice, value: Any) -> None:
++        if isinstance(index, int):
++            if index < 0:
++                index += self._size
++            if not (0 <= index < self._size):
++                raise IndexError('sequence index out of range')
++        if self._is_primitive:
++            self._view[index] = value
++        else:
++            if isinstance(index, int):
++                self._store[index] = value
++            else:
++                self._view[index] = value
++
++    def __delitem__(self, index: int | slice) -> None:
++        if isinstance(index, int):
++            if index < 0:
++                index += self._size
++            if not (0 <= index < self._size):
++                raise IndexError('sequence index out of range')
++            if self._is_primitive:
++                self._view[index:-1] = self._view[index + 1:]
++                self._size -= 1
++                self._buffer.resize(self._size * self._dtype.itemsize)
++            else:
++                self._store[index:self._size - 1] = self._store[index + 1:self._size]
++                self._store[self._size - 1] = None  # release the dangling ref
++                self._size -= 1
++            self._refresh_view()
++        else:
++            if self._is_primitive:
++                for i in sorted(range(*index.indices(self._size)), reverse=True):
++                    del self[i]
++            else:
++                keep = np.ones(self._size, dtype=bool)
++                for i in range(*index.indices(self._size)):
++                    keep[i] = False
++                surviving = np.array(self._store[:self._size][keep], copy=True)
++                n = len(surviving)
++                self._store[:n] = surviving
++                self._store[n:self._size] = None  # release dangling refs
++                self._size = n
++                self._refresh_view()
++
++    def __iter__(self) -> Iterator[Any]:
++        if self._is_primitive:
++            for i in range(self._size):
++                yield self._view[i].item()
++        else:
++            for i in range(self._size):
++                yield self._store[i]
++
++    def __contains__(self, value: object) -> bool:
++        if self._is_primitive:
++            return bool(np.any(self._view == value))
++        # Object mode: use identity-then-equality for correct Python semantics.
++        for i in range(self._size):
++            elem = self._store[i]
++            if elem is value or elem == value:
++                return True
++        return False
++
++    def __reversed__(self) -> Iterator[Any]:
++        if self._is_primitive:
++            for i in range(self._size - 1, -1, -1):
++                yield self._view[i].item()
++        else:
++            for i in range(self._size - 1, -1, -1):
++                yield self._store[i]
++
++    def __eq__(self, other: object) -> bool:
++        if isinstance(other, Sequence):
++            if self._dtype != other._dtype or self._size != other._size:
++                return False
++            return bool(np.array_equal(self._view, other._view))
++        try:
++            return bool(np.array_equal(self._view, other))
++        except (TypeError, ValueError):
++            return NotImplemented  # type: ignore[return-value]
++
++    # ------------------------------------------------------------------
++    # Bound hook (overridden by BoundedSequence)
++    # ------------------------------------------------------------------
++
++    def _check_bound(self, needed: int) -> None:
++        pass
++
++    # ------------------------------------------------------------------
++    # Mutation
++    # ------------------------------------------------------------------
++
++    def append(self, value: Any) -> None:
++        """Append a single element."""
++        self._check_bound(self._size + 1)
++        if self._is_primitive:
++            self._ensure_capacity(self._size + 1)
++            self._buffer.resize((self._size + 1) * self._dtype.itemsize)
++            self._size += 1
++            self._refresh_view()
++            self._view[self._size - 1] = value
++        else:
++            self._ensure_capacity(self._size + 1)
++            self._store[self._size] = value
++            self._size += 1
++            self._refresh_view()
++
++    def extend(self, values: Iterable[Any]) -> None:
++        """Append all elements from *values*."""
++        items = list(values)
++        self._check_bound(self._size + len(items))
++        if self._is_primitive:
++            self._ensure_capacity(self._size + len(items))
++            new_size = self._size + len(items)
++            self._buffer.resize(new_size * self._dtype.itemsize)
++            old_size = self._size
++            self._size = new_size
++            self._refresh_view()
++            for i, v in enumerate(items):
++                self._view[old_size + i] = v
++        else:
++            self._ensure_capacity(self._size + len(items))
++            for i, v in enumerate(items):
++                self._store[self._size + i] = v
++            self._size += len(items)
++            self._refresh_view()
++
++    def insert(self, index: int, value: Any) -> None:
++        """Insert *value* before *index*."""
++        if index < 0:
++            index = max(0, self._size + index)
++        if index >= self._size:
++            self.append(value)
++            return
++        self._check_bound(self._size + 1)
++        if self._is_primitive:
++            self._ensure_capacity(self._size + 1)
++            self._buffer.resize((self._size + 1) * self._dtype.itemsize)
++            self._size += 1
++            self._refresh_view()
++            self._view[index + 1:] = self._view[index:-1].copy()
++            self._view[index] = value
++        else:
++            self._ensure_capacity(self._size + 1)
++            # Shift elements right from the end to avoid overwriting.
++            self._store[index + 1:self._size + 1] = self._store[index:self._size]
++            self._store[index] = value
++            self._size += 1
++            self._refresh_view()
++
++    def pop(self, index: int = -1) -> Any:
++        """Remove and return element at *index*."""
++        if self._size == 0:
++            raise IndexError('pop from empty sequence')
++        if index < 0:
++            index += self._size
++        if not (0 <= index < self._size):
++            raise IndexError('pop index out of range')
++        value = self._view[index].item() if self._is_primitive else self._store[index]
++        del self[index]
++        return value
++
++    def remove(self, value: Any) -> None:
++        """Remove the first occurrence of *value*."""
++        if self._is_primitive:
++            for i in range(self._size):
++                if self._view[i].item() == value:
++                    del self[i]
++                    return
++        else:
++            for i in range(self._size):
++                elem = self._store[i]
++                if elem is value or elem == value:
++                    del self[i]
++                    return
++        raise ValueError(f'{value!r} is not in sequence')
++
++    def clear(self) -> None:
++        """Remove all elements (capacity is preserved)."""
++        if self._is_primitive:
++            self._size = 0
++            self._buffer.resize(0)
++        else:
++            self._store[:self._size] = None  # release object references
++            self._size = 0
++        self._refresh_view()
++
++    def resize(self, new_size: int, fill: Any = 0) -> None:
++        """
++        Set the logical length to *new_size*.
++
++        New elements are initialised to *fill*.  Raises :exc:`BufferError`
++        if the backing buffer is external and *new_size* exceeds its capacity.
++        """
++        self._check_bound(new_size)
++        if self._is_primitive:
++            self._ensure_capacity(new_size)
++            old_size = self._size
++            self._buffer.resize(new_size * self._dtype.itemsize)
++            self._size = new_size
++            self._refresh_view()
++            if new_size > old_size and fill != 0:
++                self._view[old_size:] = fill
++        else:
++            self._ensure_capacity(new_size)
++            if new_size > self._size:
++                self._store[self._size:new_size] = fill
++            elif new_size < self._size:
++                self._store[new_size:self._size] = None  # release refs
++            self._size = new_size
++            self._refresh_view()
++
++    # ------------------------------------------------------------------
++    # Buffer / numpy protocols
++    # ------------------------------------------------------------------
++
++    def __buffer__(self, flags: int) -> memoryview:
++        """PEP 688 buffer protocol (Python >= 3.12, primitive sequences only)."""
++        if not self._is_primitive:
++            raise TypeError('__buffer__ is not supported for object-typed sequences')
++        return memoryview(self._buffer)  # type: ignore[arg-type]
++
++    def numpy(self) -> npt.NDArray[Any]:
++        """
++        Return a numpy array over the live elements.
++
++        For **primitive** sequences the returned array is a snapshot of the
++        current buffer; it becomes stale after any mutation that replaces the
++        buffer.
++
++        For **object** sequences the returned array is a view of the internal
++        object store slice; it also becomes stale after structural mutations
++        that grow the store.
++        """
++        return self._view
++
++    # ------------------------------------------------------------------
++    # Representation
++    # ------------------------------------------------------------------
++
++    def __repr__(self) -> str:
++        return f'{type(self).__name__}({self._dtype!r}, data={self._view.tolist()!r})'
++
++
++class BoundedSequence(Sequence):
++    """
++    A variable-length sequence with an upper bound on its element count.
++
++    All mutations that would exceed *upper_bound* raise :exc:`ValueError`
++    before any storage is modified.
++
++    Construction
++    ------------
++    ``BoundedSequence(dtype, upper_bound)``
++        Empty sequence with managed storage, bounded to *upper_bound* elements.
++
++    ``BoundedSequence(dtype, upper_bound, buffer=buf)``
++        Use *buf* as backing storage.
++    """
++
++    __slots__ = ('_upper_bound',)
++
++    def __init__(
++        self,
++        dtype: Dtype | type[Any],
++        upper_bound: int,
++        *,
++        data: Any = None,
++        buffer: RawBuffer | None = None,
++    ) -> None:
++        if not isinstance(upper_bound, int) or upper_bound <= 0:
++            raise ValueError(
++                f'upper_bound must be a positive integer, got {upper_bound!r}')
++        self._upper_bound = upper_bound
++        super().__init__(dtype, data=data, buffer=buffer)
++
++    @property
++    def max_size(self) -> int:
++        """int: maximum number of elements this sequence can hold."""
++        return self._upper_bound
++
++    def _check_bound(self, needed: int) -> None:
++        if needed > self._upper_bound:
++            raise ValueError(
++                f'BoundedSequence upper bound {self._upper_bound} '
++                f'exceeded (needed {needed})')
++
++    def __repr__(self) -> str:
++        return (
++            f'BoundedSequence({self._dtype!r}, {self._upper_bound}, '
++            f'data={self._view.tolist()!r})'
++        )
+diff --git a/rosidl_runtime_py/experimental/string.py b/rosidl_runtime_py/experimental/string.py
+new file mode 100644
+index 0000000..2786108
+--- /dev/null
++++ b/rosidl_runtime_py/experimental/string.py
+@@ -0,0 +1,625 @@
++# Copyright 2026 Ekumen, Inc.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++"""Experimental String, WString, BoundedString, and BoundedWString types."""
++
++from __future__ import annotations
++
++from typing import Any, Iterator
++
++import numpy as np
++import numpy.typing as npt
++
++from rosidl_runtime_py.experimental.dtype import Dtype
++from rosidl_runtime_py._raw_buffer import RawBuffer
++
++
++class String:
++    """
++    A mutable UTF-8 string backed by a contiguous :class:`RawBuffer`.
++
++    The MutableSequence interface operates on individual **bytes** (uint8),
++    exactly mirroring the C ``rosidl_runtime_c__String`` layout.  For bulk
++    string operations prefer :meth:`assign` and :meth:`append_str`.
++
++    All byte-level mutation is performed with direct ``memoryview`` slice
++    assignment for efficiency; no element-by-element Python dispatch occurs.
++
++    Construction
++    ------------
++    ``String()``
++        Empty string with managed storage.
++
++    ``String(buffer=buf)``
++        Use *buf* as backing storage.  Mutations that exceed capacity raise
++        :exc:`BufferError` for external (non-owning) buffers.
++    """
++
++    __slots__ = ('_buffer', '_size', '_view')
++
++    _DTYPE = Dtype.CHAR    # uint8 — matches rosidl_runtime_c__String data type
++
++    def __init__(
++        self,
++        data: str | bytes | bytearray | memoryview | None = None,
++        *,
++        buffer: RawBuffer | None = None,
++    ) -> None:
++        if buffer is not None:
++            if not isinstance(buffer, RawBuffer):
++                raise TypeError(
++                    f'buffer must be a RawBuffer, got {type(buffer).__name__}')
++            self._buffer = buffer
++        else:
++            self._buffer = RawBuffer()
++        self._size = 0   # number of live bytes (NOT counting any NUL terminator)
++        self._view: npt.NDArray[Any] = self._make_view()
++        if data is not None:
++            self.assign(data)
++
++    # ------------------------------------------------------------------
++    # Internal helpers
++    # ------------------------------------------------------------------
++
++    def _capacity(self) -> int:
++        return self._buffer.size
++
++    def _make_view(self) -> npt.NDArray[Any]:
++        if self._size == 0:
++            return np.empty(0, dtype=self._DTYPE.numpy_dtype)
++        return np.frombuffer(self._buffer, dtype=self._DTYPE.numpy_dtype,
++                             count=self._size)
++
++    def _refresh_view(self) -> None:
++        self._view = self._make_view()
++
++    def _ensure_capacity(self, needed_bytes: int) -> None:
++        if needed_bytes <= self._capacity():
++            return
++        if not self._buffer.is_owner:
++            raise BufferError(
++                f'String capacity {self._capacity()} B exceeded for fixed '
++                f'external buffer (needed {needed_bytes} B)')
++        new_cap = max(8, self._capacity())
++        while new_cap < needed_bytes:
++            new_cap *= 2
++        self._buffer.reserve(new_cap)
++
++    # ------------------------------------------------------------------
++    # Properties
++    # ------------------------------------------------------------------
++
++    @property
++    def dtype(self) -> Dtype:
++        """Dtype: always :attr:`Dtype.CHAR`."""
++        return self._DTYPE
++
++    # ------------------------------------------------------------------
++    # Bulk operations (preferred API)
++    # ------------------------------------------------------------------
++
++    def assign(self, s: str | bytes | bytearray | memoryview) -> None:
++        """
++        Replace the string contents with *s* (encoded as UTF-8).
++
++        Parameters
++        ----------
++        s : str or bytes
++            Source text.  ``str`` is encoded with ``'utf-8'``; ``bytes``
++            are used directly.
++        """
++        if isinstance(s, str):
++            data = s.encode('utf-8')
++        elif isinstance(s, (bytes, bytearray, memoryview)):
++            data = bytes(s)
++        else:
++            raise TypeError(f'assign requires str or bytes, got {type(s).__name__}')
++        n = len(data)
++        self._check_bound(n)
++        self._ensure_capacity(n)
++        self._buffer.resize(n)
++        self._size = n
++        self._refresh_view()
++        if n:
++            self._view[:] = np.frombuffer(data, dtype=self._DTYPE.numpy_dtype)
++
++    def append_str(self, s: str | bytes | bytearray | memoryview) -> None:
++        """
++        Append *s* (encoded as UTF-8) to the current contents.
++
++        Parameters
++        ----------
++        s : str or bytes
++        """
++        if isinstance(s, str):
++            data = s.encode('utf-8')
++        elif isinstance(s, (bytes, bytearray, memoryview)):
++            data = bytes(s)
++        else:
++            raise TypeError(
++                f'append_str requires str or bytes, got {type(s).__name__}')
++        n = len(data)
++        new_size = self._size + n
++        self._check_bound(new_size)
++        self._ensure_capacity(new_size)
++        self._buffer.resize(new_size)
++        prev_size = self._size
++        self._size = new_size
++        self._refresh_view()
++        self._view[prev_size:new_size] = np.frombuffer(data, dtype=self._DTYPE.numpy_dtype)
++
++    def _check_bound(self, needed: int) -> None:
++        pass
++
++    # ------------------------------------------------------------------
++    # MutableSequence protocol (byte-level)
++    # ------------------------------------------------------------------
++
++    def __len__(self) -> int:
++        return self._size
++
++    def __getitem__(self, index: int | slice) -> Any:
++        if isinstance(index, int):
++            if index < 0:
++                index += self._size
++            if not (0 <= index < self._size):
++                raise IndexError('string index out of range')
++            return int(self._view[index])
++        return list(self._view[index])
++
++    def __setitem__(self, index: int | slice, value: Any) -> None:
++        if isinstance(index, int):
++            if index < 0:
++                index += self._size
++            if not (0 <= index < self._size):
++                raise IndexError('string index out of range')
++        self._view[index] = value
++
++    def __delitem__(self, index: int | slice) -> None:
++        arr = np.array(self._view, copy=True)
++        if isinstance(index, int):
++            if index < 0:
++                index += self._size
++            if not (0 <= index < self._size):
++                raise IndexError('string index out of range')
++            new_arr = np.concatenate([arr[:index], arr[index + 1:]])
++        else:
++            keep = np.ones(self._size, dtype=bool)
++            for i in range(*index.indices(self._size)):
++                keep[i] = False
++            new_arr = arr[keep]
++        n = len(new_arr)
++        self._buffer.resize(n)
++        self._size = n
++        self._refresh_view()
++        if n:
++            self._view[:] = new_arr
++
++    def __iter__(self) -> Iterator[int]:
++        for i in range(self._size):
++            yield int(self._view[i])
++
++    def __contains__(self, value: object) -> bool:
++        if isinstance(value, int):
++            return bool(np.any(self._view == value))
++        return False
++
++    def __reversed__(self) -> Iterator[int]:
++        for i in range(self._size - 1, -1, -1):
++            yield int(self._view[i])
++
++    def __eq__(self, other: object) -> bool:
++        if isinstance(other, String):
++            return bool(np.array_equal(self._view, other._view))
++        if isinstance(other, str):
++            try:
++                return self.__str__() == other
++            except UnicodeDecodeError:
++                return False
++        return NotImplemented  # type: ignore[return-value]
++
++    def append(self, byte_value: int) -> None:
++        """Append a single byte value (int 0–255)."""
++        self._check_bound(self._size + 1)
++        self._ensure_capacity(self._size + 1)
++        self._buffer.resize(self._size + 1)
++        self._size += 1
++        self._refresh_view()
++        self._view[self._size - 1] = byte_value
++
++    def insert(self, index: int, byte_value: int) -> None:
++        """Insert *byte_value* before *index*."""
++        arr = np.array(self._view, copy=True)
++        if index < 0:
++            index = max(0, self._size + index)
++        if index >= self._size:
++            self.append(byte_value)
++            return
++        self._check_bound(self._size + 1)
++        self._ensure_capacity(self._size + 1)
++        new_arr = np.concatenate([arr[:index], [byte_value], arr[index:]])
++        n = len(new_arr)
++        self._buffer.resize(n)
++        self._size = n
++        self._refresh_view()
++        self._view[:] = new_arr
++
++    def clear(self) -> None:
++        """Remove all bytes (buffer capacity is preserved)."""
++        self._buffer.resize(0)
++        self._size = 0
++        self._refresh_view()
++
++    # ------------------------------------------------------------------
++    # String conversion
++    # ------------------------------------------------------------------
++
++    def __str__(self) -> str:
++        return self._view.tobytes().decode('utf-8')
++
++    def __repr__(self) -> str:
++        return f'{type(self).__name__}({self.__str__()!r})'
++
++    # ------------------------------------------------------------------
++    # Buffer / numpy
++    # ------------------------------------------------------------------
++
++    def __buffer__(self, flags: int) -> memoryview:
++        """PEP 688: writable buffer over the live bytes."""
++        return memoryview(self._buffer)
++
++    def numpy(self) -> npt.NDArray[np.uint8]:
++        """Return a 1-D uint8 numpy array over the live bytes."""
++        return self._view
++
++
++class WString:
++    """
++    A mutable UTF-16-LE string backed by a contiguous :class:`RawBuffer`.
++
++    The MutableSequence interface operates on individual **code units** (uint16),
++    exactly mirroring the C ``rosidl_runtime_c__U16String`` layout.  For bulk
++    string operations prefer :meth:`assign` and :meth:`append_str`.
++
++    Construction
++    ------------
++    ``WString()``
++        Empty string with managed storage.
++
++    ``WString(buffer=buf)``
++        Use *buf* as backing storage.  Mutations that exceed capacity raise
++        :exc:`BufferError` for external (non-owning) buffers.
++    """
++
++    __slots__ = ('_buffer', '_size', '_view')
++
++    _DTYPE = Dtype.WCHAR   # uint16 — matches rosidl_runtime_c__U16String data type
++    _ITEMSIZE = 2          # bytes per UTF-16 code unit
++
++    def __init__(
++        self,
++        data: str | bytes | bytearray | memoryview | None = None,
++        *,
++        buffer: RawBuffer | None = None,
++    ) -> None:
++        if buffer is not None:
++            if not isinstance(buffer, RawBuffer):
++                raise TypeError(
++                    f'buffer must be a RawBuffer, got {type(buffer).__name__}')
++            self._buffer = buffer
++        else:
++            self._buffer = RawBuffer()
++        self._size = 0   # number of live code units
++        self._view: npt.NDArray[Any] = self._make_view()
++        if data is not None:
++            self.assign(data)
++
++    # ------------------------------------------------------------------
++    # Internal helpers
++    # ------------------------------------------------------------------
++
++    def _capacity(self) -> int:
++        return self._buffer.size // self._ITEMSIZE
++
++    def _ensure_capacity(self, needed_units: int) -> None:
++        needed_bytes = needed_units * self._ITEMSIZE
++        if needed_bytes <= self._buffer.size:
++            return
++        if not self._buffer.is_owner:
++            raise BufferError(
++                f'WString capacity {self._capacity()} code units exceeded for '
++                f'fixed external buffer (needed {needed_units})')
++        new_cap = max(8, self._capacity())
++        while new_cap < needed_units:
++            new_cap *= 2
++        self._buffer.reserve(new_cap * self._ITEMSIZE)
++
++    def _make_view(self) -> npt.NDArray[Any]:
++        if self._size == 0:
++            return np.empty(0, dtype=self._DTYPE.numpy_dtype)
++        return np.frombuffer(self._buffer, dtype=self._DTYPE.numpy_dtype,
++                             count=self._size)
++
++    def _refresh_view(self) -> None:
++        self._view = self._make_view()
++
++    # ------------------------------------------------------------------
++    # Properties
++    # ------------------------------------------------------------------
++
++    @property
++    def dtype(self) -> Dtype:
++        """Dtype: always :attr:`Dtype.WCHAR`."""
++        return self._DTYPE
++
++    # ------------------------------------------------------------------
++    # Bulk operations (preferred API)
++    # ------------------------------------------------------------------
++
++    def assign(self, s: str | bytes | bytearray | memoryview) -> None:
++        """
++        Replace the string contents with *s* (encoded as UTF-16-LE).
++
++        Parameters
++        ----------
++        s : str or bytes
++            Source text.  ``str`` is encoded with ``'utf-16-le'``; ``bytes``
++            must be a valid UTF-16-LE byte string (length must be even).
++        """
++        if isinstance(s, str):
++            data = s.encode('utf-16-le')
++        elif isinstance(s, (bytes, bytearray, memoryview)):
++            data = bytes(s)
++            if len(data) % 2 != 0:
++                raise ValueError('bytes for WString must have even length')
++        else:
++            raise TypeError(
++                f'assign requires str or bytes, got {type(s).__name__}')
++        n_units = len(data) // self._ITEMSIZE
++        self._check_bound(n_units)
++        n_bytes = len(data)
++        self._ensure_capacity(n_units)
++        self._buffer.resize(n_bytes)
++        self._size = n_units
++        self._refresh_view()
++        if n_bytes:
++            self._view[:] = np.frombuffer(data, dtype=self._DTYPE.numpy_dtype)
++
++    def append_str(self, s: str | bytes | bytearray | memoryview) -> None:
++        """
++        Append *s* (encoded as UTF-16-LE) to the current contents.
++
++        Parameters
++        ----------
++        s : str or bytes
++        """
++        if isinstance(s, str):
++            data = s.encode('utf-16-le')
++        elif isinstance(s, (bytes, bytearray, memoryview)):
++            data = bytes(s)
++            if len(data) % 2 != 0:
++                raise ValueError('bytes for WString must have even length')
++        else:
++            raise TypeError(
++                f'append_str requires str or bytes, got {type(s).__name__}')
++        n_units = len(data) // self._ITEMSIZE
++        self._check_bound(self._size + n_units)
++        self._ensure_capacity(self._size + n_units)
++        old_bytes = self._size * self._ITEMSIZE
++        new_bytes = old_bytes + len(data)
++        self._buffer.resize(new_bytes)
++        old_size = self._size
++        self._size += n_units
++        self._refresh_view()
++        self._view[old_size:] = np.frombuffer(data, dtype=self._DTYPE.numpy_dtype)
++
++    def _check_bound(self, needed: int) -> None:
++        pass
++
++    # ------------------------------------------------------------------
++    # MutableSequence protocol (code-unit level)
++    # ------------------------------------------------------------------
++
++    def __len__(self) -> int:
++        return self._size
++
++    def __getitem__(self, index: int | slice) -> Any:
++        if isinstance(index, int):
++            if index < 0:
++                index += self._size
++            if not (0 <= index < self._size):
++                raise IndexError('wstring index out of range')
++            return int(self._view[index])
++        return list(self._view[index])
++
++    def __setitem__(self, index: int | slice, value: Any) -> None:
++        if isinstance(index, int):
++            if index < 0:
++                index += self._size
++            if not (0 <= index < self._size):
++                raise IndexError('wstring index out of range')
++        self._view[index] = value
++
++    def __delitem__(self, index: int | slice) -> None:
++        arr = np.array(self._view, copy=True)
++        if isinstance(index, int):
++            if index < 0:
++                index += self._size
++            if not (0 <= index < self._size):
++                raise IndexError('wstring index out of range')
++            new_arr = np.concatenate([arr[:index], arr[index + 1:]])
++        else:
++            keep = np.ones(self._size, dtype=bool)
++            for i in range(*index.indices(self._size)):
++                keep[i] = False
++            new_arr = arr[keep]
++        n = len(new_arr)
++        self._buffer.resize(n * self._ITEMSIZE)
++        self._size = n
++        self._refresh_view()
++        if n:
++            self._view[:] = new_arr
++
++    def __iter__(self) -> Iterator[int]:
++        for i in range(self._size):
++            yield int(self._view[i])
++
++    def __contains__(self, value: object) -> bool:
++        return bool(np.any(self._view == value))
++
++    def __reversed__(self) -> Iterator[int]:
++        for i in range(self._size - 1, -1, -1):
++            yield int(self._view[i])
++
++    def __eq__(self, other: object) -> bool:
++        if isinstance(other, WString):
++            if self._size != other._size:
++                return False
++            return bool(np.array_equal(self._view, other._view))
++        if isinstance(other, str):
++            try:
++                return self.__str__() == other
++            except (UnicodeDecodeError, ValueError):
++                return False
++        return NotImplemented  # type: ignore[return-value]
++
++    def append(self, unit_value: int) -> None:
++        """Append a single code unit value (int 0–65535)."""
++        self._check_bound(self._size + 1)
++        self._ensure_capacity(self._size + 1)
++        n_bytes = (self._size + 1) * self._ITEMSIZE
++        self._buffer.resize(n_bytes)
++        self._size += 1
++        self._refresh_view()
++        self._view[self._size - 1] = unit_value
++
++    def insert(self, index: int, unit_value: int) -> None:
++        """Insert *unit_value* before *index*."""
++        arr = np.array(self._view, copy=True)
++        if index < 0:
++            index = max(0, self._size + index)
++        if index >= self._size:
++            self.append(unit_value)
++            return
++        self._check_bound(self._size + 1)
++        self._ensure_capacity(self._size + 1)
++        new_arr = np.concatenate([arr[:index], [unit_value], arr[index:]])
++        self._buffer.resize(len(new_arr) * self._ITEMSIZE)
++        self._size = len(new_arr)
++        self._refresh_view()
++        self._view[:] = new_arr.astype(self._DTYPE.numpy_dtype)
++
++    def clear(self) -> None:
++        """Remove all code units (buffer capacity is preserved)."""
++        self._buffer.resize(0)
++        self._size = 0
++        self._refresh_view()
++
++    # ------------------------------------------------------------------
++    # String conversion
++    # ------------------------------------------------------------------
++
++    def __str__(self) -> str:
++        return self._view.tobytes().decode('utf-16-le')
++
++    def __repr__(self) -> str:
++        return f'{type(self).__name__}({self.__str__()!r})'
++
++    # ------------------------------------------------------------------
++    # Buffer / numpy
++    # ------------------------------------------------------------------
++
++    def __buffer__(self, flags: int) -> memoryview:
++        """PEP 688: writable buffer over the live bytes."""
++        return memoryview(self._buffer)
++
++    def numpy(self) -> npt.NDArray[np.uint16]:
++        """Return a 1-D uint16 numpy array over the live code units."""
++        return self._view
++
++
++class BoundedString(String):
++    """
++    A :class:`String` with an upper bound on its byte length.
++
++    All mutations that would exceed *upper_bound* bytes raise
++    :exc:`ValueError` before any storage is modified.
++    """
++
++    __slots__ = ('_upper_bound',)
++
++    def __init__(
++        self,
++        upper_bound: int,
++        data: str | bytes | bytearray | memoryview | None = None,
++        *,
++        buffer: RawBuffer | None = None,
++    ) -> None:
++        if not isinstance(upper_bound, int) or upper_bound <= 0:
++            raise ValueError(
++                f'upper_bound must be a positive integer, got {upper_bound!r}')
++        self._upper_bound = upper_bound
++        super().__init__(data, buffer=buffer)
++
++    @property
++    def max_size(self) -> int:
++        """int: maximum byte length."""
++        return self._upper_bound
++
++    def _check_bound(self, needed: int) -> None:
++        if needed > self._upper_bound:
++            raise ValueError(
++                f'BoundedString upper bound {self._upper_bound} B '
++                f'exceeded (needed {needed} B)')
++
++    def __repr__(self) -> str:
++        return f'BoundedString({self._upper_bound}, {self.__str__()!r})'
++
++
++class BoundedWString(WString):
++    """
++    A :class:`WString` with an upper bound on its code-unit count.
++
++    All mutations that would exceed *upper_bound* code units raise
++    :exc:`ValueError` before any storage is modified.
++    """
++
++    __slots__ = ('_upper_bound',)
++
++    def __init__(
++        self,
++        upper_bound: int,
++        data: str | bytes | bytearray | memoryview | None = None,
++        *,
++        buffer: RawBuffer | None = None,
++    ) -> None:
++        if not isinstance(upper_bound, int) or upper_bound <= 0:
++            raise ValueError(
++                f'upper_bound must be a positive integer, got {upper_bound!r}')
++        self._upper_bound = upper_bound
++        super().__init__(data, buffer=buffer)
++
++    @property
++    def max_size(self) -> int:
++        """int: maximum code-unit length."""
++        return self._upper_bound
++
++    def _check_bound(self, needed: int) -> None:
++        if needed > self._upper_bound:
++            raise ValueError(
++                f'BoundedWString upper bound {self._upper_bound} code units '
++                f'exceeded (needed {needed})')
++
++    def __repr__(self) -> str:
++        return f'BoundedWString({self._upper_bound}, {self.__str__()!r})'
+diff --git a/src/raw_buffer.c b/src/raw_buffer.c
+new file mode 100644
+index 0000000..cc79cfa
+--- /dev/null
++++ b/src/raw_buffer.c
+@@ -0,0 +1,709 @@
++// Copyright 2026 Ekumen, Inc.
++//
++// Licensed under the Apache License, Version 2.0 (the "License");
++// you may not use this file except in compliance with the License.
++// You may obtain a copy of the License at
++//
++//     http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing, software
++// distributed under the License is distributed on an "AS IS" BASIS,
++// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++// See the License for the specific language governing permissions and
++// limitations under the License.
++
++/// @file raw_buffer.c
++/// @brief CPython extension providing the RawBuffer type.
++///
++/// RawBuffer is a byte-oriented, PEP 3118 compatible buffer object that holds
++/// a rosidl_memory_region_t and operates in two modes:
++///
++///  Managed   — owns its storage via PyMem_Malloc / PyMem_Free.
++///              region.location.address and region.size track the live
++///              allocation; size tracks the logical byte count.
++///              Created from Python: RawBuffer(capacity=N)
++///              reserve(n) replaces the internal block with a freshly
++///              allocated one; the old block is freed only after all active
++///              exports on it have been released, preventing dangling-pointer
++///              access from numpy views captured before the resize.
++///
++///  External  — holds a view over a caller-owned rosidl_memory_region_t.
++///              Created from C only: RawBuffer_FromRegion(&region)
++///              Does NOT own the memory; reserve() and resize() raise
++///              BufferError.  Writable from Python (the caller controls
++///              the lifecycle of the underlying memory).
++
++#define PY_SSIZE_T_CLEAN
++#include <Python.h>
++#include <stdint.h>
++#include <string.h>
++
++#include "rosidl_runtime_c/experimental/memory.h"
++#include "rosidl_runtime_py/raw_buffer.h"
++
++// Forward declaration so _RawBuffer_FromRegion can reference the type.
++static PyTypeObject RawBuffer_Type;
++
++// ---------------------------------------------------------------------------
++// Internal guard type
++// ---------------------------------------------------------------------------
++// When a managed RawBuffer is reallocated, the old block must not be freed
++// while an active Py_buffer export (e.g. a numpy array view) still points
++// into it.  We wrap the old allocation address in a lightweight BufferGuard
++// whose sole job is to call PyMem_Free when the last reference to it drops.
++
++typedef struct {
++  PyObject_HEAD
++  void * data;
++} RawBufferGuard;
++
++static void
++RawBufferGuard_dealloc(RawBufferGuard * self)
++{
++  PyMem_Free(self->data);
++  Py_TYPE(self)->tp_free((PyObject *)self);
++}
++
++static PyTypeObject RawBufferGuard_Type = {
++  PyVarObject_HEAD_INIT(NULL, 0)
++  .tp_name = "rosidl_runtime_py._raw_buffer.RawBufferGuard",
++  .tp_basicsize = sizeof(RawBufferGuard),
++  .tp_dealloc = (destructor)RawBufferGuard_dealloc,
++  .tp_flags = Py_TPFLAGS_DEFAULT,
++};
++
++static PyObject *
++RawBufferGuard_New(void * data)
++{
++  RawBufferGuard * g = PyObject_New(RawBufferGuard, &RawBufferGuard_Type);
++  if (!g) {
++    return NULL;
++  }
++  g->data = data;
++  return (PyObject *)g;
++}
++
++// ---------------------------------------------------------------------------
++// RawBuffer type
++// ---------------------------------------------------------------------------
++
++typedef struct {
++  PyObject_HEAD
++
++  // The underlying memory region.
++  //   region.location.address — pointer to the first byte.
++  //   region.size             — allocated capacity in bytes.
++  // For managed buffers, this describes the PyMem allocation.
++  // For external buffers, this is a direct copy of the caller's region.
++  rosidl_memory_region_t region;
++
++  // Logical byte count: how many bytes are currently in use / meaningful.
++  // Always <= region.size.
++  Py_ssize_t size;
++
++  // Ownership flag.  1 = managed (owns the allocation), 0 = external view.
++  int is_owner;
++
++  // Number of active Py_buffer exports on the *current* allocation.
++  // Protected by the GIL.
++  Py_ssize_t export_count;
++
++  // Guard holding the *previous* block while it may still be referenced by
++  // an active export.  NULL when no reallocation has occurred.
++  PyObject * pending_guard;
++} RawBuffer;
++
++// Convenience accessors so call sites read cleanly.
++#define RB_DATA(self)     ((self)->region.location.address)
++#define RB_CAPACITY(self) ((Py_ssize_t)(self)->region.size)
++
++// ---------------------------------------------------------------------------
++// Buffer protocol
++// ---------------------------------------------------------------------------
++
++static int
++RawBuffer_bf_getbuffer(PyObject * exporter, Py_buffer * view, int flags)
++{
++  RawBuffer * self = (RawBuffer *)exporter;
++
++  if (RB_DATA(self) == NULL && self->size != 0) {
++    PyErr_SetString(PyExc_BufferError, "RawBuffer has no data");
++    view->obj = NULL;
++    return -1;
++  }
++
++  // Both managed and external buffers are writable from Python's perspective;
++  // the caller controls the lifecycle of external memory.
++  if (PyBuffer_FillInfo(view, exporter, RB_DATA(self), self->size, 0, flags) < 0) {
++    return -1;
++  }
++
++  self->export_count++;
++  return 0;
++}
++
++static void
++RawBuffer_bf_releasebuffer(PyObject * exporter, Py_buffer * view)
++{
++  (void)view;
++  RawBuffer * self = (RawBuffer *)exporter;
++  if (self->export_count > 0) {
++    self->export_count--;
++  }
++}
++
++static PyBufferProcs RawBuffer_as_buffer = {
++  .bf_getbuffer = RawBuffer_bf_getbuffer,
++  .bf_releasebuffer = RawBuffer_bf_releasebuffer,
++};
++
++// ---------------------------------------------------------------------------
++// Allocation / deallocation
++// ---------------------------------------------------------------------------
++
++static void
++RawBuffer_dealloc(RawBuffer * self)
++{
++  if (self->is_owner && RB_DATA(self) != NULL) {
++    PyMem_Free(RB_DATA(self));
++    self->region.location.address = NULL;
++    self->region.size = 0;
++  }
++  Py_XDECREF(self->pending_guard);
++  Py_TYPE(self)->tp_free((PyObject *)self);
++}
++
++// ---------------------------------------------------------------------------
++// Python constructor:  RawBuffer(capacity=0)
++// ---------------------------------------------------------------------------
++
++static PyObject *
++RawBuffer_new(PyTypeObject * type, PyObject * args, PyObject * kwargs)
++{
++  (void)args;
++  (void)kwargs;
++  RawBuffer * self = (RawBuffer *)type->tp_alloc(type, 0);
++  if (!self) {
++    return NULL;
++  }
++  memset(&self->region, 0, sizeof(rosidl_memory_region_t));
++  self->size = 0;
++  self->is_owner = 1;
++  self->export_count = 0;
++  self->pending_guard = NULL;
++  return (PyObject *)self;
++}
++
++static int
++RawBuffer_init(RawBuffer * self, PyObject * args, PyObject * kwargs)
++{
++  // Accept either:
++  //   RawBuffer()             — empty, zero capacity
++  //   RawBuffer(capacity)     — allocate `capacity` zero-filled bytes
++  //   RawBuffer(data)         — allocate and copy bytes-like object; size = len(data)
++  static char * kwlist[] = {"data", NULL};
++  PyObject * data_obj = NULL;
++
++  if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|O", kwlist, &data_obj)) {
++    return -1;
++  }
++
++  if (data_obj == NULL || data_obj == Py_None) {
++    // RawBuffer()  →  empty managed buffer, no allocation.
++    return 0;
++  }
++
++  // Integer argument: treat as capacity (backwards-compatible).
++  if (PyLong_Check(data_obj)) {
++    Py_ssize_t capacity = PyLong_AsSsize_t(data_obj);
++    if (capacity == -1 && PyErr_Occurred()) {
++      return -1;
++    }
++    if (capacity < 0) {
++      PyErr_SetString(PyExc_ValueError, "capacity must be >= 0");
++      return -1;
++    }
++    if (capacity == 0) {
++      return 0;
++    }
++    void * block = PyMem_Malloc((size_t)capacity);
++    if (!block) {
++      PyErr_NoMemory();
++      return -1;
++    }
++    memset(block, 0, (size_t)capacity);
++    self->region.location.address = block;
++    self->region.location.attributes = 0;
++    self->region.size = (size_t)capacity;
++    self->size = capacity;
++    return 0;
++  }
++
++  // Buffer-protocol argument: allocate and copy.
++  Py_buffer view;
++  if (PyObject_GetBuffer(data_obj, &view, PyBUF_SIMPLE) < 0) {
++    PyErr_SetString(PyExc_TypeError,
++      "RawBuffer() argument must be an int, a bytes-like object, or None");
++    return -1;
++  }
++  Py_ssize_t nbytes = view.len;
++  if (nbytes == 0) {
++    PyBuffer_Release(&view);
++    return 0;
++  }
++  void * block = PyMem_Malloc((size_t)nbytes);
++  if (!block) {
++    PyBuffer_Release(&view);
++    PyErr_NoMemory();
++    return -1;
++  }
++  memcpy(block, view.buf, (size_t)nbytes);
++  PyBuffer_Release(&view);
++  self->region.location.address = block;
++  self->region.location.attributes = 0;
++  self->region.size = (size_t)nbytes;
++  self->size = nbytes;
++  return 0;
++}
++
++// ---------------------------------------------------------------------------
++// C-only factory:  _RawBuffer_FromRegion
++// Exposed via PyCapsule; NOT a Python-callable method.
++// ---------------------------------------------------------------------------
++
++static PyObject *
++_RawBuffer_FromRegion(const rosidl_memory_region_t * region)
++{
++  if (!region) {
++    PyErr_SetString(PyExc_ValueError, "region pointer is NULL");
++    return NULL;
++  }
++  RawBuffer * buf = (RawBuffer *)RawBuffer_new(&RawBuffer_Type, NULL, NULL);
++  if (!buf) {
++    return NULL;
++  }
++  // Copy the entire region struct so the caller's layout (address, attributes,
++  // size) is preserved exactly.
++  buf->region = *region;
++  buf->size = (Py_ssize_t)region->size;
++  buf->is_owner = 0;
++  return (PyObject *)buf;
++}
++
++// ---------------------------------------------------------------------------
++// C API struct instance.
++// Stored by pointer in the PyCapsule so PyCapsule_New receives a data pointer
++// (void * from struct *), not a function pointer — the cast is valid in C.
++// ---------------------------------------------------------------------------
++static const RawBuffer_CAPI_t _RawBuffer_CAPI = {
++  _RawBuffer_FromRegion,
++};
++
++// ---------------------------------------------------------------------------
++// Methods
++// ---------------------------------------------------------------------------
++
++// reserve(n): ensure at least n bytes of capacity.
++// Always allocates a fresh block so existing exports remain valid.
++// Raises BufferError for external (non-owning) buffers.
++static PyObject *
++RawBuffer_reserve(RawBuffer * self, PyObject * args)
++{
++  Py_ssize_t new_capacity;
++  if (!PyArg_ParseTuple(args, "n", &new_capacity)) {
++    return NULL;
++  }
++
++  if (new_capacity < 0) {
++    PyErr_SetString(PyExc_ValueError, "capacity must be >= 0");
++    return NULL;
++  }
++
++  if (new_capacity <= RB_CAPACITY(self)) {
++    Py_RETURN_NONE;
++  }
++
++  if (!self->is_owner) {
++    PyErr_SetString(
++      PyExc_BufferError,
++      "cannot reserve on an external (non-owning) RawBuffer");
++    return NULL;
++  }
++
++  void * new_block = PyMem_Malloc((size_t)new_capacity);
++  if (!new_block) {
++    return PyErr_NoMemory();
++  }
++  memset(new_block, 0, (size_t)new_capacity);
++
++  if (RB_DATA(self) && self->size > 0) {
++    memcpy(new_block, RB_DATA(self), (size_t)self->size);
++  }
++
++  // If there are active exports on the current block, hand it off to a guard
++  // so its lifetime is tied to the last export that references it.
++  if (self->export_count > 0 && RB_DATA(self) != NULL) {
++    Py_XDECREF(self->pending_guard);
++    self->pending_guard = RawBufferGuard_New(RB_DATA(self));
++    if (!self->pending_guard) {
++      PyMem_Free(new_block);
++      return NULL;
++    }
++    // Guard now owns the old allocation; do NOT free it here.
++    self->export_count = 0;
++  } else {
++    PyMem_Free(RB_DATA(self));
++    Py_XDECREF(self->pending_guard);
++    self->pending_guard = NULL;
++  }
++
++  self->region.location.address = new_block;
++  self->region.location.attributes = 0;
++  self->region.size = (size_t)new_capacity;
++  // Note: self->size (logical) is intentionally unchanged; callers update it.
++  Py_RETURN_NONE;
++}
++
++// resize(n): set the logical size to n bytes, growing capacity as needed.
++// Raises BufferError for external (non-owning) buffers.
++static PyObject *
++RawBuffer_resize(RawBuffer * self, PyObject * args)
++{
++  Py_ssize_t new_size;
++  if (!PyArg_ParseTuple(args, "n", &new_size)) {
++    return NULL;
++  }
++
++  if (!self->is_owner) {
++    PyErr_SetString(
++      PyExc_BufferError,
++      "cannot resize an external (non-owning) RawBuffer");
++    return NULL;
++  }
++
++  if (new_size < 0) {
++    PyErr_SetString(PyExc_ValueError, "size must be >= 0");
++    return NULL;
++  }
++
++  if (new_size > RB_CAPACITY(self)) {
++    // Geometric growth: double until sufficient.
++    Py_ssize_t new_capacity = RB_CAPACITY(self) == 0 ? new_size : RB_CAPACITY(self);
++    while (new_capacity < new_size) {
++      new_capacity *= 2;
++      if (new_capacity <= 0) {  // overflow guard
++        new_capacity = new_size;
++        break;
++      }
++    }
++    PyObject * reserve_args = Py_BuildValue("(n)", new_capacity);
++    if (!reserve_args) {
++      return NULL;
++    }
++    PyObject * result = RawBuffer_reserve(self, reserve_args);
++    Py_DECREF(reserve_args);
++    if (!result) {
++      return NULL;
++    }
++    Py_DECREF(result);
++  }
++
++  // Zero-fill any newly exposed bytes.
++  if (new_size > self->size && RB_DATA(self)) {
++    memset((char *)RB_DATA(self) + self->size, 0, (size_t)(new_size - self->size));
++  }
++
++  self->size = new_size;
++  Py_RETURN_NONE;
++}
++
++// ---------------------------------------------------------------------------
++// Properties
++// ---------------------------------------------------------------------------
++
++static PyObject *
++RawBuffer_get_address(RawBuffer * self, void * closure)
++{
++  (void)closure;
++  return PyLong_FromVoidPtr(RB_DATA(self));
++}
++
++static PyObject *
++RawBuffer_get_size(RawBuffer * self, void * closure)
++{
++  (void)closure;
++  return PyLong_FromSsize_t(self->size);
++}
++
++static PyObject *
++RawBuffer_get_capacity(RawBuffer * self, void * closure)
++{
++  (void)closure;
++  return PyLong_FromSsize_t(RB_CAPACITY(self));
++}
++
++static PyObject *
++RawBuffer_get_is_owner(RawBuffer * self, void * closure)
++{
++  (void)closure;
++  return PyBool_FromLong(self->is_owner);
++}
++
++// ---------------------------------------------------------------------------
++// Indexing: buf[i], buf[i] = v
++// ---------------------------------------------------------------------------
++//
++// buf[i]         — return the byte at position i as a Python int.
++// buf[i] = v     — write a byte value (int 0-255) at position i.
++// len(buf)       — return the logical size.
++//
++// These work on the *logical* size (self->size), not capacity.
++
++static Py_ssize_t
++RawBuffer_sq_length(RawBuffer * self)
++{
++  return self->size;
++}
++
++static PyObject *
++RawBuffer_mp_subscript(RawBuffer * self, PyObject * key)
++{
++  if (!PyLong_Check(key)) {
++    PyErr_SetString(PyExc_TypeError, "RawBuffer indices must be integers");
++    return NULL;
++  }
++  Py_ssize_t idx = PyLong_AsSsize_t(key);
++  if (idx == -1 && PyErr_Occurred()) {
++    return NULL;
++  }
++  if (idx < 0) {
++    idx += self->size;
++  }
++  if (idx < 0 || idx >= self->size) {
++    PyErr_SetString(PyExc_IndexError, "RawBuffer index out of range");
++    return NULL;
++  }
++  return PyLong_FromLong(((unsigned char *)RB_DATA(self))[idx]);
++}
++
++static int
++RawBuffer_mp_ass_subscript(RawBuffer * self, PyObject * key, PyObject * value)
++{
++  if (!PyLong_Check(key)) {
++    PyErr_SetString(PyExc_TypeError, "RawBuffer indices must be integers");
++    return -1;
++  }
++  Py_ssize_t idx = PyLong_AsSsize_t(key);
++  if (idx == -1 && PyErr_Occurred()) {
++    return -1;
++  }
++  if (idx < 0) {
++    idx += self->size;
++  }
++  if (idx < 0 || idx >= self->size) {
++    PyErr_SetString(PyExc_IndexError, "RawBuffer index out of range");
++    return -1;
++  }
++  if (!PyLong_Check(value)) {
++    PyErr_SetString(PyExc_TypeError, "RawBuffer values must be integers (0-255)");
++    return -1;
++  }
++  long v = PyLong_AsLong(value);
++  if (v == -1 && PyErr_Occurred()) {
++    return -1;
++  }
++  if (v < 0 || v > 255) {
++    PyErr_SetString(PyExc_ValueError, "byte value must be in range 0-255");
++    return -1;
++  }
++  ((unsigned char *)RB_DATA(self))[idx] = (unsigned char)v;
++  return 0;
++}
++
++static PySequenceMethods RawBuffer_as_sequence = {
++  .sq_length = (lenfunc)RawBuffer_sq_length,
++};
++
++static PyMappingMethods RawBuffer_as_mapping = {
++  .mp_length = (lenfunc)RawBuffer_sq_length,
++  .mp_subscript = (binaryfunc)RawBuffer_mp_subscript,
++  .mp_ass_subscript = (objobjargproc)RawBuffer_mp_ass_subscript,
++};
++
++// ---------------------------------------------------------------------------
++// __repr__
++// ---------------------------------------------------------------------------
++
++static PyObject *
++RawBuffer_repr(RawBuffer * self)
++{
++  return PyUnicode_FromFormat(
++    "RawBuffer(address=%p, size=%zd, capacity=%zd, is_owner=%s)",
++    RB_DATA(self),
++    self->size,
++    RB_CAPACITY(self),
++    self->is_owner ? "True" : "False");
++}
++
++// ---------------------------------------------------------------------------
++// PEP 688 __buffer__ / __release_buffer__ (Python >= 3.12)
++// ---------------------------------------------------------------------------
++
++#if PY_VERSION_HEX >= 0x030c0000
++static PyObject *
++RawBuffer_py_buffer(RawBuffer * self, PyObject * flags_obj)
++{
++  int flags = (int)PyLong_AsLong(flags_obj);
++  if (flags == -1 && PyErr_Occurred()) {
++    return NULL;
++  }
++  Py_buffer view;
++  if (RawBuffer_bf_getbuffer((PyObject *)self, &view, flags) < 0) {
++    return NULL;
++  }
++  // bf_getbuffer incremented export_count; the memoryview's own release will
++  // call bf_releasebuffer which decrements it.
++  return PyMemoryView_FromBuffer(&view);
++}
++
++static PyObject *
++RawBuffer_py_release_buffer(RawBuffer * self, PyObject * mv)
++{
++  (void)self;
++  (void)mv;
++  Py_RETURN_NONE;
++}
++#endif
++
++// ---------------------------------------------------------------------------
++// Type tables
++// ---------------------------------------------------------------------------
++
++static PyMethodDef RawBuffer_methods[] = {
++  {"reserve", (PyCFunction)RawBuffer_reserve, METH_VARARGS,
++    "reserve(n)\n--\n\n"
++    "Ensure at least *n* bytes of capacity.\n\n"
++    "Always allocates a new block so numpy views captured before this call\n"
++    "remain valid (pointing to the old block) until they are GC-collected.\n"
++    "Raises BufferError on external (non-owning) buffers."},
++  {"resize", (PyCFunction)RawBuffer_resize, METH_VARARGS,
++    "resize(n)\n--\n\n"
++    "Set the logical size to *n* bytes, growing capacity as needed.\n"
++    "Raises BufferError on external (non-owning) buffers."},
++#if PY_VERSION_HEX >= 0x030c0000
++  {"__buffer__", (PyCFunction)RawBuffer_py_buffer, METH_O, NULL},
++  {"__release_buffer__", (PyCFunction)RawBuffer_py_release_buffer, METH_O, NULL},
++#endif
++  {NULL, NULL, 0, NULL}
++};
++
++static PyGetSetDef RawBuffer_getset[] = {
++  {"address", (getter)RawBuffer_get_address, NULL,
++    "int: address of the first byte (region.location.address).", NULL},
++  {"size", (getter)RawBuffer_get_size, NULL,
++    "int: number of bytes currently in use (logical size).", NULL},
++  {"capacity", (getter)RawBuffer_get_capacity, NULL,
++    "int: allocated byte capacity (region.size).", NULL},
++  {"is_owner", (getter)RawBuffer_get_is_owner, NULL,
++    "bool: True if this buffer owns and manages the underlying memory,\n"
++    "False if it holds a non-owning view over an external "
++    "rosidl_memory_region_t.", NULL},
++  {NULL, NULL, NULL, NULL, NULL}
++};
++
++static PyTypeObject RawBuffer_Type = {
++  PyVarObject_HEAD_INIT(NULL, 0)
++  .tp_name = "rosidl_runtime_py._raw_buffer.RawBuffer",
++  .tp_doc =
++    "RawBuffer(data=None)\n--\n\n"
++    "Byte buffer that holds a rosidl_memory_region_t and implements the\n"
++    "PEP 3118 buffer protocol plus integer indexing.\n\n"
++    "Construction:\n\n"
++    "  RawBuffer()           — empty managed buffer, no allocation.\n"
++    "  RawBuffer(n)          — allocate n zero-filled bytes.\n"
++    "  RawBuffer(data)       — allocate and copy a bytes-like object;\n"
++    "                          size is set to len(data).\n\n"
++    "Indexing:\n\n"
++    "  buf[i]                — return byte at index i as int.\n"
++    "  buf[i] = v            — write int v (0-255) at index i.\n"
++    "  len(buf)              — logical byte count.\n\n"
++    "Two modes:\n\n"
++    "  Managed  — owns PyMem-allocated storage; constructed from Python.\n"
++    "  External — holds a non-owning view over a caller-supplied\n"
++    "             rosidl_memory_region_t; constructed from C/C++ via\n"
++    "             RawBuffer_FromRegion() (see raw_buffer.h).\n\n"
++    "Both modes are writable from Python.\n\n"
++    "reserve() always allocates a *new* block, so numpy arrays produced via\n"
++    "numpy.frombuffer() before a reserve remain valid (but stale) until GC.",
++  .tp_basicsize = sizeof(RawBuffer),
++  .tp_dealloc = (destructor)RawBuffer_dealloc,
++  .tp_repr = (reprfunc)RawBuffer_repr,
++  .tp_as_sequence = &RawBuffer_as_sequence,
++  .tp_as_mapping = &RawBuffer_as_mapping,
++  .tp_as_buffer = &RawBuffer_as_buffer,
++  .tp_flags = Py_TPFLAGS_DEFAULT,
++  .tp_methods = RawBuffer_methods,
++  .tp_getset = RawBuffer_getset,
++  .tp_new = RawBuffer_new,
++  .tp_init = (initproc)RawBuffer_init,
++};
++
++// ---------------------------------------------------------------------------
++// Module
++// ---------------------------------------------------------------------------
++
++static PyModuleDef _raw_buffer_module = {
++  PyModuleDef_HEAD_INIT,
++  .m_name = "rosidl_runtime_py._raw_buffer",
++  .m_doc =
++    "Internal C extension for rosidl_runtime_py.\n\n"
++    "Exports:\n"
++    "  RawBuffer — managed or non-owning-view byte buffer over a\n"
++    "              rosidl_memory_region_t.\n"
++    "  _C_API    — PyCapsule for downstream C/C++ extensions.",
++  .m_size = -1,
++};
++
++PyMODINIT_FUNC
++PyInit__raw_buffer(void)
++{
++  if (PyType_Ready(&RawBufferGuard_Type) < 0) {
++    return NULL;
++  }
++  if (PyType_Ready(&RawBuffer_Type) < 0) {
++    return NULL;
++  }
++
++  PyObject * m = PyModule_Create(&_raw_buffer_module);
++  if (!m) {
++    return NULL;
++  }
++
++  Py_INCREF(&RawBuffer_Type);
++  if (PyModule_AddObject(m, "RawBuffer", (PyObject *)&RawBuffer_Type) < 0) {
++    Py_DECREF(&RawBuffer_Type);
++    Py_DECREF(m);
++    return NULL;
++  }
++
++  // Export C API via PyCapsule so downstream extensions can wrap
++  // rosidl_memory_region_t objects without linking against this module.
++  // &_RawBuffer_CAPI is a struct pointer (data pointer), so the implicit
++  // conversion to void * in PyCapsule_New is valid in both C and C++.
++  PyObject * capi_capsule = PyCapsule_New(
++    (void *)&_RawBuffer_CAPI,
++    ROSIDL_RUNTIME_PY_RAW_BUFFER_CAPSULE_NAME,
++    NULL);
++  if (!capi_capsule) {
++    Py_DECREF(m);
++    return NULL;
++  }
++
++  if (PyModule_AddObject(m, "_C_API", capi_capsule) < 0) {
++    Py_DECREF(capi_capsule);
++    Py_DECREF(m);
++    return NULL;
++  }
++
++  return m;
++}
+diff --git a/test/rosidl_runtime_py/experimental/test_array.py b/test/rosidl_runtime_py/experimental/test_array.py
+new file mode 100644
+index 0000000..f69cdac
+--- /dev/null
++++ b/test/rosidl_runtime_py/experimental/test_array.py
+@@ -0,0 +1,304 @@
++# Copyright 2026 Ekumen, Inc.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++"""Tests for rosidl_runtime_py.experimental.array."""
++
++import numpy as np
++import pytest
++
++from rosidl_runtime_py._raw_buffer import RawBuffer
++from rosidl_runtime_py.experimental.dtype import Dtype
++from rosidl_runtime_py.experimental.array import Array
++
++
++# ---------------------------------------------------------------------------
++# Primitive mode — construction
++# ---------------------------------------------------------------------------
++
++def test_primitive_default_zeros():
++    a = Array(Dtype.INT32, 4)
++    assert len(a) == 4
++    assert list(a) == [0, 0, 0, 0]
++
++
++def test_primitive_length_zero():
++    a = Array(Dtype.FLOAT64, 0)
++    assert len(a) == 0
++    assert list(a) == []
++
++
++def test_primitive_dtype_property():
++    a = Array(Dtype.UINT8, 3)
++    assert a.dtype is Dtype.UINT8
++
++
++def test_primitive_from_buffer():
++    # Pack two little-endian int32 values (10, 20) directly via RawBuffer(data).
++    import struct
++    buf = RawBuffer(struct.pack('<ii', 10, 20))
++    a = Array(Dtype.INT32, 2, buffer=buf)
++    assert a[0] == 10
++    assert a[1] == 20
++
++
++def test_primitive_buffer_too_small_raises():
++    buf = RawBuffer(4)
++    with pytest.raises(ValueError, match='buffer size'):
++        Array(Dtype.INT32, 2, buffer=buf)  # needs 8 bytes
++
++
++def test_primitive_bad_buffer_type_raises():
++    with pytest.raises(TypeError, match='buffer must be a RawBuffer'):
++        Array(Dtype.INT32, 2, buffer=b'\x00' * 8)
++
++
++def test_negative_length_raises():
++    with pytest.raises(ValueError, match='non-negative'):
++        Array(Dtype.INT32, -1)
++
++
++# ---------------------------------------------------------------------------
++# Primitive mode — sequence protocol
++# ---------------------------------------------------------------------------
++
++def test_primitive_getitem_int():
++    a = Array(Dtype.INT32, 3)
++    a[0] = 7
++    assert a[0] == 7
++
++
++def test_primitive_getitem_negative_index():
++    a = Array(Dtype.INT32, 3)
++    a[2] = 99
++    assert a[-1] == 99
++
++
++def test_primitive_getitem_slice():
++    a = Array(Dtype.INT32, 5)
++    for i in range(5):
++        a[i] = i * 10
++    result = a[1:4]
++    assert isinstance(result, np.ndarray)
++    assert list(result) == [10, 20, 30]
++
++
++def test_primitive_setitem_int():
++    a = Array(Dtype.INT32, 3)
++    a[1] = 42
++    assert a[1] == 42
++
++
++def test_primitive_setitem_slice():
++    a = Array(Dtype.INT32, 4)
++    a[1:3] = [100, 200]
++    assert a[1] == 100
++    assert a[2] == 200
++
++
++def test_primitive_iter_yields_python_scalars():
++    a = Array(Dtype.INT32, 3)
++    for i in range(3):
++        a[i] = i
++    items = list(a)
++    assert items == [0, 1, 2]
++    assert all(isinstance(x, int) for x in items)
++
++
++def test_primitive_contains():
++    a = Array(Dtype.INT32, 4)
++    a[2] = 77
++    assert 77 in a
++    assert 99 not in a
++
++
++def test_primitive_reversed():
++    a = Array(Dtype.INT32, 3)
++    for i in range(3):
++        a[i] = i + 1
++    assert list(reversed(a)) == [3, 2, 1]
++
++
++# ---------------------------------------------------------------------------
++# Primitive mode — equality
++# ---------------------------------------------------------------------------
++
++def test_primitive_eq_same():
++    a = Array(Dtype.INT32, 3)
++    b = Array(Dtype.INT32, 3)
++    for i in range(3):
++        a[i] = b[i] = i
++    assert a == b
++
++
++def test_primitive_eq_different_value():
++    a = Array(Dtype.INT32, 3)
++    b = Array(Dtype.INT32, 3)
++    a[0] = 1
++    assert a != b
++
++
++def test_primitive_eq_different_length():
++    assert Array(Dtype.INT32, 3) != Array(Dtype.INT32, 4)
++
++
++def test_primitive_eq_different_dtype():
++    assert Array(Dtype.INT32, 2) != Array(Dtype.INT64, 2)
++
++
++def test_primitive_eq_list():
++    a = Array(Dtype.INT32, 3)
++    for i in range(3):
++        a[i] = i
++    assert a == [0, 1, 2]
++
++
++# ---------------------------------------------------------------------------
++# Primitive mode — numpy / buffer
++# ---------------------------------------------------------------------------
++
++def test_primitive_numpy_is_live_view():
++    a = Array(Dtype.INT32, 3)
++    arr = a.numpy()
++    a[0] = 55
++    assert arr[0] == 55
++
++
++def test_primitive_numpy_mutation_reflected_in_array():
++    a = Array(Dtype.INT32, 3)
++    a.numpy()[1] = 88
++    assert a[1] == 88
++
++
++def test_primitive_buffer_protocol():
++    a = Array(Dtype.INT32, 4)
++    mv = memoryview(a)
++    assert len(mv) == 4 * Dtype.INT32.itemsize
++
++
++def test_primitive_numpy_dtype_matches():
++    a = Array(Dtype.FLOAT64, 2)
++    assert a.numpy().dtype == Dtype.FLOAT64.numpy_dtype
++
++
++# ---------------------------------------------------------------------------
++# Object mode — construction
++# ---------------------------------------------------------------------------
++
++def test_object_default_none():
++    a = Array(list, 3)
++    assert len(a) == 3
++    assert list(a) == [None, None, None]
++
++
++def test_object_dtype_property():
++    a = Array(str, 2)
++    assert a.dtype is str
++
++
++def test_object_buffer_raises():
++    with pytest.raises(TypeError, match='buffer='):
++        Array(list, 2, buffer=RawBuffer(16))
++
++
++# ---------------------------------------------------------------------------
++# Object mode — sequence protocol
++# ---------------------------------------------------------------------------
++
++def test_object_getitem_setitem():
++    a = Array(object, 3)
++    a[0] = 'hello'
++    a[1] = 42
++    a[2] = [1, 2, 3]
++    assert a[0] == 'hello'
++    assert a[1] == 42
++    assert a[2] == [1, 2, 3]
++
++
++def test_object_getitem_slice_returns_ndarray():
++    a = Array(object, 4)
++    for i in range(4):
++        a[i] = i
++    result = a[1:3]
++    assert list(result) == [1, 2]
++
++
++def test_object_iter():
++    a = Array(object, 3)
++    sentinel = object()
++    a[0] = sentinel
++    a[1] = 'x'
++    a[2] = 99
++    items = list(a)
++    assert items[0] is sentinel
++    assert items[1] == 'x'
++    assert items[2] == 99
++
++
++def test_object_contains():
++    a = Array(object, 3)
++    obj = object()
++    a[1] = obj
++    assert obj in a
++    assert object() not in a
++
++
++def test_object_reversed():
++    a = Array(object, 3)
++    for i in range(3):
++        a[i] = i
++    assert list(reversed(a)) == [2, 1, 0]
++
++
++# ---------------------------------------------------------------------------
++# Object mode — numpy / buffer
++# ---------------------------------------------------------------------------
++
++def test_object_numpy_returns_object_array():
++    a = Array(object, 3)
++    a[0] = 'hello'
++    arr = a.numpy()
++    assert isinstance(arr, np.ndarray)
++    assert arr.dtype == object
++    assert arr[0] == 'hello'
++
++
++def test_object_numpy_is_live_view():
++    a = Array(object, 2)
++    arr = a.numpy()
++    a[0] = 'changed'
++    assert arr[0] == 'changed'
++
++
++def test_object_buffer_protocol_raises():
++    a = Array(object, 2)
++    with pytest.raises(TypeError, match='__buffer__'):
++        memoryview(a)
++
++
++# ---------------------------------------------------------------------------
++# Representation
++# ---------------------------------------------------------------------------
++
++def test_repr_primitive():
++    a = Array(Dtype.INT32, 2)
++    a[0] = 1
++    a[1] = 2
++    assert repr(a) == 'Array(Dtype.INT32, 2, data=[1, 2])'
++
++
++def test_repr_object():
++    a = Array(list, 2)
++    r = repr(a)
++    assert 'Array(' in r
++    assert 'data=' in r
+diff --git a/test/rosidl_runtime_py/experimental/test_dtype.py b/test/rosidl_runtime_py/experimental/test_dtype.py
+new file mode 100644
+index 0000000..41e865e
+--- /dev/null
++++ b/test/rosidl_runtime_py/experimental/test_dtype.py
+@@ -0,0 +1,115 @@
++# Copyright 2026 Ekumen, Inc.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++"""Tests for rosidl_runtime_py.experimental.dtype."""
++
++import struct
++
++import numpy as np
++import pytest
++
++from rosidl_runtime_py.experimental.dtype import Dtype
++
++
++# All 15 ROS primitive Dtype members.
++ALL_DTYPES = list(Dtype)
++
++
++def test_all_members_present():
++    names = {d.name for d in Dtype}
++    expected = {
++        'UINT8', 'UINT16', 'UINT32', 'UINT64',
++        'INT8', 'INT16', 'INT32', 'INT64',
++        'FLOAT32', 'FLOAT64', 'LONG_DOUBLE',
++        'CHAR', 'WCHAR',
++        'BOOL', 'BYTE',
++    }
++    assert names == expected, names
++
++
++@pytest.mark.parametrize('dtype', ALL_DTYPES)
++def test_numpy_dtype_is_np_dtype(dtype):
++    assert isinstance(dtype.numpy_dtype, np.dtype)
++
++
++@pytest.mark.parametrize('dtype', ALL_DTYPES)
++def test_itemsize_matches_numpy(dtype):
++    assert dtype.itemsize == dtype.numpy_dtype.itemsize
++    assert dtype.itemsize >= 1
++
++
++@pytest.mark.parametrize('dtype', [d for d in ALL_DTYPES if d is not Dtype.LONG_DOUBLE])
++def test_format_char_struct_size_matches_itemsize(dtype):
++    # struct.calcsize gives the byte size of the format character.
++    assert struct.calcsize(dtype.format_char) == dtype.itemsize
++
++
++@pytest.mark.parametrize('dtype, value', [
++    (Dtype.FLOAT32, 1.5),
++    (Dtype.FLOAT64, -3.14),
++    (Dtype.LONG_DOUBLE, 1.23456789012345),
++    (Dtype.CHAR, 65),        # 'A'
++    (Dtype.WCHAR, 0x4E16),   # '世'
++    (Dtype.BOOL, 1),
++    (Dtype.BYTE, 255),
++    (Dtype.UINT8, 200),
++    (Dtype.UINT16, 60000),
++    (Dtype.UINT32, 2**31),
++    (Dtype.UINT64, 2**63),
++    (Dtype.INT8, -1),
++    (Dtype.INT16, -32768),
++    (Dtype.INT32, -1_000_000),
++    (Dtype.INT64, -(2**62)),
++])
++def test_pack_unpack_round_trip(dtype, value):
++    data = dtype.pack(value)
++    assert len(data) == dtype.itemsize
++    result = dtype.unpack(data)
++    # Use approximate comparison for floats.
++    if dtype in (Dtype.FLOAT32, Dtype.FLOAT64, Dtype.LONG_DOUBLE):
++        assert abs(result - value) < abs(value) * 1e-5 + 1e-10
++    else:
++        assert result == value
++
++
++def test_repr():
++    assert repr(Dtype.INT32) == 'Dtype.INT32'
++    assert repr(Dtype.WCHAR) == 'Dtype.WCHAR'
++
++
++def test_specific_itemsizes():
++    assert Dtype.FLOAT32.itemsize == 4
++    assert Dtype.FLOAT64.itemsize == 8
++    assert Dtype.CHAR.itemsize == 1
++    assert Dtype.WCHAR.itemsize == 2
++    assert Dtype.BOOL.itemsize == 1
++    assert Dtype.BYTE.itemsize == 1
++    assert Dtype.UINT8.itemsize == 1
++    assert Dtype.UINT16.itemsize == 2
++    assert Dtype.UINT32.itemsize == 4
++    assert Dtype.UINT64.itemsize == 8
++    assert Dtype.INT8.itemsize == 1
++    assert Dtype.INT16.itemsize == 2
++    assert Dtype.INT32.itemsize == 4
++    assert Dtype.INT64.itemsize == 8
++
++
++def test_char_byte_uint8_share_numpy_dtype():
++    # All three map to uint8 — intentional semantic aliasing.
++    assert Dtype.CHAR.numpy_dtype == Dtype.BYTE.numpy_dtype
++    assert Dtype.BYTE.numpy_dtype == Dtype.UINT8.numpy_dtype
++
++
++def test_wchar_uint16_share_numpy_dtype():
++    assert Dtype.WCHAR.numpy_dtype == Dtype.UINT16.numpy_dtype
+diff --git a/test/rosidl_runtime_py/experimental/test_scalar.py b/test/rosidl_runtime_py/experimental/test_scalar.py
+new file mode 100644
+index 0000000..96108c3
+--- /dev/null
++++ b/test/rosidl_runtime_py/experimental/test_scalar.py
+@@ -0,0 +1,275 @@
++# Copyright 2026 Ekumen, Inc.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++"""Tests for rosidl_runtime_py.experimental.scalar."""
++
++import numpy as np
++import pytest
++
++from rosidl_runtime_py._raw_buffer import RawBuffer
++from rosidl_runtime_py.experimental.dtype import Dtype
++from rosidl_runtime_py.experimental.scalar import Scalar
++
++
++# ---------------------------------------------------------------------------
++# RawBuffer — indexing
++# ---------------------------------------------------------------------------
++
++def test_rawbuffer_len():
++    buf = RawBuffer(4)
++    assert len(buf) == 4
++
++
++def test_rawbuffer_getitem():
++    buf = RawBuffer(3)
++    buf[0] = 0xAA
++    buf[1] = 0xBB
++    buf[2] = 0xCC
++    assert buf[0] == 0xAA
++    assert buf[1] == 0xBB
++    assert buf[2] == 0xCC
++
++
++def test_rawbuffer_negative_index():
++    buf = RawBuffer(3)
++    buf[2] = 0xFF
++    assert buf[-1] == 0xFF
++
++
++def test_rawbuffer_index_out_of_range_raises():
++    buf = RawBuffer(2)
++    with pytest.raises(IndexError):
++        _ = buf[5]
++
++
++def test_rawbuffer_setitem_out_of_range_raises():
++    buf = RawBuffer(2)
++    with pytest.raises(IndexError):
++        buf[5] = 0
++
++
++def test_rawbuffer_setitem_bad_value_raises():
++    buf = RawBuffer(1)
++    with pytest.raises(ValueError):
++        buf[0] = 256
++    with pytest.raises(ValueError):
++        buf[0] = -1
++
++
++def test_rawbuffer_setitem_bad_type_raises():
++    buf = RawBuffer(1)
++    with pytest.raises(TypeError):
++        buf[0] = 'x'
++
++
++# ---------------------------------------------------------------------------
++# Construction
++# ---------------------------------------------------------------------------
++
++def test_default_value_is_zero():
++    s = Scalar(Dtype.INT32)
++    assert s.value == 0
++
++
++@pytest.mark.parametrize('dtype, value', [
++    (Dtype.INT32, 42),
++    (Dtype.FLOAT64, 3.14),
++    (Dtype.BOOL, True),
++    (Dtype.UINT8, 255),
++    (Dtype.INT64, -(2**62)),
++])
++def test_initial_value(dtype, value):
++    s = Scalar(dtype, value)
++    if dtype in (Dtype.FLOAT32, Dtype.FLOAT64, Dtype.LONG_DOUBLE):
++        assert abs(s.value - value) < 1e-5
++    else:
++        assert s.value == value
++
++
++def test_dtype_property():
++    s = Scalar(Dtype.UINT16, 7)
++    assert s.dtype is Dtype.UINT16
++
++
++def test_construction_from_buffer():
++    buf = RawBuffer(4)
++    s = Scalar(Dtype.INT32, buffer=buf)
++    assert s.dtype is Dtype.INT32
++    # buffer is re-used, not copied
++    assert s._buffer is buf
++
++
++def test_buffer_ignores_value_argument():
++    buf = RawBuffer(4)
++    # Write little-endian 99 (0x63000000) directly via indexing.
++    buf[0] = 99
++    buf[1] = 0
++    buf[2] = 0
++    buf[3] = 0
++    s = Scalar(Dtype.INT32, 0, buffer=buf)
++    # The value in the buffer (99) is preserved; the value= arg is ignored.
++    assert s.value == 99
++
++
++# ---------------------------------------------------------------------------
++# Value access
++# ---------------------------------------------------------------------------
++
++def test_value_setter():
++    s = Scalar(Dtype.INT32, 0)
++    s.value = 123
++    assert s.value == 123
++
++
++def test_value_setter_clamps_for_integer_types():
++    # numpy silently wraps overflow for integer types.
++    s = Scalar(Dtype.UINT8, 0)
++    s.value = 256   # wraps to 0
++    assert s.value == 0
++
++
++# ---------------------------------------------------------------------------
++# Numeric protocol
++# ---------------------------------------------------------------------------
++
++def test_int_conversion():
++    s = Scalar(Dtype.INT32, 7)
++    assert int(s) == 7
++    assert isinstance(int(s), int)
++
++
++def test_float_conversion():
++    s = Scalar(Dtype.FLOAT64, 2.5)
++    assert float(s) == 2.5
++    assert isinstance(float(s), float)
++
++
++def test_bool_conversion_false():
++    s = Scalar(Dtype.BOOL, False)
++    assert not bool(s)
++
++
++def test_bool_conversion_true():
++    s = Scalar(Dtype.INT32, 1)
++    assert bool(s)
++
++
++def test_index_for_integer_dtype():
++    s = Scalar(Dtype.INT32, 3)
++    lst = [0, 1, 2, 3, 4]
++    assert lst[s] == 3
++
++
++def test_index_raises_for_float_dtype():
++    s = Scalar(Dtype.FLOAT64, 1.0)
++    with pytest.raises(TypeError):
++        _ = [0][s]
++
++
++# ---------------------------------------------------------------------------
++# Equality and hashing
++# ---------------------------------------------------------------------------
++
++def test_eq_same_dtype_same_value():
++    assert Scalar(Dtype.INT32, 5) == Scalar(Dtype.INT32, 5)
++
++
++def test_eq_same_dtype_different_value():
++    assert Scalar(Dtype.INT32, 5) != Scalar(Dtype.INT32, 6)
++
++
++def test_eq_different_dtype():
++    # UINT8 and INT8 with value 1 should compare unequal (dtype differs).
++    assert Scalar(Dtype.UINT8, 1) != Scalar(Dtype.INT8, 1)
++
++
++def test_eq_with_python_scalar():
++    s = Scalar(Dtype.INT32, 42)
++    assert s == 42
++    assert 42 == s
++
++
++def test_hash_equal_scalars():
++    a = Scalar(Dtype.INT32, 10)
++    b = Scalar(Dtype.INT32, 10)
++    assert hash(a) == hash(b)
++
++
++def test_hash_in_set():
++    s = {Scalar(Dtype.INT32, 1), Scalar(Dtype.INT32, 1), Scalar(Dtype.INT32, 2)}
++    assert len(s) == 2
++
++
++# ---------------------------------------------------------------------------
++# numpy / buffer protocols
++# ---------------------------------------------------------------------------
++
++def test_numpy_returns_length_1_array():
++    s = Scalar(Dtype.INT32, 7)
++    arr = s.numpy()
++    assert isinstance(arr, np.ndarray)
++    assert arr.shape == (1,)
++    assert arr[0] == 7
++
++
++def test_numpy_is_live_view():
++    s = Scalar(Dtype.INT32, 0)
++    arr = s.numpy()
++    s.value = 99
++    assert arr[0] == 99
++
++
++def test_numpy_mutation_reflected_in_scalar():
++    s = Scalar(Dtype.INT32, 0)
++    s.numpy()[0] = 55
++    assert s.value == 55
++
++
++def test_buffer_protocol():
++    s = Scalar(Dtype.INT32, 0)
++    mv = memoryview(s)
++    assert len(mv) == Dtype.INT32.itemsize
++
++
++# ---------------------------------------------------------------------------
++# Error cases
++# ---------------------------------------------------------------------------
++
++def test_non_dtype_raises():
++    with pytest.raises(TypeError, match='dtype must be a Dtype'):
++        Scalar('int32')
++
++
++def test_bad_buffer_type_raises():
++    with pytest.raises(TypeError, match='buffer must be a RawBuffer'):
++        Scalar(Dtype.INT32, buffer=b'\x00\x00\x00\x00')
++
++
++def test_undersized_buffer_raises():
++    with pytest.raises(ValueError, match='buffer size'):
++        Scalar(Dtype.INT32, buffer=RawBuffer(2))
++
++
++# ---------------------------------------------------------------------------
++# Representation
++# ---------------------------------------------------------------------------
++
++def test_repr():
++    s = Scalar(Dtype.INT32, 7)
++    assert repr(s) == 'Scalar(Dtype.INT32, 7)'
++
++
++def test_str():
++    s = Scalar(Dtype.FLOAT64, 1.5)
++    assert str(s) == '1.5'
+diff --git a/test/rosidl_runtime_py/experimental/test_sequence.py b/test/rosidl_runtime_py/experimental/test_sequence.py
+new file mode 100644
+index 0000000..05f9d2b
+--- /dev/null
++++ b/test/rosidl_runtime_py/experimental/test_sequence.py
+@@ -0,0 +1,503 @@
++# Copyright 2026 Ekumen, Inc.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++"""Tests for rosidl_runtime_py.experimental.sequence."""
++
++import numpy as np
++import pytest
++
++from rosidl_runtime_py._raw_buffer import RawBuffer
++from rosidl_runtime_py.experimental.dtype import Dtype
++from rosidl_runtime_py.experimental.sequence import BoundedSequence, Sequence
++
++
++# ---------------------------------------------------------------------------
++# Primitive mode — construction
++# ---------------------------------------------------------------------------
++
++def test_primitive_empty():
++    s = Sequence(Dtype.INT32)
++    assert len(s) == 0
++    assert list(s) == []
++
++
++def test_primitive_dtype_property():
++    s = Sequence(Dtype.UINT8)
++    assert s.dtype is Dtype.UINT8
++
++
++def test_primitive_from_buffer_reads_existing_data():
++    import struct
++    buf = RawBuffer(struct.pack('<ii', 3, 7))
++    s = Sequence(Dtype.INT32, buffer=buf)
++    # Logical size starts at 0 — buffer is pre-allocated capacity only.
++    assert len(s) == 0
++    # Capacity is at least 2.
++    assert s.capacity >= 2
++
++
++def test_primitive_bad_buffer_type_raises():
++    with pytest.raises(TypeError, match='RawBuffer'):
++        Sequence(Dtype.INT32, buffer=b'\x00' * 8)
++
++
++# ---------------------------------------------------------------------------
++# Primitive mode — append / extend
++# ---------------------------------------------------------------------------
++
++def test_primitive_append():
++    s = Sequence(Dtype.INT32)
++    s.append(1)
++    s.append(2)
++    s.append(3)
++    assert len(s) == 3
++    assert list(s) == [1, 2, 3]
++
++
++def test_primitive_extend():
++    s = Sequence(Dtype.INT32)
++    s.extend([10, 20, 30])
++    assert len(s) == 3
++    assert list(s) == [10, 20, 30]
++
++
++def test_primitive_extend_empty():
++    s = Sequence(Dtype.INT32)
++    s.extend([])
++    assert len(s) == 0
++
++
++# ---------------------------------------------------------------------------
++# Primitive mode — insert
++# ---------------------------------------------------------------------------
++
++def test_primitive_insert_middle():
++    s = Sequence(Dtype.INT32)
++    s.extend([1, 3])
++    s.insert(1, 2)
++    assert list(s) == [1, 2, 3]
++
++
++def test_primitive_insert_at_start():
++    s = Sequence(Dtype.INT32)
++    s.extend([2, 3])
++    s.insert(0, 1)
++    assert list(s) == [1, 2, 3]
++
++
++def test_primitive_insert_past_end_appends():
++    s = Sequence(Dtype.INT32)
++    s.extend([1, 2])
++    s.insert(100, 3)
++    assert list(s) == [1, 2, 3]
++
++
++# ---------------------------------------------------------------------------
++# Primitive mode — pop / remove
++# ---------------------------------------------------------------------------
++
++def test_primitive_pop_last():
++    s = Sequence(Dtype.INT32)
++    s.extend([1, 2, 3])
++    v = s.pop()
++    assert v == 3
++    assert list(s) == [1, 2]
++
++
++def test_primitive_pop_index():
++    s = Sequence(Dtype.INT32)
++    s.extend([10, 20, 30])
++    v = s.pop(1)
++    assert v == 20
++    assert list(s) == [10, 30]
++
++
++def test_primitive_pop_empty_raises():
++    with pytest.raises(IndexError):
++        Sequence(Dtype.INT32).pop()
++
++
++def test_primitive_remove():
++    s = Sequence(Dtype.INT32)
++    s.extend([1, 2, 1, 3])
++    s.remove(1)
++    assert list(s) == [2, 1, 3]
++
++
++def test_primitive_remove_missing_raises():
++    s = Sequence(Dtype.INT32)
++    s.extend([1, 2])
++    with pytest.raises(ValueError):
++        s.remove(99)
++
++
++# ---------------------------------------------------------------------------
++# Primitive mode — clear / resize
++# ---------------------------------------------------------------------------
++
++def test_primitive_clear():
++    s = Sequence(Dtype.INT32)
++    s.extend([1, 2, 3])
++    s.clear()
++    assert len(s) == 0
++
++
++def test_primitive_resize_grow():
++    s = Sequence(Dtype.INT32)
++    s.resize(3)
++    assert len(s) == 3
++    assert list(s) == [0, 0, 0]
++
++
++def test_primitive_resize_grow_with_fill():
++    s = Sequence(Dtype.INT32)
++    s.resize(3, fill=7)
++    assert list(s) == [7, 7, 7]
++
++
++def test_primitive_resize_shrink():
++    s = Sequence(Dtype.INT32)
++    s.extend([1, 2, 3, 4])
++    s.resize(2)
++    assert list(s) == [1, 2]
++
++
++# ---------------------------------------------------------------------------
++# Primitive mode — getitem / setitem / delitem
++# ---------------------------------------------------------------------------
++
++def test_primitive_getitem_int():
++    s = Sequence(Dtype.INT32)
++    s.extend([10, 20, 30])
++    assert s[1] == 20
++
++
++def test_primitive_getitem_negative():
++    s = Sequence(Dtype.INT32)
++    s.extend([10, 20, 30])
++    assert s[-1] == 30
++
++
++def test_primitive_getitem_slice():
++    s = Sequence(Dtype.INT32)
++    s.extend([1, 2, 3, 4, 5])
++    assert list(s[1:4]) == [2, 3, 4]
++
++
++def test_primitive_setitem():
++    s = Sequence(Dtype.INT32)
++    s.extend([0, 0, 0])
++    s[1] = 99
++    assert s[1] == 99
++
++
++def test_primitive_delitem_int():
++    s = Sequence(Dtype.INT32)
++    s.extend([1, 2, 3])
++    del s[1]
++    assert list(s) == [1, 3]
++
++
++def test_primitive_delitem_slice():
++    s = Sequence(Dtype.INT32)
++    s.extend([1, 2, 3, 4])
++    del s[1:3]
++    assert list(s) == [1, 4]
++
++
++def test_primitive_getitem_out_of_range_raises():
++    s = Sequence(Dtype.INT32)
++    s.append(1)
++    with pytest.raises(IndexError):
++        _ = s[5]
++
++
++# ---------------------------------------------------------------------------
++# Primitive mode — iter / contains / reversed
++# ---------------------------------------------------------------------------
++
++def test_primitive_iter_python_scalars():
++    s = Sequence(Dtype.INT32)
++    s.extend([1, 2, 3])
++    items = list(s)
++    assert all(isinstance(x, int) for x in items)
++    assert items == [1, 2, 3]
++
++
++def test_primitive_contains():
++    s = Sequence(Dtype.INT32)
++    s.extend([1, 2, 3])
++    assert 2 in s
++    assert 9 not in s
++
++
++def test_primitive_reversed():
++    s = Sequence(Dtype.INT32)
++    s.extend([1, 2, 3])
++    assert list(reversed(s)) == [3, 2, 1]
++
++
++# ---------------------------------------------------------------------------
++# Primitive mode — equality
++# ---------------------------------------------------------------------------
++
++def test_primitive_eq_sequence():
++    a = Sequence(Dtype.INT32)
++    b = Sequence(Dtype.INT32)
++    a.extend([1, 2, 3])
++    b.extend([1, 2, 3])
++    assert a == b
++
++
++def test_primitive_eq_list():
++    s = Sequence(Dtype.INT32)
++    s.extend([1, 2])
++    assert s == [1, 2]
++
++
++def test_primitive_neq_different_size():
++    a = Sequence(Dtype.INT32)
++    b = Sequence(Dtype.INT32)
++    a.extend([1, 2])
++    b.extend([1, 2, 3])
++    assert a != b
++
++
++# ---------------------------------------------------------------------------
++# Primitive mode — numpy / buffer
++# ---------------------------------------------------------------------------
++
++def test_primitive_numpy_view():
++    s = Sequence(Dtype.INT32)
++    s.extend([1, 2, 3])
++    arr = s.numpy()
++    assert isinstance(arr, np.ndarray)
++    assert list(arr) == [1, 2, 3]
++
++
++def test_primitive_buffer_protocol():
++    s = Sequence(Dtype.INT32)
++    s.extend([1, 2])
++    mv = memoryview(s)
++    assert len(mv) == s._buffer.size
++
++
++def test_primitive_capacity_property():
++    s = Sequence(Dtype.INT32)
++    s.append(1)
++    assert s.capacity >= 1
++
++
++# ---------------------------------------------------------------------------
++# Object mode — construction
++# ---------------------------------------------------------------------------
++
++def test_object_empty():
++    s = Sequence(list)
++    assert len(s) == 0
++
++
++def test_object_dtype_property():
++    s = Sequence(dict)
++    assert s.dtype is dict
++
++
++def test_object_buffer_raises():
++    with pytest.raises(TypeError, match='buffer='):
++        Sequence(list, buffer=RawBuffer(16))
++
++
++# ---------------------------------------------------------------------------
++# Object mode — mutation
++# ---------------------------------------------------------------------------
++
++def test_object_append():
++    s = Sequence(object)
++    s.append('hello')
++    s.append(42)
++    assert len(s) == 2
++    assert list(s) == ['hello', 42]
++
++
++def test_object_extend():
++    s = Sequence(object)
++    s.extend(['a', 'b', 'c'])
++    assert list(s) == ['a', 'b', 'c']
++
++
++def test_object_insert():
++    s = Sequence(object)
++    s.extend([1, 3])
++    s.insert(1, 2)
++    assert list(s) == [1, 2, 3]
++
++
++def test_object_pop():
++    s = Sequence(object)
++    s.extend(['x', 'y', 'z'])
++    v = s.pop()
++    assert v == 'z'
++    assert len(s) == 2
++
++
++def test_object_remove():
++    s = Sequence(object)
++    s.extend([1, 2, 1])
++    s.remove(1)
++    assert list(s) == [2, 1]
++
++
++def test_object_clear():
++    s = Sequence(object)
++    s.extend([1, 2, 3])
++    s.clear()
++    assert len(s) == 0
++
++
++def test_object_resize_grow():
++    s = Sequence(object)
++    s.resize(3, fill='default')
++    assert list(s) == ['default', 'default', 'default']
++
++
++def test_object_resize_shrink():
++    s = Sequence(object)
++    s.extend([1, 2, 3, 4])
++    s.resize(2)
++    assert list(s) == [1, 2]
++
++
++def test_object_delitem():
++    s = Sequence(object)
++    s.extend(['a', 'b', 'c'])
++    del s[1]
++    assert list(s) == ['a', 'c']
++
++
++def test_object_delitem_slice():
++    s = Sequence(object)
++    s.extend([0, 1, 2, 3])
++    del s[1:3]
++    assert list(s) == [0, 3]
++
++
++def test_object_contains_identity():
++    s = Sequence(object)
++    obj = object()
++    s.append(obj)
++    assert obj in s
++    assert object() not in s
++
++
++def test_object_setitem():
++    s = Sequence(object)
++    s.extend([None, None])
++    s[0] = 'replaced'
++    assert s[0] == 'replaced'
++
++
++# ---------------------------------------------------------------------------
++# Object mode — numpy / buffer
++# ---------------------------------------------------------------------------
++
++def test_object_numpy_returns_object_view():
++    s = Sequence(object)
++    s.extend([1, 'two', 3.0])
++    arr = s.numpy()
++    assert arr.dtype == object
++    assert list(arr) == [1, 'two', 3.0]
++
++
++def test_object_buffer_protocol_raises():
++    s = Sequence(object)
++    with pytest.raises(TypeError, match='__buffer__'):
++        memoryview(s)
++
++
++# ---------------------------------------------------------------------------
++# BoundedSequence
++# ---------------------------------------------------------------------------
++
++def test_bounded_max_size():
++    s = BoundedSequence(Dtype.INT32, 5)
++    assert s.max_size == 5
++
++
++def test_bounded_append_at_limit():
++    s = BoundedSequence(Dtype.INT32, 3)
++    s.append(1)
++    s.append(2)
++    s.append(3)
++    assert len(s) == 3
++
++
++def test_bounded_append_over_limit_raises():
++    s = BoundedSequence(Dtype.INT32, 2)
++    s.append(1)
++    s.append(2)
++    with pytest.raises(ValueError, match='upper bound'):
++        s.append(3)
++
++
++def test_bounded_extend_over_limit_raises():
++    s = BoundedSequence(Dtype.INT32, 2)
++    with pytest.raises(ValueError, match='upper bound'):
++        s.extend([1, 2, 3])
++
++
++def test_bounded_resize_over_limit_raises():
++    s = BoundedSequence(Dtype.INT32, 2)
++    with pytest.raises(ValueError, match='upper bound'):
++        s.resize(3)
++
++
++def test_bounded_insert_over_limit_raises():
++    s = BoundedSequence(Dtype.INT32, 1)
++    s.append(1)
++    with pytest.raises(ValueError, match='upper bound'):
++        s.insert(0, 0)
++
++
++def test_bounded_zero_upper_bound_raises():
++    with pytest.raises(ValueError, match='positive integer'):
++        BoundedSequence(Dtype.INT32, 0)
++
++
++def test_bounded_object_mode():
++    s = BoundedSequence(object, 2)
++    s.append('a')
++    s.append('b')
++    with pytest.raises(ValueError, match='upper bound'):
++        s.append('c')
++
++
++# ---------------------------------------------------------------------------
++# Representation
++# ---------------------------------------------------------------------------
++
++def test_repr_sequence():
++    s = Sequence(Dtype.INT32)
++    s.extend([1, 2])
++    r = repr(s)
++    assert 'Sequence' in r
++    assert 'Dtype.INT32' in r
++    assert '[1, 2]' in r
++
++
++def test_repr_bounded():
++    s = BoundedSequence(Dtype.INT32, 10)
++    s.append(5)
++    r = repr(s)
++    assert 'BoundedSequence' in r
++    assert '10' in r
+diff --git a/test/rosidl_runtime_py/experimental/test_string.py b/test/rosidl_runtime_py/experimental/test_string.py
+new file mode 100644
+index 0000000..7bea363
+--- /dev/null
++++ b/test/rosidl_runtime_py/experimental/test_string.py
+@@ -0,0 +1,535 @@
++# Copyright 2026 Ekumen, Inc.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++"""Tests for rosidl_runtime_py.experimental.string."""
++
++import numpy as np
++import pytest
++
++from rosidl_runtime_py._raw_buffer import RawBuffer
++from rosidl_runtime_py.experimental.dtype import Dtype
++from rosidl_runtime_py.experimental.string import (
++    BoundedString,
++    BoundedWString,
++    String,
++    WString,
++)
++
++
++# ===========================================================================
++# String
++# ===========================================================================
++
++class TestString:
++
++    # -----------------------------------------------------------------------
++    # Construction
++    # -----------------------------------------------------------------------
++
++    def test_empty(self):
++        s = String()
++        assert len(s) == 0
++        assert str(s) == ''
++
++    def test_dtype(self):
++        assert String().dtype is Dtype.CHAR
++
++    def test_from_buffer(self):
++        buf = RawBuffer()
++        s = String(buffer=buf)
++        assert s._buffer is buf
++
++    def test_bad_buffer_type_raises(self):
++        with pytest.raises(TypeError, match='RawBuffer'):
++            String(buffer=b'hello')
++
++    # -----------------------------------------------------------------------
++    # assign / append_str
++    # -----------------------------------------------------------------------
++
++    def test_assign_str(self):
++        s = String()
++        s.assign('hello')
++        assert str(s) == 'hello'
++        assert len(s) == 5
++
++    def test_assign_bytes(self):
++        s = String()
++        s.assign(b'world')
++        assert str(s) == 'world'
++
++    def test_assign_replaces_content(self):
++        s = String()
++        s.assign('first')
++        s.assign('second')
++        assert str(s) == 'second'
++
++    def test_assign_empty_string(self):
++        s = String()
++        s.assign('hello')
++        s.assign('')
++        assert len(s) == 0
++        assert str(s) == ''
++
++    def test_assign_utf8_multibyte(self):
++        # 'café' is 5 UTF-8 bytes (c-a-f-é, where é is 2 bytes).
++        s = String()
++        s.assign('café')
++        assert len(s) == 5
++        assert str(s) == 'café'
++
++    def test_append_str(self):
++        s = String()
++        s.assign('hello')
++        s.append_str(' world')
++        assert str(s) == 'hello world'
++        assert len(s) == 11
++
++    def test_append_str_to_empty(self):
++        s = String()
++        s.append_str('hi')
++        assert str(s) == 'hi'
++
++    def test_assign_bad_type_raises(self):
++        with pytest.raises(TypeError, match='assign'):
++            String().assign(42)
++
++    # -----------------------------------------------------------------------
++    # MutableSequence protocol (byte-level)
++    # -----------------------------------------------------------------------
++
++    def test_getitem_byte(self):
++        s = String()
++        s.assign('ABC')
++        assert s[0] == ord('A')
++        assert s[1] == ord('B')
++        assert s[2] == ord('C')
++
++    def test_getitem_negative(self):
++        s = String()
++        s.assign('ABC')
++        assert s[-1] == ord('C')
++
++    def test_getitem_slice(self):
++        s = String()
++        s.assign('ABCDE')
++        assert list(s[1:4]) == [ord('B'), ord('C'), ord('D')]
++
++    def test_getitem_out_of_range_raises(self):
++        s = String()
++        s.assign('AB')
++        with pytest.raises(IndexError):
++            _ = s[5]
++
++    def test_setitem(self):
++        s = String()
++        s.assign('hello')
++        s[0] = ord('H')
++        assert str(s) == 'Hello'
++
++    def test_delitem_int(self):
++        s = String()
++        s.assign('ABC')
++        del s[1]
++        assert len(s) == 2
++        assert s[0] == ord('A')
++        assert s[1] == ord('C')
++
++    def test_delitem_slice(self):
++        s = String()
++        s.assign('ABCDE')
++        del s[1:4]
++        assert len(s) == 2
++        assert s[0] == ord('A')
++        assert s[1] == ord('E')
++
++    def test_append_byte(self):
++        s = String()
++        s.assign('AB')
++        s.append(ord('C'))
++        assert str(s) == 'ABC'
++
++    def test_insert_byte(self):
++        s = String()
++        s.assign('AC')
++        s.insert(1, ord('B'))
++        assert str(s) == 'ABC'
++
++    def test_clear(self):
++        s = String()
++        s.assign('hello')
++        s.clear()
++        assert len(s) == 0
++
++    def test_iter(self):
++        s = String()
++        s.assign('ABC')
++        assert list(s) == [ord('A'), ord('B'), ord('C')]
++
++    def test_contains(self):
++        s = String()
++        s.assign('hello')
++        assert ord('e') in s
++        assert ord('z') not in s
++
++    def test_reversed(self):
++        s = String()
++        s.assign('ABC')
++        assert list(reversed(s)) == [ord('C'), ord('B'), ord('A')]
++
++    # -----------------------------------------------------------------------
++    # Equality
++    # -----------------------------------------------------------------------
++
++    def test_eq_string(self):
++        a = String()
++        b = String()
++        a.assign('hello')
++        b.assign('hello')
++        assert a == b
++
++    def test_eq_str(self):
++        s = String()
++        s.assign('hello')
++        assert s == 'hello'
++
++    def test_neq_str(self):
++        s = String()
++        s.assign('hello')
++        assert s != 'world'
++
++    # -----------------------------------------------------------------------
++    # numpy / buffer
++    # -----------------------------------------------------------------------
++
++    def test_numpy(self):
++        s = String()
++        s.assign('ABC')
++        arr = s.numpy()
++        assert isinstance(arr, np.ndarray)
++        assert arr.dtype == np.uint8
++        assert list(arr) == [ord('A'), ord('B'), ord('C')]
++
++    def test_buffer_protocol(self):
++        s = String()
++        s.assign('hello')
++        mv = memoryview(s)
++        assert len(mv) == s._buffer.size
++
++    # -----------------------------------------------------------------------
++    # repr
++    # -----------------------------------------------------------------------
++
++    def test_repr(self):
++        s = String()
++        s.assign('hi')
++        assert repr(s) == "String('hi')"
++
++
++# ===========================================================================
++# WString
++# ===========================================================================
++
++class TestWString:
++
++    # -----------------------------------------------------------------------
++    # Construction
++    # -----------------------------------------------------------------------
++
++    def test_empty(self):
++        s = WString()
++        assert len(s) == 0
++        assert str(s) == ''
++
++    def test_dtype(self):
++        assert WString().dtype is Dtype.WCHAR
++
++    def test_from_buffer(self):
++        buf = RawBuffer()
++        s = WString(buffer=buf)
++        assert s._buffer is buf
++
++    # -----------------------------------------------------------------------
++    # assign / append_str
++    # -----------------------------------------------------------------------
++
++    def test_assign_str(self):
++        s = WString()
++        s.assign('hello')
++        assert str(s) == 'hello'
++        assert len(s) == 5   # 5 UTF-16 code units
++
++    def test_assign_multibyte(self):
++        # 'café' — 4 code units in UTF-16-LE.
++        s = WString()
++        s.assign('café')
++        assert len(s) == 4
++        assert str(s) == 'café'
++
++    def test_assign_surrogates(self):
++        # U+1F600 (😀) encodes as 2 code units in UTF-16.
++        s = WString()
++        s.assign('\U0001F600')
++        assert len(s) == 2
++        assert str(s) == '\U0001F600'
++
++    def test_assign_replaces_content(self):
++        s = WString()
++        s.assign('first')
++        s.assign('second')
++        assert str(s) == 'second'
++
++    def test_append_str(self):
++        s = WString()
++        s.assign('hello')
++        s.append_str(' world')
++        assert str(s) == 'hello world'
++        assert len(s) == 11
++
++    def test_assign_bytes(self):
++        data = 'AB'.encode('utf-16-le')
++        s = WString()
++        s.assign(data)
++        assert len(s) == 2
++        assert str(s) == 'AB'
++
++    def test_assign_odd_bytes_raises(self):
++        with pytest.raises(ValueError, match='even length'):
++            WString().assign(b'\x00\x00\x00')
++
++    # -----------------------------------------------------------------------
++    # MutableSequence protocol (code-unit level)
++    # -----------------------------------------------------------------------
++
++    def test_getitem_unit(self):
++        s = WString()
++        s.assign('ABC')
++        assert s[0] == ord('A')
++        assert s[-1] == ord('C')
++
++    def test_getitem_slice(self):
++        s = WString()
++        s.assign('ABCDE')
++        assert list(s[1:4]) == [ord('B'), ord('C'), ord('D')]
++
++    def test_getitem_out_of_range_raises(self):
++        s = WString()
++        s.assign('AB')
++        with pytest.raises(IndexError):
++            _ = s[5]
++
++    def test_setitem(self):
++        s = WString()
++        s.assign('hello')
++        s[0] = ord('H')
++        assert str(s) == 'Hello'
++
++    def test_delitem(self):
++        s = WString()
++        s.assign('ABC')
++        del s[1]
++        assert len(s) == 2
++        assert s[0] == ord('A')
++        assert s[1] == ord('C')
++
++    def test_append_unit(self):
++        s = WString()
++        s.assign('AB')
++        s.append(ord('C'))
++        assert str(s) == 'ABC'
++
++    def test_insert_unit(self):
++        s = WString()
++        s.assign('AC')
++        s.insert(1, ord('B'))
++        assert str(s) == 'ABC'
++
++    def test_clear(self):
++        s = WString()
++        s.assign('hello')
++        s.clear()
++        assert len(s) == 0
++
++    def test_iter(self):
++        s = WString()
++        s.assign('ABC')
++        assert list(s) == [ord('A'), ord('B'), ord('C')]
++
++    def test_contains(self):
++        s = WString()
++        s.assign('hello')
++        assert ord('e') in s
++        assert ord('z') not in s
++
++    def test_reversed(self):
++        s = WString()
++        s.assign('ABC')
++        assert list(reversed(s)) == [ord('C'), ord('B'), ord('A')]
++
++    # -----------------------------------------------------------------------
++    # Equality
++    # -----------------------------------------------------------------------
++
++    def test_eq_wstring(self):
++        a = WString()
++        b = WString()
++        a.assign('hello')
++        b.assign('hello')
++        assert a == b
++
++    def test_eq_str(self):
++        s = WString()
++        s.assign('hello')
++        assert s == 'hello'
++
++    # -----------------------------------------------------------------------
++    # numpy / buffer
++    # -----------------------------------------------------------------------
++
++    def test_numpy(self):
++        s = WString()
++        s.assign('ABC')
++        arr = s.numpy()
++        assert isinstance(arr, np.ndarray)
++        assert arr.dtype == np.dtype('<u2')
++        assert list(arr) == [ord('A'), ord('B'), ord('C')]
++
++    def test_buffer_protocol(self):
++        s = WString()
++        s.assign('hello')
++        mv = memoryview(s)
++        assert len(mv) == s._buffer.size
++
++    # -----------------------------------------------------------------------
++    # repr
++    # -----------------------------------------------------------------------
++
++    def test_repr(self):
++        s = WString()
++        s.assign('hi')
++        assert repr(s) == "WString('hi')"
++
++
++# ===========================================================================
++# BoundedString
++# ===========================================================================
++
++class TestBoundedString:
++
++    def test_max_size(self):
++        s = BoundedString(10)
++        assert s.max_size == 10
++
++    def test_assign_within_bound(self):
++        s = BoundedString(5)
++        s.assign('hello')
++        assert str(s) == 'hello'
++
++    def test_assign_over_bound_raises(self):
++        s = BoundedString(4)
++        with pytest.raises(ValueError, match='upper bound'):
++            s.assign('hello')  # 5 bytes > 4
++
++    def test_append_str_over_bound_raises(self):
++        s = BoundedString(5)
++        s.assign('hello')
++        with pytest.raises(ValueError, match='upper bound'):
++            s.append_str('!')
++
++    def test_append_byte_over_bound_raises(self):
++        s = BoundedString(3)
++        s.assign('ABC')
++        with pytest.raises(ValueError, match='upper bound'):
++            s.append(ord('D'))
++
++    def test_insert_over_bound_raises(self):
++        s = BoundedString(3)
++        s.assign('ABC')
++        with pytest.raises(ValueError, match='upper bound'):
++            s.insert(0, ord('X'))
++
++    def test_zero_upper_bound_raises(self):
++        with pytest.raises(ValueError, match='positive integer'):
++            BoundedString(0)
++
++    def test_repr(self):
++        s = BoundedString(10)
++        s.assign('hi')
++        assert repr(s) == "BoundedString(10, 'hi')"
++
++    def test_utf8_multibyte_bound_enforced_on_bytes(self):
++        # 'café' = 5 UTF-8 bytes; bound of 4 should reject it.
++        s = BoundedString(4)
++        with pytest.raises(ValueError, match='upper bound'):
++            s.assign('café')
++
++    def test_inherits_string_interface(self):
++        s = BoundedString(20)
++        s.assign('hello')
++        s.append_str(' world')
++        assert str(s) == 'hello world'
++
++
++# ===========================================================================
++# BoundedWString
++# ===========================================================================
++
++class TestBoundedWString:
++
++    def test_max_size(self):
++        s = BoundedWString(10)
++        assert s.max_size == 10
++
++    def test_assign_within_bound(self):
++        s = BoundedWString(5)
++        s.assign('hello')
++        assert str(s) == 'hello'
++
++    def test_assign_over_bound_raises(self):
++        s = BoundedWString(4)
++        with pytest.raises(ValueError, match='upper bound'):
++            s.assign('hello')  # 5 code units > 4
++
++    def test_append_str_over_bound_raises(self):
++        s = BoundedWString(5)
++        s.assign('hello')
++        with pytest.raises(ValueError, match='upper bound'):
++            s.append_str('!')
++
++    def test_append_unit_over_bound_raises(self):
++        s = BoundedWString(3)
++        s.assign('ABC')
++        with pytest.raises(ValueError, match='upper bound'):
++            s.append(ord('D'))
++
++    def test_zero_upper_bound_raises(self):
++        with pytest.raises(ValueError, match='positive integer'):
++            BoundedWString(0)
++
++    def test_repr(self):
++        s = BoundedWString(10)
++        s.assign('hi')
++        assert repr(s) == "BoundedWString(10, 'hi')"
++
++    def test_surrogate_pair_bound_counted_as_two_units(self):
++        # U+1F600 = 2 code units; bound of 1 should reject it.
++        s = BoundedWString(1)
++        with pytest.raises(ValueError, match='upper bound'):
++            s.assign('\U0001F600')
++
++    def test_inherits_wstring_interface(self):
++        s = BoundedWString(20)
++        s.assign('hello')
++        s.append_str(' world')
++        assert str(s) == 'hello world'
