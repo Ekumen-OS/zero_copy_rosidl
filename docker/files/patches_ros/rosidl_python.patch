@@ -1,12 +1,1587 @@
-diff --git a/CMakeLists.txt b/CMakeLists.txt
+diff --git a/rosidl_generator_py/CMakeLists.txt b/rosidl_generator_py/CMakeLists.txt
+index e5ff834..08a56b5 100644
+--- a/rosidl_generator_py/CMakeLists.txt
++++ b/rosidl_generator_py/CMakeLists.txt
+@@ -31,7 +31,7 @@ if(BUILD_TESTING)
+   # Need to call extras before get_typesupports, to register the extension
+   rosidl_generator_py_extras(
+     "${CMAKE_CURRENT_SOURCE_DIR}/bin/rosidl_generator_py"
+-    "${CMAKE_CURRENT_SOURCE_DIR}/rosidl_generator_py/__init__.py;${CMAKE_CURRENT_SOURCE_DIR}/rosidl_generator_py/generate_py_impl.py"
++    "${CMAKE_CURRENT_SOURCE_DIR}/rosidl_generator_py/__init__.py;${CMAKE_CURRENT_SOURCE_DIR}/rosidl_generator_py/generate_py_impl.py;${CMAKE_CURRENT_SOURCE_DIR}/rosidl_generator_py/experimental.py"
+     "${CMAKE_CURRENT_SOURCE_DIR}/resource"
+   )
+ 
+@@ -75,6 +75,18 @@ if(BUILD_TESTING)
+       APPEND_LIBRARY_DIRS "${_append_library_dirs}"
+       WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_py"
+     )
++
++    ament_add_pytest_test(test_experimental_py test/test_experimental.py
++      APPEND_ENV "PYTHONPATH=${pythonpath}"
++      APPEND_LIBRARY_DIRS "${_append_library_dirs}"
++      WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_py"
++    )
++
++    ament_add_pytest_test(test_experimental_interfaces_py test/test_experimental_interfaces.py
++      APPEND_ENV "PYTHONPATH=${pythonpath}"
++      APPEND_LIBRARY_DIRS "${_append_library_dirs}"
++      WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_py"
++    )
+   endif()
+ endif()
+ 
+diff --git a/rosidl_generator_py/cmake/rosidl_generator_py_generate_interfaces.cmake b/rosidl_generator_py/cmake/rosidl_generator_py_generate_interfaces.cmake
+index ab5375e..7ce9503 100644
+--- a/rosidl_generator_py/cmake/rosidl_generator_py_generate_interfaces.cmake
++++ b/rosidl_generator_py/cmake/rosidl_generator_py_generate_interfaces.cmake
+@@ -62,6 +62,8 @@ foreach(_abs_idl_file ${rosidl_generate_interfaces_ABS_IDL_FILES})
+     "${_output_path}/${_parent_folder}/_${_module_name}.py")
+   list(APPEND _generated_c_files
+     "${_output_path}/${_parent_folder}/_${_module_name}_s.c")
++  list(APPEND _generated_py_files
++    "${_output_path}/${_parent_folder}/experimental/_${_module_name}.py")
+ endforeach()
+ 
+ file(MAKE_DIRECTORY "${_output_path}")
+@@ -115,6 +117,10 @@ set(target_dependencies
+   "${rosidl_generator_py_TEMPLATE_DIR}/_msg.py.em"
+   "${rosidl_generator_py_TEMPLATE_DIR}/_srv_pkg_typesupport_entry_point.c.em"
+   "${rosidl_generator_py_TEMPLATE_DIR}/_srv.py.em"
++  "${rosidl_generator_py_TEMPLATE_DIR}/_idl_experimental.py.em"
++  "${rosidl_generator_py_TEMPLATE_DIR}/_msg_experimental.py.em"
++  "${rosidl_generator_py_TEMPLATE_DIR}/_srv_experimental.py.em"
++  "${rosidl_generator_py_TEMPLATE_DIR}/_action_experimental.py.em"
+   ${rosidl_generate_interfaces_ABS_IDL_FILES}
+   ${_dependency_files})
+ foreach(dep ${target_dependencies})
+diff --git a/rosidl_generator_py/package.xml b/rosidl_generator_py/package.xml
+index 7c19630..6098360 100644
+--- a/rosidl_generator_py/package.xml
++++ b/rosidl_generator_py/package.xml
+@@ -46,6 +46,7 @@
+   <exec_depend>rosidl_generator_c</exec_depend>
+   <exec_depend>rosidl_parser</exec_depend>
+   <exec_depend>rosidl_runtime_c</exec_depend>
++  <exec_depend>rosidl_runtime_cpython</exec_depend>
+   <exec_depend>rpyutils</exec_depend>
+ 
+   <test_depend>ament_cmake_pytest</test_depend>
+diff --git a/rosidl_generator_py/resource/_action_experimental.py.em b/rosidl_generator_py/resource/_action_experimental.py.em
 new file mode 100644
-index 0000000..5164fb3
+index 0000000..b47eb0c
 --- /dev/null
-+++ b/CMakeLists.txt
-@@ -0,0 +1,79 @@
++++ b/rosidl_generator_py/resource/_action_experimental.py.em
+@@ -0,0 +1,48 @@
++@# Included from rosidl_generator_py/resource/_idl_experimental.py.em
++@{
++TEMPLATE(
++    '_msg_experimental.py.em',
++    package_name=package_name, interface_path=interface_path,
++    message=action.goal)
++}@
++@{
++TEMPLATE(
++    '_msg_experimental.py.em',
++    package_name=package_name, interface_path=interface_path,
++    message=action.result)
++}@
++@{
++TEMPLATE(
++    '_msg_experimental.py.em',
++    package_name=package_name, interface_path=interface_path,
++    message=action.feedback)
++}@
++@{
++TEMPLATE(
++    '_msg_experimental.py.em',
++    package_name=package_name, interface_path=interface_path,
++    message=action.feedback_message)
++}@
++@{
++TEMPLATE(
++    '_srv_experimental.py.em',
++    package_name=package_name, interface_path=interface_path,
++    service=action.send_goal_service)
++}@
++@{
++TEMPLATE(
++    '_srv_experimental.py.em',
++    package_name=package_name, interface_path=interface_path,
++    service=action.get_result_service)
++}@
++
++
++class @(action.namespaced_type.name):
++    """Experimental action class '@(action.namespaced_type.name)'."""
++
++    Goal = @(action.goal.structure.namespaced_type.name)
++    Result = @(action.result.structure.namespaced_type.name)
++    Feedback = @(action.feedback.structure.namespaced_type.name)
++    FeedbackMessage = @(action.feedback_message.structure.namespaced_type.name)
++    SendGoal = @(action.send_goal_service.namespaced_type.name)
++    GetResult = @(action.get_result_service.namespaced_type.name)
+diff --git a/rosidl_generator_py/resource/_idl_experimental.py.em b/rosidl_generator_py/resource/_idl_experimental.py.em
+new file mode 100644
+index 0000000..f227d8d
+--- /dev/null
++++ b/rosidl_generator_py/resource/_idl_experimental.py.em
+@@ -0,0 +1,67 @@
++@# Top-level EmPy template for generating experimental _<idl>_experimental.py files
++@#
++@# Context:
++@#  - package_name (string)
++@#  - interface_path (Path relative to the directory named after the package)
++@#  - content (IdlContent, list of elements, e.g. Messages or Services)
++@{
++from rosidl_parser.definition import Message
++from rosidl_parser.definition import Service
++from rosidl_parser.definition import Action
++}@
++# generated from rosidl_generator_py/resource/_idl_experimental.py.em
++# with input from @(package_name):@(interface_path)
++# generated code does not contain a copyright notice
++
++from __future__ import annotations
++
++import dataclasses
++
++from rosidl_runtime_cpython import (
++    Array,
++    BoundedSequence,
++    BoundedString,
++    BoundedWString,
++    Dtype,
++    MessageInitialization,
++    RawBuffer,
++    Scalar,
++    Sequence,
++    SequenceConstraint,
++    String,
++    StringConstraint,
++    WString,
++)
++@
++@#######################################################################
++@# Handle messages
++@#######################################################################
++@[for message in content.get_elements_of_type(Message)]@
++@{
++TEMPLATE(
++    '_msg_experimental.py.em',
++    package_name=package_name, interface_path=interface_path, message=message)
++}@
++@[end for]@
++@
++@#######################################################################
++@# Handle services
++@#######################################################################
++@[for service in content.get_elements_of_type(Service)]@
++@{
++TEMPLATE(
++    '_srv_experimental.py.em',
++    package_name=package_name, interface_path=interface_path, service=service)
++}@
++@[end for]@
++@
++@#######################################################################
++@# Handle actions
++@#######################################################################
++@[for action in content.get_elements_of_type(Action)]@
++@{
++TEMPLATE(
++    '_action_experimental.py.em',
++    package_name=package_name, interface_path=interface_path, action=action)
++}@
++@[end for]@
+diff --git a/rosidl_generator_py/resource/_msg_experimental.py.em b/rosidl_generator_py/resource/_msg_experimental.py.em
+new file mode 100644
+index 0000000..9830d0d
+--- /dev/null
++++ b/rosidl_generator_py/resource/_msg_experimental.py.em
+@@ -0,0 +1,374 @@
++@# Included from rosidl_generator_py/resource/_idl_experimental.py.em
++@{
++from rosidl_pycommon import convert_camel_case_to_lower_case_underscore
++from rosidl_generator_py.experimental import BASIC_TYPE_TO_DTYPE
++from rosidl_generator_py.experimental import experimental_constraint_type
++from rosidl_generator_py.experimental import experimental_default_value_expr
++from rosidl_generator_py.experimental import experimental_msg_type
++from rosidl_generator_py.experimental import experimental_storage_init_expr
++from rosidl_generator_py.experimental import experimental_storage_type
++from rosidl_generator_py.experimental import experimental_submsg_members
++from rosidl_generator_py.generate_py_impl import constant_value_to_py
++from rosidl_parser.definition import AbstractGenericString
++from rosidl_parser.definition import AbstractNestedType
++from rosidl_parser.definition import AbstractSequence
++from rosidl_parser.definition import AbstractString
++from rosidl_parser.definition import AbstractWString
++from rosidl_parser.definition import ACTION_FEEDBACK_SUFFIX
++from rosidl_parser.definition import ACTION_GOAL_SUFFIX
++from rosidl_parser.definition import ACTION_RESULT_SUFFIX
++from rosidl_parser.definition import Array
++from rosidl_parser.definition import BasicType
++from rosidl_parser.definition import BoundedSequence
++from rosidl_parser.definition import EMPTY_STRUCTURE_REQUIRED_MEMBER_NAME
++from rosidl_parser.definition import NamespacedType
++from rosidl_parser.definition import SERVICE_REQUEST_MESSAGE_SUFFIX
++from rosidl_parser.definition import SERVICE_RESPONSE_MESSAGE_SUFFIX
++from rosidl_parser.definition import UnboundedSequence
++}@
++@
++@#<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
++@# Collect import directives for sub-message member types
++@{
++from collections import OrderedDict
++submsg_imports = OrderedDict()
++for member in message.structure.members:
++    type_ = member.type
++    if isinstance(type_, AbstractNestedType):
++        type_ = type_.value_type
++    if isinstance(type_, NamespacedType):
++        if (
++            message.structure.namespaced_type.namespaces[-1] in ['action', 'srv'] and (
++                type_.name.endswith(SERVICE_REQUEST_MESSAGE_SUFFIX) or
++                type_.name.endswith(SERVICE_RESPONSE_MESSAGE_SUFFIX)
++            )
++        ):
++            typename = type_.name.rsplit('_', 1)[0]
++            if typename == message.structure.namespaced_type.name.rsplit('_', 1)[0]:
++                continue
++        if (
++            type_.name.endswith(ACTION_GOAL_SUFFIX) or
++            type_.name.endswith(ACTION_RESULT_SUFFIX) or
++            type_.name.endswith(ACTION_FEEDBACK_SUFFIX)
++        ):
++            typename = type_.name.rsplit('_', 1)[0]
++        else:
++            typename = type_.name
++        module_path = '.'.join(type_.namespaces) + '.experimental'
++        submsg_imports.setdefault((module_path, type_.name), []).append(member.name)
++}@
++@#>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
++@
++@[if submsg_imports]@
++# Import sub-message types
++@[  for (module_path, type_name), member_names in submsg_imports.items()]@
++@[    for member_name in member_names]@
++# Member '@(member_name)'
++@[    end for]@
++from @(module_path) import @(type_name)
++@[  end for]@
++@[end if]@
++
++@{
++# Check if this is an empty structure
++is_empty_struct = (
++    len(message.structure.members) == 1 and
++    message.structure.members[0].name == EMPTY_STRUCTURE_REQUIRED_MEMBER_NAME
++)
++
++# Gather constraint fields
++constraint_fields = []
++for m in message.structure.members:
++    ct = experimental_constraint_type(m.type)
++    if ct is not None:
++        constraint_fields.append((m.name, ct))
++}@
++
++class @(message.structure.namespaced_type.name):
++    """Experimental message class '@(message.structure.namespaced_type.name)'.
++
++    Uses experimental container types from rosidl_runtime_py.experimental.
++    """
++
++@[if message.constants]@
++    # Constants
++@[  for constant in message.constants]@
++    @(constant.name) = @constant_value_to_py(constant.type, constant.value)
++@[  end for]@
++
++@[end if]@
++    class Constraints:
++        """Per-member constraints for variable-length members."""
++
++        __slots__ = (@
++@[if constraint_fields]@
++'@("', '".join(name for name, _ in constraint_fields))',@
++@[end if]@
++)
++
++        def __init__(self@
++@[for field_name, field_type in constraint_fields]@
++, @(field_name)=None@
++@[end for]@
++):
++@[if constraint_fields]@
++@[  for field_name, field_type in constraint_fields]@
++            self.@(field_name) = @(field_name) if @(field_name) is not None else @(field_type)()
++@[  end for]@
++@[else]@
++            pass
++@[end if]@
++
++        def __eq__(self, other):
++            if not isinstance(other, type(self)):
++                return NotImplemented
++@[if not constraint_fields]@
++            return True
++@[else]@
++@[  for field_name, _ in constraint_fields]@
++            if self.@(field_name) != other.@(field_name):
++                return False
++@[  end for]@
++            return True
++@[end if]@
++
++        def __ne__(self, other):
++            return not self.__eq__(other)
++
++        def __repr__(self):
++@[if constraint_fields]@
++            typename = type(self).__qualname__
++            fields = []
++@[  for field_name, _ in constraint_fields]@
++            fields.append('@(field_name)={!r}'.format(self.@(field_name)))
++@[  end for]@
++            return '@(message.structure.namespaced_type.name).Constraints({})'.format(', '.join(fields))
++@[else]@
++            return '@(message.structure.namespaced_type.name).Constraints()'
++@[end if]@
++
++@{
++# Gather ExternalStorage fields
++storage_fields = []
++if not is_empty_struct:
++    for m in message.structure.members:
++        storage_type = experimental_storage_type(m.type)
++        storage_fields.append((m.name, storage_type))
++}@
++    @@dataclasses.dataclass(slots=True)
++    class ExternalStorage:
++        """External memory descriptors for zero-copy initialization.
++
++        Attributes:
++            block: Optional contiguous buffer for entire message.
++            members: Per-field storage descriptors.
++
++        Each field descriptor specifies the external memory region(s) to use
++        when constructing a message with _storage= parameter.  All fields use
++        RawBuffer as the descriptor type:
++
++        - Scalars, strings, primitive arrays/sequences: single RawBuffer
++        - Arrays/sequences of strings/messages: list of RawBuffers/ExternalStorages
++        - Nested messages: recursive SubMsg.ExternalStorage
++        """
++
++        @@dataclasses.dataclass(slots=True)
++        class Members:
++            """Per-field storage descriptors."""
++@[if storage_fields]@
++@[  for name, storage_type in storage_fields]@
++            @(name): @(storage_type) | None = None
++@[  end for]@
++@[else]@
++            pass
++@[end if]@
++
++        block: RawBuffer | None = None
++        members: Members = dataclasses.field(default_factory=Members)
++
++        def __post_init__(self):
++            # Fast type assertion for debug builds (no-op with -O)
++            assert self.block is None or isinstance(self.block, RawBuffer), \
++                'ExternalStorage.block must be RawBuffer or None'
++
++    __slots__ = (
++@[if not is_empty_struct]@
++@[  for member in message.structure.members]@
++        '@(member.name)',
++@[  end for]@
++@[end if]@
++        '_external_storage',
++    )
++
++    def __init__(
++        self,
++        _init=MessageInitialization.ALL,
++        *,
++        _storage=None,
++        **kwargs,
++    ):
++        if _storage is not None:
++            # Store reference to keep storage descriptors alive
++            self._external_storage = _storage
++            # Initialize from external storage
++@[if not is_empty_struct]@
++@[  for member in message.structure.members]@
++@{
++init_expr = experimental_storage_init_expr(member.name, member.type)
++# Determine if this is a complex type needing custom initialization
++is_array = isinstance(member.type, Array)
++is_sequence = isinstance(member.type, AbstractSequence)
++vt = member.type.value_type if (is_array or is_sequence) else None
++is_string = isinstance(vt, (AbstractString, AbstractWString)) if vt else False
++is_msg = isinstance(vt, NamespacedType) if vt else False
++is_bounded_string = (vt.has_maximum_size() if is_string else False)
++is_wstring = isinstance(vt, AbstractWString) if is_string else False
++# Combined flags for simpler template logic
++is_bounded_wstring = is_wstring and is_bounded_string
++is_unbounded_wstring = is_wstring and not is_bounded_string
++is_bounded_regular_string = is_bounded_string and not is_wstring
++is_unbounded_regular_string = is_string and not is_bounded_string and not is_wstring
++# Compound conditions for top-level branching
++is_array_of_strings = is_array and is_string
++is_sequence_of_strings = is_sequence and is_string
++is_array_of_msgs = is_array and is_msg
++is_sequence_of_msgs = is_sequence and is_msg
++}@
++@[  if init_expr]@
++            self.@(member.name) = @(init_expr)
++@[  elif is_array_of_strings]@
++            # Array of strings from list[RawBuffer]
++            self.@(member.name) = @(experimental_msg_type(member.type))
++            storage_bufs = _storage.members.@(member.name)
++            if storage_bufs is not None:
++                assert isinstance(storage_bufs, list) and len(storage_bufs) == @(member.type.size)
++                for i, buf in enumerate(storage_bufs):
++@[    if is_bounded_wstring]@
++                    self.@(member.name)[i] = BoundedWString(@(vt.maximum_size), buffer=buf)
++@[    elif is_unbounded_wstring]@
++                    self.@(member.name)[i] = WString(buffer=buf)
++@[    elif is_bounded_regular_string]@
++                    self.@(member.name)[i] = BoundedString(@(vt.maximum_size), buffer=buf)
++@[    else]@
++                    self.@(member.name)[i] = String(buffer=buf)
++@[    end if]@
++@[  elif is_sequence_of_strings]@
++            # Sequence of strings from list[RawBuffer]
++            self.@(member.name) = @(experimental_msg_type(member.type))
++            storage_bufs = _storage.members.@(member.name)
++            if storage_bufs is not None:
++                assert isinstance(storage_bufs, list)
++                for buf in storage_bufs:
++@[    if is_bounded_wstring]@
++                    self.@(member.name).append(BoundedWString(@(vt.maximum_size), buffer=buf))
++@[    elif is_unbounded_wstring]@
++                    self.@(member.name).append(WString(buffer=buf))
++@[    elif is_bounded_regular_string]@
++                    self.@(member.name).append(BoundedString(@(vt.maximum_size), buffer=buf))
++@[    else]@
++                    self.@(member.name).append(String(buffer=buf))
++@[    end if]@
++@[  elif is_array_of_msgs]@
++            # Array of messages from list[SubMsg.ExternalStorage]
++            self.@(member.name) = @(experimental_msg_type(member.type))
++            storage_msgs = _storage.members.@(member.name)
++            if storage_msgs is not None:
++                assert isinstance(storage_msgs, list) and len(storage_msgs) == @(member.type.size)
++                for i, msg_storage in enumerate(storage_msgs):
++                    self.@(member.name)[i] = @(vt.name)(_storage=msg_storage, _init=MessageInitialization.SKIP)
++@[  elif is_sequence_of_msgs]@
++            # Sequence of messages from list[SubMsg.ExternalStorage]
++            self.@(member.name) = @(experimental_msg_type(member.type))
++            storage_msgs = _storage.members.@(member.name)
++            if storage_msgs is not None:
++                assert isinstance(storage_msgs, list)
++                for msg_storage in storage_msgs:
++                    self.@(member.name).append(@(vt.name)(_storage=msg_storage, _init=MessageInitialization.SKIP))
++@[  else]@
++            # Fallback - shouldn't reach here for known types
++            self.@(member.name) = @(experimental_msg_type(member.type))
++@[  end if]@
++@[  end for]@
++@[end if]@
++        else:
++            self._external_storage = None
++            # Managed storage (default behavior)
++@[if not is_empty_struct]@
++@[  for member in message.structure.members]@
++            self.@(member.name) = @(experimental_msg_type(member.type))
++@[  end for]@
++@[end if]@
++        self._reset(_init)
++        # Apply keyword overrides
++        for key, value in kwargs.items():
++            if not hasattr(self, key):
++                raise TypeError(
++                    "@(message.structure.namespaced_type.name)() "
++                    f"got an unexpected keyword argument {key!r}")
++            setattr(self, key, value)
++
++    def _reset(self, _init=MessageInitialization.ALL):
++        """Initialise fields based on *_init* policy."""
++@{
++default_members = []
++zero_members = []
++for member in message.structure.members:
++    dval = experimental_default_value_expr(member)
++    if dval is not None:
++        default_members.append((member, dval))
++submsg_list = list(experimental_submsg_members(message))
++}@
++@[if not default_members and not submsg_list]@
++        pass
++@[else]@
++@[  if default_members]@
++        if _init == MessageInitialization.ALL:
++@[    for member, lines in default_members]@
++@[      for line in lines]@
++            @(line)
++@[      end for]@
++@[    end for]@
++        elif _init == MessageInitialization.DEFAULTS_ONLY:
++@[    for member, lines in default_members]@
++@[      for line in lines]@
++            @(line)
++@[      end for]@
++@[    end for]@
++@[  end if]@
++@[  if submsg_list]@
++        # Propagate _init to sub-message members
++@[    for member, is_nested in submsg_list]@
++@[      if is_nested]@
++        for _elem in self.@(member.name):
++            _elem._reset(_init)
++@[      else]@
++        self.@(member.name)._reset(_init)
++@[      end if]@
++@[    end for]@
++@[  end if]@
++@[end if]@
++
++    def __eq__(self, other):
++        if not isinstance(other, @(message.structure.namespaced_type.name)):
++            return False
++@[if not is_empty_struct]@
++@[  for member in message.structure.members]@
++        if self.@(member.name) != other.@(member.name):
++            return False
++@[  end for]@
++@[end if]@
++        return True
++
++    def __ne__(self, other):
++        return not self.__eq__(other)
++
++    def __repr__(self):
++@[if not is_empty_struct]@
++        fields = []
++@[  for member in message.structure.members]@
++        fields.append('@(member.name)={!r}'.format(self.@(member.name)))
++@[  end for]@
++        return '@(message.structure.namespaced_type.name)({})'.format(', '.join(fields))
++@[else]@
++        return '@(message.structure.namespaced_type.name)()'
++@[end if]
+diff --git a/rosidl_generator_py/resource/_srv_experimental.py.em b/rosidl_generator_py/resource/_srv_experimental.py.em
+new file mode 100644
+index 0000000..36bdc75
+--- /dev/null
++++ b/rosidl_generator_py/resource/_srv_experimental.py.em
+@@ -0,0 +1,27 @@
++@# Included from rosidl_generator_py/resource/_idl_experimental.py.em
++@{
++TEMPLATE(
++    '_msg_experimental.py.em',
++    package_name=package_name, interface_path=interface_path,
++    message=service.request_message)
++}@
++@{
++TEMPLATE(
++    '_msg_experimental.py.em',
++    package_name=package_name, interface_path=interface_path,
++    message=service.response_message)
++}@
++@{
++TEMPLATE(
++    '_msg_experimental.py.em',
++    package_name=package_name, interface_path=interface_path,
++    message=service.event_message)
++}@
++
++
++class @(service.namespaced_type.name):
++    """Experimental service class '@(service.namespaced_type.name)'."""
++
++    Request = @(service.request_message.structure.namespaced_type.name)
++    Response = @(service.response_message.structure.namespaced_type.name)
++    Event = @(service.event_message.structure.namespaced_type.name)
+diff --git a/rosidl_generator_py/rosidl_generator_py-extras.cmake.in b/rosidl_generator_py/rosidl_generator_py-extras.cmake.in
+index 80bed29..45dcf29 100644
+--- a/rosidl_generator_py/rosidl_generator_py-extras.cmake.in
++++ b/rosidl_generator_py/rosidl_generator_py-extras.cmake.in
+@@ -2,6 +2,6 @@
+ include("${CMAKE_CURRENT_LIST_DIR}/register_py.cmake")
+ rosidl_generator_py_extras(
+   "${rosidl_generator_py_DIR}/../../../lib/rosidl_generator_py/rosidl_generator_py"
+-  "${rosidl_generator_py_DIR}/../../../@PYTHON_INSTALL_DIR@/rosidl_generator_py/__init__.py;${rosidl_generator_py_DIR}/../../../@PYTHON_INSTALL_DIR@/rosidl_generator_py/generate_py_impl.py"
++  "${rosidl_generator_py_DIR}/../../../@PYTHON_INSTALL_DIR@/rosidl_generator_py/__init__.py;${rosidl_generator_py_DIR}/../../../@PYTHON_INSTALL_DIR@/rosidl_generator_py/generate_py_impl.py;${rosidl_generator_py_DIR}/../../../@PYTHON_INSTALL_DIR@/rosidl_generator_py/experimental.py"
+   "${rosidl_generator_py_DIR}/../resource"
+ )
+diff --git a/rosidl_generator_py/rosidl_generator_py/experimental.py b/rosidl_generator_py/rosidl_generator_py/experimental.py
+new file mode 100644
+index 0000000..eee55c3
+--- /dev/null
++++ b/rosidl_generator_py/rosidl_generator_py/experimental.py
+@@ -0,0 +1,399 @@
++# Copyright 2026 Ekumen, Inc.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++"""Experimental code generation helpers for rosidl_generator_py.
++
++These helpers map rosidl type definitions to the Python experimental
++types from ``rosidl_runtime_py.experimental``.
++"""
++
++from ast import literal_eval
++
++from rosidl_parser.definition import AbstractGenericString
++from rosidl_parser.definition import AbstractNestedType
++from rosidl_parser.definition import AbstractSequence
++from rosidl_parser.definition import AbstractString
++from rosidl_parser.definition import AbstractWString
++from rosidl_parser.definition import Array
++from rosidl_parser.definition import BasicType
++from rosidl_parser.definition import BoundedSequence
++from rosidl_parser.definition import NamespacedType
++from rosidl_parser.definition import UnboundedSequence
++
++
++# ---------------------------------------------------------------------------
++# BasicType → Dtype member name
++# ---------------------------------------------------------------------------
++BASIC_TYPE_TO_DTYPE = {
++    'boolean': 'Dtype.BOOL',
++    'octet': 'Dtype.BYTE',
++    'char': 'Dtype.CHAR',
++    'wchar': 'Dtype.WCHAR',
++    'float': 'Dtype.FLOAT32',
++    'double': 'Dtype.FLOAT64',
++    'long double': 'Dtype.LONG_DOUBLE',
++    'uint8': 'Dtype.UINT8',
++    'int8': 'Dtype.INT8',
++    'uint16': 'Dtype.UINT16',
++    'int16': 'Dtype.INT16',
++    'uint32': 'Dtype.UINT32',
++    'int32': 'Dtype.INT32',
++    'uint64': 'Dtype.UINT64',
++    'int64': 'Dtype.INT64',
++}
++
++
++def experimental_msg_type(type_):
++    """Return the Python expression for the experimental type of a message member.
++
++    Top-level scalar BasicTypes map to ``Scalar(Dtype.X)`` constructor calls.
++    Strings, arrays, and sequences map to the corresponding experimental
++    container type.
++    """
++    if isinstance(type_, Array):
++        return _array_type(type_)
++    if isinstance(type_, BoundedSequence):
++        return _bounded_sequence_type(type_)
++    if isinstance(type_, UnboundedSequence):
++        return _unbounded_sequence_type(type_)
++    # Top-level (non-nested) member types
++    if isinstance(type_, BasicType):
++        return 'Scalar({})'.format(BASIC_TYPE_TO_DTYPE[type_.typename])
++    if isinstance(type_, AbstractString):
++        if type_.has_maximum_size():
++            return 'BoundedString({})'.format(type_.maximum_size)
++        return 'String()'
++    if isinstance(type_, AbstractWString):
++        if type_.has_maximum_size():
++            return 'BoundedWString({})'.format(type_.maximum_size)
++        return 'WString()'
++    if isinstance(type_, NamespacedType):
++        return '{}(_init=MessageInitialization.SKIP)'.format(type_.name)
++    assert False, 'unknown type: {}'.format(type_)
++
++
++def _array_type(type_):
++    """Array<T, N> → Array(dtype, N) or Array(SubMsg, N)."""
++    vt = type_.value_type
++    if isinstance(vt, BasicType):
++        return 'Array({}, {})'.format(BASIC_TYPE_TO_DTYPE[vt.typename], type_.size)
++    if isinstance(vt, NamespacedType):
++        return 'Array({}, {}, data=[{}(_init=MessageInitialization.SKIP) for _ in range({})])'.format(
++            vt.name, type_.size, vt.name, type_.size)
++    # String/WString arrays use object-typed Array
++    if isinstance(vt, AbstractString):
++        if vt.has_maximum_size():
++            return 'Array(BoundedString, {}, data=[BoundedString({}) for _ in range({})])'.format(
++                type_.size, vt.maximum_size, type_.size)
++        return 'Array(String, {}, data=[String() for _ in range({})])'.format(
++            type_.size, type_.size)
++    if isinstance(vt, AbstractWString):
++        if vt.has_maximum_size():
++            return (
++                'Array(BoundedWString, {}, data=[BoundedWString({}) for _ in range({})])'
++                .format(type_.size, vt.maximum_size, type_.size))
++        return 'Array(WString, {}, data=[WString() for _ in range({})])'.format(
++            type_.size, type_.size)
++    assert False, 'unknown array element type: {}'.format(vt)
++
++
++def _bounded_sequence_type(type_):
++    """BoundedSequence<T, N>."""
++    vt = type_.value_type
++    if isinstance(vt, BasicType):
++        return 'BoundedSequence({}, {})'.format(
++            BASIC_TYPE_TO_DTYPE[vt.typename], type_.maximum_size)
++    if isinstance(vt, NamespacedType):
++        return 'BoundedSequence({}, {})'.format(vt.name, type_.maximum_size)
++    if isinstance(vt, AbstractString):
++        if vt.has_maximum_size():
++            return 'BoundedSequence(BoundedString, {})'.format(type_.maximum_size)
++        return 'BoundedSequence(String, {})'.format(type_.maximum_size)
++    if isinstance(vt, AbstractWString):
++        if vt.has_maximum_size():
++            return 'BoundedSequence(BoundedWString, {})'.format(type_.maximum_size)
++        return 'BoundedSequence(WString, {})'.format(type_.maximum_size)
++    assert False, 'unknown bounded sequence element type: {}'.format(vt)
++
++
++def _unbounded_sequence_type(type_):
++    """Sequence<T>."""
++    vt = type_.value_type
++    if isinstance(vt, BasicType):
++        return 'Sequence({})'.format(BASIC_TYPE_TO_DTYPE[vt.typename])
++    if isinstance(vt, NamespacedType):
++        return 'Sequence({})'.format(vt.name)
++    if isinstance(vt, AbstractString):
++        if vt.has_maximum_size():
++            return 'Sequence(BoundedString)'
++        return 'Sequence(String)'
++    if isinstance(vt, AbstractWString):
++        if vt.has_maximum_size():
++            return 'Sequence(BoundedWString)'
++        return 'Sequence(WString)'
++    assert False, 'unknown sequence element type: {}'.format(vt)
++
++
++# ---------------------------------------------------------------------------
++# Constraint type for a member
++# ---------------------------------------------------------------------------
++
++def experimental_constraint_type(type_):
++    """Return the Python constraint type string for a member, or None if none is needed.
++
++    - BasicType (Scalar): no constraint
++    - Bounded string/wstring: no constraint (bound is part of type)
++    - Unbounded string/wstring: StringConstraint
++    - NamespacedType: SubMsg.Constraints
++    - Array<BasicType, N>: no constraint
++    - Array<BoundedString, N>: no constraint
++    - Array<UnboundedString, N>: StringConstraint
++    - Array<NamespacedType, N>: SubMsg.Constraints
++    - BoundedSequence: no constraint (bound is part of type)
++    - UnboundedSequence: SequenceConstraint
++    """
++    if isinstance(type_, BasicType):
++        return None
++    if isinstance(type_, (AbstractString, AbstractWString)):
++        return None if type_.has_maximum_size() else 'StringConstraint'
++    if isinstance(type_, NamespacedType):
++        return '{}.Constraints'.format(type_.name)
++    if isinstance(type_, Array):
++        vt = type_.value_type
++        if isinstance(vt, BasicType):
++            return None
++        if isinstance(vt, (AbstractString, AbstractWString)):
++            return None if vt.has_maximum_size() else 'StringConstraint'
++        if isinstance(vt, NamespacedType):
++            return '{}.Constraints'.format(vt.name)
++        return None
++    if isinstance(type_, AbstractSequence):
++        if isinstance(type_, BoundedSequence):
++            return None
++        return 'SequenceConstraint'
++    return None
++
++
++# ---------------------------------------------------------------------------
++# Default / zero value generation
++# ---------------------------------------------------------------------------
++
++def _experimental_primitive_value_to_py(type_, value):
++    """Convert a rosidl value to a Python literal suitable for experimental types.
++
++    For experimental Scalars, bytes/octet and char types are stored as
++    integers (via numpy), not as Python bytes/str objects.  This function
++    returns integer literals for those types.
++    """
++    if isinstance(type_, BasicType):
++        if type_.typename == 'boolean':
++            return 'True' if value else 'False'
++        if type_.typename in ('octet', 'char'):
++            # Experimental Scalar stores these as integer values
++            return str(int(value))
++        if type_.typename == 'wchar':
++            return str(int(value))
++    # Fall through to the standard converter for everything else
++    from rosidl_generator_py.generate_py_impl import primitive_value_to_py
++    return primitive_value_to_py(type_, value)
++
++
++def experimental_default_value_expr(member):
++    """Return Python expression to set the default value for *member*, or None."""
++    if not member.has_annotation('default'):
++        return None
++    default = member.get_annotation_value('default')['value']
++    type_ = member.type
++
++    if isinstance(type_, AbstractNestedType):
++        values = literal_eval(default)
++        vt = type_.value_type
++        items = [_experimental_primitive_value_to_py(vt, v) for v in values]
++        if isinstance(type_, Array):
++            # For arrays, set element by element
++            lines = []
++            for i, v in enumerate(items):
++                lines.append('self.{name}[{i}] = {v}'.format(name=member.name, i=i, v=v))
++            return lines
++        else:
++            # For sequences, extend with values
++            return ['self.{name}.extend([{vals}])'.format(
++                name=member.name, vals=', '.join(items))]
++    elif isinstance(type_, BasicType):
++        py_val = _experimental_primitive_value_to_py(type_, default)
++        return ['self.{name}.value = {val}'.format(name=member.name, val=py_val)]
++    elif isinstance(type_, AbstractGenericString):
++        py_val = _experimental_primitive_value_to_py(type_, default)
++        return ['self.{name}.assign({val})'.format(name=member.name, val=py_val)]
++    else:
++        return None
++
++
++def experimental_zero_value_expr(member):
++    """Return Python expression to zero-init *member*, or None."""
++    type_ = member.type
++
++    if isinstance(type_, Array):
++        vt = type_.value_type
++        if isinstance(vt, BasicType):
++            return None  # Arrays of primitives are zero-init by default
++        if isinstance(vt, AbstractGenericString):
++            return None  # String arrays already have empty strings
++        if isinstance(vt, NamespacedType):
++            return None  # Sub-message arrays are initialized recursively
++        return None
++    if isinstance(type_, AbstractSequence):
++        return None  # Sequences start empty
++    if isinstance(type_, BasicType):
++        return None  # Scalar default is 0
++    if isinstance(type_, AbstractGenericString):
++        return None  # Strings default to empty
++    if isinstance(type_, NamespacedType):
++        return None  # Sub-messages are initialized recursively
++    return None
++
++
++# ---------------------------------------------------------------------------
++# Sub-message member detection
++# ---------------------------------------------------------------------------
++
++def experimental_has_submsg_members(message):
++    """Return True if the message has sub-message members that need _reset propagation."""
++    for m in message.structure.members:
++        if isinstance(m.type, NamespacedType):
++            return True
++        if isinstance(m.type, (Array, AbstractSequence)):
++            if isinstance(m.type.value_type, NamespacedType):
++                return True
++    return False
++
++
++def experimental_submsg_members(message):
++    """Yield (member, is_nested) for sub-message members that need _reset propagation."""
++    for m in message.structure.members:
++        if isinstance(m.type, NamespacedType):
++            yield m, False
++        elif isinstance(m.type, (Array, AbstractSequence)):
++            if isinstance(m.type.value_type, NamespacedType):
++                yield m, True
++
++
++# ---------------------------------------------------------------------------
++# External storage support
++# ---------------------------------------------------------------------------
++
++def experimental_storage_type(type_):
++    """Return the Python type annotation for an ExternalStorage member field.
++
++    All fields use RawBuffer as the base descriptor type, with lists for
++    arrays/sequences of complex element types:
++
++    - BasicType (Scalar) → RawBuffer
++    - String/WString → RawBuffer
++    - NamespacedType → SubMsg.ExternalStorage (recursive)
++    - Array<BasicType, N> → RawBuffer (contiguous)
++    - Array<String, N> → list[RawBuffer] (one per element)
++    - Array<NamespacedType, N> → list[SubMsg.ExternalStorage]
++    - Sequence<BasicType> → RawBuffer (contiguous)
++    - Sequence<String> → list[RawBuffer] (variable-length)
++    - Sequence<NamespacedType> → list[SubMsg.ExternalStorage]
++    """
++    if isinstance(type_, BasicType):
++        return 'RawBuffer'
++    if isinstance(type_, (AbstractString, AbstractWString)):
++        return 'RawBuffer'
++    if isinstance(type_, NamespacedType):
++        return '{}.ExternalStorage'.format(type_.name)
++    if isinstance(type_, Array):
++        vt = type_.value_type
++        if isinstance(vt, BasicType):
++            return 'RawBuffer'  # Contiguous primitive array
++        if isinstance(vt, (AbstractString, AbstractWString)):
++            return 'list[RawBuffer]'  # One buffer per string element
++        if isinstance(vt, NamespacedType):
++            return 'list[{}.ExternalStorage]'.format(vt.name)
++    if isinstance(type_, AbstractSequence):
++        vt = type_.value_type
++        if isinstance(vt, BasicType):
++            return 'RawBuffer'  # Contiguous primitive sequence
++        if isinstance(vt, (AbstractString, AbstractWString)):
++            return 'list[RawBuffer]'  # One buffer per string element
++        if isinstance(vt, NamespacedType):
++            return 'list[{}.ExternalStorage]'.format(vt.name)
++    raise ValueError('Unknown type: {}'.format(type_))
++
++
++def experimental_storage_init_expr(member_name, type_):
++    """Return a Python expression to initialize a field from external storage.
++
++    For simple cases (scalars, strings, primitive arrays/sequences), returns
++    a single-line constructor expression with buffer= parameter.
++
++    For complex cases (arrays/sequences of strings/messages), returns None
++    to signal that the template should generate custom initialization code.
++
++    Args:
++        member_name: The field name (e.g., 'my_int')
++        type_: The rosidl type definition
++
++    Returns:
++        str or None: Python constructor expression, or None for complex cases
++    """
++    storage_path = '_storage.members.{}'.format(member_name)
++
++    if isinstance(type_, BasicType):
++        dtype = BASIC_TYPE_TO_DTYPE[type_.typename]
++        return 'Scalar({dtype}, buffer={storage})'.format(
++            dtype=dtype, storage=storage_path)
++
++    if isinstance(type_, AbstractString):
++        if type_.has_maximum_size():
++            return 'BoundedString({bound}, buffer={storage})'.format(
++                bound=type_.maximum_size, storage=storage_path)
++        return 'String(buffer={storage})'.format(storage=storage_path)
++
++    if isinstance(type_, AbstractWString):
++        if type_.has_maximum_size():
++            return 'BoundedWString({bound}, buffer={storage})'.format(
++                bound=type_.maximum_size, storage=storage_path)
++        return 'WString(buffer={storage})'.format(storage=storage_path)
++
++    if isinstance(type_, NamespacedType):
++        return '{type_name}(_storage={storage})'.format(
++            type_name=type_.name, storage=storage_path)
++
++    if isinstance(type_, Array):
++        vt = type_.value_type
++        if isinstance(vt, BasicType):
++            # Primitive array: single contiguous buffer
++            dtype = BASIC_TYPE_TO_DTYPE[vt.typename]
++            return 'Array({dtype}, {size}, buffer={storage})'.format(
++                dtype=dtype, size=type_.size, storage=storage_path)
++        # Complex arrays need per-element initialization - template handles it
++        return None
++
++    if isinstance(type_, AbstractSequence):
++        vt = type_.value_type
++        if isinstance(vt, BasicType):
++            # Primitive sequence: single contiguous buffer
++            dtype = BASIC_TYPE_TO_DTYPE[vt.typename]
++            if isinstance(type_, BoundedSequence):
++                return 'BoundedSequence({dtype}, {bound}, buffer={storage})'.format(
++                    dtype=dtype, bound=type_.maximum_size, storage=storage_path)
++            return 'Sequence({dtype}, buffer={storage})'.format(
++                dtype=dtype, storage=storage_path)
++        # Complex sequences need per-element initialization - template handles it
++        return None
++
++    return None
+diff --git a/rosidl_generator_py/rosidl_generator_py/generate_py_impl.py b/rosidl_generator_py/rosidl_generator_py/generate_py_impl.py
+index 5e8c6b1..4decfc9 100644
+--- a/rosidl_generator_py/rosidl_generator_py/generate_py_impl.py
++++ b/rosidl_generator_py/rosidl_generator_py/generate_py_impl.py
+@@ -64,6 +64,7 @@ def generate_py(generator_arguments_file, typesupport_impls):
+     mapping = {
+         '_idl.py.em': '_%s.py',
+         '_idl_support.c.em': '_%s_s.c',
++        '_idl_experimental.py.em': 'experimental/_%s.py',
+     }
+     generated_files = generate_files(generator_arguments_file, mapping)
+ 
+@@ -174,6 +175,56 @@ def generate_py(generator_arguments_file, typesupport_impls):
+                         f'{idl_stem}_SendGoal_Response as {idl_stem}_SendGoal_Response'
+                         '  # noqa: F401\n')
+ 
++    # expand experimental init modules for each directory
++    for subfolder in modules.keys():
++        experimental_dir = os.path.join(args['output_dir'], subfolder, 'experimental')
++        os.makedirs(experimental_dir, exist_ok=True)
++        with open(os.path.join(experimental_dir, '__init__.py'), 'w') as f:
++            module_names = {}
++            for idl_stem in modules[subfolder]:
++                module_names[idl_stem] = '_' + \
++                    convert_camel_case_to_lower_case_underscore(idl_stem)
++            for module_name, idl_stem in \
++                    sorted((value, key) for (key, value) in module_names.items()):
++                f.write(
++                    f'from {package_name}.{subfolder}.experimental.{module_name} import '
++                    f'{idl_stem} as {idl_stem}  # noqa: F401\n')
++                if subfolder == 'srv':
++                    f.write(
++                        f'from {package_name}.{subfolder}.experimental.{module_name} import '
++                        f'{idl_stem}_Event as {idl_stem}_Event  # noqa: F401\n')
++                    f.write(
++                        f'from {package_name}.{subfolder}.experimental.{module_name} import '
++                        f'{idl_stem}_Request as {idl_stem}_Request  # noqa: F401\n')
++                    f.write(
++                        f'from {package_name}.{subfolder}.experimental.{module_name} import '
++                        f'{idl_stem}_Response as {idl_stem}_Response  # noqa: F401\n')
++                elif subfolder == 'action':
++                    f.write(
++                        f'from {package_name}.{subfolder}.experimental.{module_name} import '
++                        f'{idl_stem}_GetResult_Event as {idl_stem}_GetResult_Event'
++                        '  # noqa: F401\n')
++                    f.write(
++                        f'from {package_name}.{subfolder}.experimental.{module_name} import '
++                        f'{idl_stem}_GetResult_Request as {idl_stem}_GetResult_Request'
++                        '  # noqa: F401\n')
++                    f.write(
++                        f'from {package_name}.{subfolder}.experimental.{module_name} import '
++                        f'{idl_stem}_GetResult_Response as {idl_stem}_GetResult_Response'
++                        '  # noqa: F401\n')
++                    f.write(
++                        f'from {package_name}.{subfolder}.experimental.{module_name} import '
++                        f'{idl_stem}_SendGoal_Event as {idl_stem}_SendGoal_Event'
++                        '  # noqa: F401\n')
++                    f.write(
++                        f'from {package_name}.{subfolder}.experimental.{module_name} import '
++                        f'{idl_stem}_SendGoal_Request as {idl_stem}_SendGoal_Request'
++                        '  # noqa: F401\n')
++                    f.write(
++                        f'from {package_name}.{subfolder}.experimental.{module_name} import '
++                        f'{idl_stem}_SendGoal_Response as {idl_stem}_SendGoal_Response'
++                        '  # noqa: F401\n')
++
+     # expand templates per available typesupport implementation
+     template_dir = args['template_dir']
+     type_support_impl_by_filename = {
+diff --git a/rosidl_generator_py/test/test_experimental.py b/rosidl_generator_py/test/test_experimental.py
+new file mode 100644
+index 0000000..59c7e6d
+--- /dev/null
++++ b/rosidl_generator_py/test/test_experimental.py
+@@ -0,0 +1,177 @@
++# Copyright 2026 Ekumen, Inc.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++"""Tests for rosidl_generator_py.experimental helper functions."""
++
++import pytest
++
++from rosidl_parser.definition import (
++    Array,
++    BasicType,
++    BoundedSequence,
++    BoundedString,
++    BoundedWString,
++    NamespacedType,
++    String,
++    UnboundedSequence,
++    UnboundedString,
++    UnboundedWString,
++)
++
++from rosidl_generator_py.experimental import (
++    BASIC_TYPE_TO_DTYPE,
++    experimental_constraint_type,
++    experimental_msg_type,
++)
++
++
++# ---------------------------------------------------------------------------
++# BASIC_TYPE_TO_DTYPE mapping
++# ---------------------------------------------------------------------------
++
++class TestBasicTypeToDtype:
++
++    def test_all_basic_types_mapped(self):
++        expected_keys = {
++            'boolean', 'octet', 'char', 'wchar',
++            'float', 'double', 'long double',
++            'uint8', 'int8', 'uint16', 'int16',
++            'uint32', 'int32', 'uint64', 'int64',
++        }
++        assert set(BASIC_TYPE_TO_DTYPE.keys()) == expected_keys
++
++    def test_values_are_dtype_strings(self):
++        for key, value in BASIC_TYPE_TO_DTYPE.items():
++            assert value.startswith('Dtype.'), f'{key} -> {value}'
++
++
++# ---------------------------------------------------------------------------
++# experimental_msg_type
++# ---------------------------------------------------------------------------
++
++class TestExperimentalMsgType:
++
++    @pytest.mark.parametrize('typename, expected_dtype', [
++        ('boolean', 'Dtype.BOOL'),
++        ('int32', 'Dtype.INT32'),
++        ('float', 'Dtype.FLOAT32'),
++        ('double', 'Dtype.FLOAT64'),
++        ('uint8', 'Dtype.UINT8'),
++        ('char', 'Dtype.CHAR'),
++    ])
++    def test_basic_type_becomes_scalar(self, typename, expected_dtype):
++        bt = BasicType(typename)
++        result = experimental_msg_type(bt)
++        assert result == f'Scalar({expected_dtype})'
++
++    def test_unbounded_string(self):
++        result = experimental_msg_type(UnboundedString())
++        assert result == 'String()'
++
++    def test_bounded_string(self):
++        result = experimental_msg_type(BoundedString(128))
++        assert result == 'BoundedString(128)'
++
++    def test_unbounded_wstring(self):
++        result = experimental_msg_type(UnboundedWString())
++        assert result == 'WString()'
++
++    def test_bounded_wstring(self):
++        result = experimental_msg_type(BoundedWString(64))
++        assert result == 'BoundedWString(64)'
++
++    def test_array_of_basic_type(self):
++        result = experimental_msg_type(Array(BasicType('int32'), 10))
++        assert result == 'Array(Dtype.INT32, 10)'
++
++    def test_array_of_namespaced_type(self):
++        nt = NamespacedType(['pkg', 'msg'], 'Sub')
++        result = experimental_msg_type(Array(nt, 3))
++        assert 'Array(Sub, 3' in result
++        assert 'MessageInitialization.SKIP' in result
++
++    def test_bounded_sequence_of_basic(self):
++        result = experimental_msg_type(BoundedSequence(BasicType('float'), 50))
++        assert result == 'BoundedSequence(Dtype.FLOAT32, 50)'
++
++    def test_unbounded_sequence_of_basic(self):
++        result = experimental_msg_type(UnboundedSequence(BasicType('int64')))
++        assert result == 'Sequence(Dtype.INT64)'
++
++    def test_unbounded_sequence_of_string(self):
++        result = experimental_msg_type(UnboundedSequence(UnboundedString()))
++        assert result == 'Sequence(String)'
++
++    def test_unbounded_sequence_of_namespaced(self):
++        nt = NamespacedType(['pkg', 'msg'], 'Sub')
++        result = experimental_msg_type(UnboundedSequence(nt))
++        assert result == 'Sequence(Sub)'
++
++    def test_array_of_unbounded_string(self):
++        result = experimental_msg_type(Array(UnboundedString(), 5))
++        assert 'Array(String, 5' in result
++
++    def test_array_of_bounded_string(self):
++        result = experimental_msg_type(Array(BoundedString(32), 3))
++        assert 'Array(BoundedString, 3' in result
++        assert 'BoundedString(32)' in result
++
++
++# ---------------------------------------------------------------------------
++# experimental_constraint_type
++# ---------------------------------------------------------------------------
++
++class TestExperimentalConstraintType:
++
++    def test_basic_type_no_constraint(self):
++        assert experimental_constraint_type(BasicType('int32')) is None
++
++    def test_bounded_string_no_constraint(self):
++        assert experimental_constraint_type(BoundedString(128)) is None
++
++    def test_unbounded_string_has_string_constraint(self):
++        assert experimental_constraint_type(UnboundedString()) == 'StringConstraint'
++
++    def test_unbounded_wstring_has_string_constraint(self):
++        assert experimental_constraint_type(UnboundedWString()) == 'StringConstraint'
++
++    def test_bounded_wstring_no_constraint(self):
++        assert experimental_constraint_type(BoundedWString(64)) is None
++
++    def test_namespaced_type_has_constraints(self):
++        nt = NamespacedType(['pkg', 'msg'], 'Sub')
++        assert experimental_constraint_type(nt) == 'Sub.Constraints'
++
++    def test_array_of_basic_no_constraint(self):
++        assert experimental_constraint_type(Array(BasicType('int32'), 10)) is None
++
++    def test_array_of_unbounded_string_has_constraint(self):
++        assert experimental_constraint_type(
++            Array(UnboundedString(), 5)) == 'StringConstraint'
++
++    def test_array_of_namespaced_has_constraint(self):
++        nt = NamespacedType(['pkg', 'msg'], 'Sub')
++        assert experimental_constraint_type(Array(nt, 3)) == 'Sub.Constraints'
++
++    def test_bounded_sequence_no_constraint(self):
++        assert experimental_constraint_type(
++            BoundedSequence(BasicType('int32'), 100)) is None
++
++    def test_unbounded_sequence_has_constraint(self):
++        assert experimental_constraint_type(
++            UnboundedSequence(BasicType('int32'))) == 'SequenceConstraint'
++
++    def test_unbounded_sequence_of_string_has_constraint(self):
++        assert experimental_constraint_type(
++            UnboundedSequence(UnboundedString())) == 'SequenceConstraint'
+diff --git a/rosidl_generator_py/test/test_experimental_interfaces.py b/rosidl_generator_py/test/test_experimental_interfaces.py
+new file mode 100644
+index 0000000..79e9aed
+--- /dev/null
++++ b/rosidl_generator_py/test/test_experimental_interfaces.py
+@@ -0,0 +1,292 @@
++# Copyright 2026 Ekumen, Inc.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++"""Tests for generated experimental Python message classes.
++
++These tests verify that the experimental messages generated by
++rosidl_generator_py produce working classes backed by the experimental
++container types from rosidl_runtime_py.experimental.
++"""
++
++import pytest
++
++from rosidl_runtime_py.experimental import (
++    Array,
++    BoundedSequence,
++    BoundedString,
++    BoundedWString,
++    Dtype,
++    MessageInitialization,
++    Scalar,
++    Sequence,
++    SequenceConstraint,
++    String,
++    StringConstraint,
++    WString,
++)
++
++
++# Import generated experimental messages.
++# These are generated from the same IDL files as the standard messages
++# but under the experimental subpackage.
++from rosidl_generator_py.msg.experimental import BasicTypes
++from rosidl_generator_py.msg.experimental import Constants
++from rosidl_generator_py.msg.experimental import Defaults
++from rosidl_generator_py.msg.experimental import Strings
++from rosidl_generator_py.msg.experimental import WStrings
++from rosidl_generator_py.msg.experimental import Arrays
++from rosidl_generator_py.msg.experimental import UnboundedSequences
++from rosidl_generator_py.msg.experimental import BoundedSequences
++from rosidl_generator_py.msg.experimental import Nested
++
++
++# ---------------------------------------------------------------------------
++# BasicTypes
++# ---------------------------------------------------------------------------
++
++class TestBasicTypes:
++
++    def test_default_construction(self):
++        msg = BasicTypes()
++        # All scalar fields should be Scalar instances
++        assert isinstance(msg.bool_value, Scalar)
++        assert isinstance(msg.byte_value, Scalar)
++        assert isinstance(msg.char_value, Scalar)
++        assert isinstance(msg.float32_value, Scalar)
++        assert isinstance(msg.float64_value, Scalar)
++        assert isinstance(msg.int8_value, Scalar)
++        assert isinstance(msg.uint8_value, Scalar)
++        assert isinstance(msg.int16_value, Scalar)
++        assert isinstance(msg.uint16_value, Scalar)
++        assert isinstance(msg.int32_value, Scalar)
++        assert isinstance(msg.uint32_value, Scalar)
++        assert isinstance(msg.int64_value, Scalar)
++        assert isinstance(msg.uint64_value, Scalar)
++
++    def test_default_values_are_zero(self):
++        msg = BasicTypes()
++        assert msg.bool_value.value == False  # noqa: E712
++        assert msg.float32_value.value == 0.0
++        assert msg.int32_value.value == 0
++        assert msg.uint64_value.value == 0
++
++    def test_scalar_assignment(self):
++        msg = BasicTypes()
++        msg.int32_value.value = 42
++        assert msg.int32_value.value == 42
++
++    def test_equality(self):
++        a = BasicTypes()
++        b = BasicTypes()
++        assert a == b
++        a.int32_value.value = 99
++        assert a != b
++
++    def test_skip_initialization(self):
++        msg = BasicTypes(_init=MessageInitialization.SKIP)
++        # Should still be Scalar instances
++        assert isinstance(msg.int32_value, Scalar)
++
++    def test_constraints_class_exists(self):
++        c = BasicTypes.Constraints()
++        assert c == BasicTypes.Constraints()
++
++    def test_repr(self):
++        msg = BasicTypes()
++        r = repr(msg)
++        assert 'BasicTypes' in r
++
++
++# ---------------------------------------------------------------------------
++# Constants
++# ---------------------------------------------------------------------------
++
++class TestConstants:
++
++    def test_constants_accessible(self):
++        assert hasattr(Constants, 'BOOL_CONST')
++        assert Constants.BOOL_CONST is True
++        assert hasattr(Constants, 'INT32_CONST')
++        assert Constants.INT32_CONST == -30000
++        assert hasattr(Constants, 'FLOAT64_CONST')
++        assert abs(Constants.FLOAT64_CONST - 1.125) < 1e-6
++
++
++# ---------------------------------------------------------------------------
++# Strings
++# ---------------------------------------------------------------------------
++
++class TestStrings:
++
++    def test_string_fields(self):
++        msg = Strings()
++        assert isinstance(msg.string_value, String)
++        assert isinstance(msg.bounded_string_value, BoundedString)
++
++    def test_string_assign(self):
++        msg = Strings()
++        msg.string_value.assign('hello')
++        assert str(msg.string_value) == 'hello'
++
++    def test_equality(self):
++        a = Strings()
++        b = Strings()
++        assert a == b
++        a.string_value.assign('different')
++        assert a != b
++
++
++# ---------------------------------------------------------------------------
++# WStrings
++# ---------------------------------------------------------------------------
++
++class TestWStrings:
++
++    def test_wstring_fields(self):
++        msg = WStrings()
++        assert isinstance(msg.wstring_value, WString)
++        assert isinstance(msg.array_of_wstrings, Array)
++        assert isinstance(msg.bounded_sequence_of_wstrings, BoundedSequence)
++        assert isinstance(msg.unbounded_sequence_of_wstrings, Sequence)
++
++
++# ---------------------------------------------------------------------------
++# Arrays
++# ---------------------------------------------------------------------------
++
++class TestArrays:
++
++    def test_array_fields(self):
++        msg = Arrays()
++        # Primitive arrays should be Array instances
++        assert isinstance(msg.bool_values, Array)
++        assert isinstance(msg.int32_values, Array)
++        assert isinstance(msg.float32_values, Array)
++        assert isinstance(msg.string_values, Array)
++
++    def test_primitive_array_length(self):
++        msg = Arrays()
++        assert len(msg.bool_values) == 3
++        assert len(msg.int32_values) == 3
++        assert len(msg.float32_values) == 3
++
++    def test_array_element_access(self):
++        msg = Arrays()
++        msg.int32_values[0] = 42
++        assert msg.int32_values[0] == 42
++
++    def test_equality(self):
++        a = Arrays()
++        b = Arrays()
++        assert a == b
++
++
++# ---------------------------------------------------------------------------
++# UnboundedSequences
++# ---------------------------------------------------------------------------
++
++class TestUnboundedSequences:
++
++    def test_sequence_fields(self):
++        msg = UnboundedSequences()
++        assert isinstance(msg.bool_values, Sequence)
++        assert isinstance(msg.int32_values, Sequence)
++        assert isinstance(msg.string_values, Sequence)
++
++    def test_sequence_starts_empty(self):
++        msg = UnboundedSequences()
++        assert len(msg.bool_values) == 0
++        assert len(msg.int32_values) == 0
++
++    def test_sequence_append(self):
++        msg = UnboundedSequences()
++        msg.int32_values.append(42)
++        msg.int32_values.append(99)
++        assert len(msg.int32_values) == 2
++        assert msg.int32_values[0] == 42
++
++    def test_constraints_class(self):
++        c = UnboundedSequences.Constraints()
++        # Unbounded sequences should have SequenceConstraint fields
++        assert hasattr(c, 'bool_values')
++        assert isinstance(c.bool_values, SequenceConstraint)
++
++
++# ---------------------------------------------------------------------------
++# BoundedSequences
++# ---------------------------------------------------------------------------
++
++class TestBoundedSequences:
++
++    def test_bounded_sequence_fields(self):
++        msg = BoundedSequences()
++        assert isinstance(msg.bool_values, BoundedSequence)
++        assert isinstance(msg.int32_values, BoundedSequence)
++
++    def test_bounded_sequence_limit(self):
++        msg = BoundedSequences()
++        assert msg.bool_values.max_size == 3
++        assert msg.int32_values.max_size == 3
++
++
++# ---------------------------------------------------------------------------
++# Nested
++# ---------------------------------------------------------------------------
++
++class TestNested:
++
++    def test_nested_field(self):
++        msg = Nested()
++        assert isinstance(msg.basic_types_value, BasicTypes)
++
++    def test_nested_equality(self):
++        a = Nested()
++        b = Nested()
++        assert a == b
++        a.basic_types_value.int32_value.value = 42
++        assert a != b
++
++    def test_constraints(self):
++        c = Nested.Constraints()
++        assert hasattr(c, 'basic_types_value')
++
++
++# ---------------------------------------------------------------------------
++# Defaults
++# ---------------------------------------------------------------------------
++
++class TestDefaults:
++
++    def test_default_values_applied(self):
++        msg = Defaults()
++        # The Defaults message has fields with default annotations
++        assert msg.bool_value.value is True
++        assert msg.int8_value.value == -50
++        assert msg.uint8_value.value == 200
++        assert abs(msg.float32_value.value - 1.125) < 1e-5
++        assert abs(msg.float64_value.value - 1.125) < 1e-9
++
++    def test_defaults_only(self):
++        msg = Defaults(_init=MessageInitialization.DEFAULTS_ONLY)
++        assert isinstance(msg.bool_value, Scalar)
++        assert msg.bool_value.value is True
++
++    def test_zero_does_not_apply_defaults(self):
++        msg = Defaults(_init=MessageInitialization.ZERO)
++        # With ZERO, defaults should not be applied
++        assert isinstance(msg.bool_value, Scalar)
++
++    def test_skip(self):
++        msg = Defaults(_init=MessageInitialization.SKIP)
++        assert isinstance(msg.bool_value, Scalar)
+diff --git a/rosidl_runtime_cpython/CMakeLists.txt b/rosidl_runtime_cpython/CMakeLists.txt
+new file mode 100644
+index 0000000..98f4424
+--- /dev/null
++++ b/rosidl_runtime_cpython/CMakeLists.txt
+@@ -0,0 +1,74 @@
 +cmake_minimum_required(VERSION 3.20)
 +
-+project(rosidl_runtime_py)
++project(rosidl_runtime_cpython)
 +
 +# Default to C11
 +if(NOT CMAKE_C_STANDARD)
@@ -32,7 +1607,7 @@ index 0000000..5164fb3
 +ament_python_install_package(${PROJECT_NAME})
 +
 +# ---------------------------------------------------------------------------
-+# C extension: rosidl_runtime_py._raw_buffer  (provides RawBuffer)
++# C extension: rosidl_runtime_cpython._raw_buffer  (provides RawBuffer)
 +# ---------------------------------------------------------------------------
 +Python3_add_library(_raw_buffer MODULE src/raw_buffer.c)
 +target_include_directories(_raw_buffer PRIVATE
@@ -43,14 +1618,14 @@ index 0000000..5164fb3
 +  rosidl_runtime_c::rosidl_runtime_c
 +)
 +set_target_properties(_raw_buffer PROPERTIES
-+  # Output into the rosidl_runtime_py/ subdirectory of the build space so that
++  # Output into the rosidl_runtime_cpython/ subdirectory of the build space so that
 +  # PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR} resolves the submodule import
-+  # `from rosidl_runtime_py._raw_buffer import RawBuffer` correctly.
-+  LIBRARY_OUTPUT_DIRECTORY $<1:${CMAKE_CURRENT_BINARY_DIR}/rosidl_runtime_py>
++  # `from rosidl_runtime_cpython._raw_buffer import RawBuffer` correctly.
++  LIBRARY_OUTPUT_DIRECTORY $<1:${CMAKE_CURRENT_BINARY_DIR}/rosidl_runtime_cpython>
 +)
 +
 +install(TARGETS _raw_buffer
-+  DESTINATION "${PYTHON_INSTALL_DIR}/rosidl_runtime_py"
++  DESTINATION "${PYTHON_INSTALL_DIR}/rosidl_runtime_cpython"
 +)
 +
 +# ---------------------------------------------------------------------------
@@ -62,16 +1637,11 @@ index 0000000..5164fb3
 +
 +  find_package(ament_cmake_pytest REQUIRED)
 +  set(_pytest_tests
-+    test/rosidl_runtime_py/test_convert.py
-+    test/rosidl_runtime_py/test_get_interfaces.py
-+    test/rosidl_runtime_py/test_import_message.py
-+    test/rosidl_runtime_py/test_set_message.py
-+    test/rosidl_runtime_py/test_utilities.py
-+    test/rosidl_runtime_py/experimental/test_dtype.py
-+    test/rosidl_runtime_py/experimental/test_scalar.py
-+    test/rosidl_runtime_py/experimental/test_array.py
-+    test/rosidl_runtime_py/experimental/test_sequence.py
-+    test/rosidl_runtime_py/experimental/test_string.py
++    test/rosidl_runtime_cpython/test_dtype.py
++    test/rosidl_runtime_cpython/test_scalar.py
++    test/rosidl_runtime_cpython/test_array.py
++    test/rosidl_runtime_cpython/test_sequence.py
++    test/rosidl_runtime_cpython/test_string.py
 +  )
 +  foreach(_test_path ${_pytest_tests})
 +    get_filename_component(_test_name ${_test_path} NAME_WE)
@@ -83,11 +1653,11 @@ index 0000000..5164fb3
 +endif()
 +
 +ament_package()
-diff --git a/include/rosidl_runtime_py/raw_buffer.h b/include/rosidl_runtime_py/raw_buffer.h
+diff --git a/rosidl_runtime_cpython/include/rosidl_runtime_cpython/raw_buffer.h b/rosidl_runtime_cpython/include/rosidl_runtime_cpython/raw_buffer.h
 new file mode 100644
 index 0000000..0ef2822
 --- /dev/null
-+++ b/include/rosidl_runtime_py/raw_buffer.h
++++ b/rosidl_runtime_cpython/include/rosidl_runtime_cpython/raw_buffer.h
 @@ -0,0 +1,99 @@
 +// Copyright 2026 Ekumen, Inc.
 +//
@@ -188,75 +1758,53 @@ index 0000000..0ef2822
 +#endif
 +
 +#endif  // ROSIDL_RUNTIME_PY__RAW_BUFFER_H_
-diff --git a/package.xml b/package.xml
-index 230928e..0c398da 100644
---- a/package.xml
-+++ b/package.xml
-@@ -12,6 +12,11 @@
-   <author email="dthomas@osrfoundation.org">Dirk Thomas</author>
-   <author email="jacob@openrobotics.org">Jacob Perron</author>
- 
+diff --git a/rosidl_runtime_cpython/package.xml b/rosidl_runtime_cpython/package.xml
+new file mode 100644
+index 0000000..610acbe
+--- /dev/null
++++ b/rosidl_runtime_cpython/package.xml
+@@ -0,0 +1,32 @@
++<?xml version="1.0"?>
++<?xml-model href="http://download.ros.org/schema/package_format2.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
++<package format="2">
++  <name>rosidl_runtime_cpython</name>
++  <version>0.27.0</version>
++  <description>CPython runtime support for ROS 2 experimental message types.</description>
++
++  <maintainer email="dharini@openrobotics.org">Dharini Dutia</maintainer>
++  <maintainer email="sloretz@openrobotics.org">Shane Loretz</maintainer>
++
++  <license>Apache License 2.0</license>
++
++  <author email="michel@ekumenlabs.com">Michel Hidalgo</author>
++
 +  <buildtool_depend>ament_cmake</buildtool_depend>
 +  <buildtool_depend>ament_cmake_python</buildtool_depend>
 +
 +  <build_depend>rosidl_runtime_c</build_depend>
 +
-   <exec_depend>python3-numpy</exec_depend>
-   <exec_depend>python3-yaml</exec_depend>
-   <exec_depend>rosidl_parser</exec_depend>
-@@ -26,6 +31,6 @@
-   <test_depend>test_msgs</test_depend>
- 
-   <export>
--    <build_type>ament_python</build_type>
++  <exec_depend>python3-numpy</exec_depend>
++
++  <test_depend>ament_cmake_pytest</test_depend>
++  <test_depend>ament_copyright</test_depend>
++  <test_depend>ament_flake8</test_depend>
++  <test_depend>ament_pep257</test_depend>
++  <test_depend>ament_xmllint</test_depend>
++  <test_depend>python3-pytest</test_depend>
++
++  <export>
 +    <build_type>ament_cmake</build_type>
-   </export>
- </package>
-diff --git a/rosidl_runtime_py/__init__.py b/rosidl_runtime_py/__init__.py
-index 0e7c354..dcb6c98 100644
---- a/rosidl_runtime_py/__init__.py
-+++ b/rosidl_runtime_py/__init__.py
-@@ -25,6 +25,18 @@ from .get_interfaces import get_service_interfaces
- from .import_message import import_message_from_namespaced_type
- from .set_message import set_message_fields
- 
-+from .experimental import (  # noqa: F401
-+    Array,
-+    BoundedSequence,
-+    BoundedString,
-+    BoundedWString,
-+    Dtype,
-+    RawBuffer,
-+    Scalar,
-+    Sequence,
-+    String,
-+    WString,
-+)
- 
- __all__ = [
-     'get_action_interfaces',
-@@ -39,4 +51,15 @@ __all__ = [
-     'message_to_ordereddict',
-     'message_to_yaml',
-     'set_message_fields',
-+    # experimental
-+    'Array',
-+    'BoundedSequence',
-+    'BoundedString',
-+    'BoundedWString',
-+    'Dtype',
-+    'RawBuffer',
-+    'Scalar',
-+    'Sequence',
-+    'String',
-+    'WString',
- ]
-diff --git a/rosidl_runtime_py/experimental/__init__.py b/rosidl_runtime_py/experimental/__init__.py
++  </export>
++</package>
+diff --git a/rosidl_runtime_cpython/resource/rosidl_runtime_cpython b/rosidl_runtime_cpython/resource/rosidl_runtime_cpython
 new file mode 100644
-index 0000000..0654892
+index 0000000..e69de29
+diff --git a/rosidl_runtime_cpython/rosidl_runtime_cpython/__init__.py b/rosidl_runtime_cpython/rosidl_runtime_cpython/__init__.py
+new file mode 100644
+index 0000000..557bd2e
 --- /dev/null
-+++ b/rosidl_runtime_py/experimental/__init__.py
-@@ -0,0 +1,102 @@
++++ b/rosidl_runtime_cpython/rosidl_runtime_cpython/__init__.py
+@@ -0,0 +1,110 @@
 +# Copyright 2026 Ekumen, Inc.
 +#
 +# Licensed under the Apache License, Version 2.0 (the "License");
@@ -316,13 +1864,18 @@ index 0000000..0654892
 +
 +import collections.abc
 +
-+from rosidl_runtime_py._raw_buffer import RawBuffer
++from rosidl_runtime_cpython._raw_buffer import RawBuffer
 +
-+from rosidl_runtime_py.experimental.dtype import Dtype
-+from rosidl_runtime_py.experimental.scalar import Scalar
-+from rosidl_runtime_py.experimental.array import Array
-+from rosidl_runtime_py.experimental.sequence import Sequence, BoundedSequence
-+from rosidl_runtime_py.experimental.string import (
++from rosidl_runtime_cpython.constraints import (
++    SequenceConstraint,
++    StringConstraint,
++)
++from rosidl_runtime_cpython.dtype import Dtype
++from rosidl_runtime_cpython.message_initialization import MessageInitialization
++from rosidl_runtime_cpython.scalar import Scalar
++from rosidl_runtime_cpython.array import Array
++from rosidl_runtime_cpython.sequence import Sequence, BoundedSequence
++from rosidl_runtime_cpython.string import (
 +    String,
 +    WString,
 +    BoundedString,
@@ -349,21 +1902,24 @@ index 0000000..0654892
 +
 +__all__ = [
 +    'Dtype',
++    'MessageInitialization',
 +    'RawBuffer',
 +    'Scalar',
 +    'Array',
 +    'Sequence',
 +    'BoundedSequence',
++    'SequenceConstraint',
 +    'String',
++    'StringConstraint',
 +    'WString',
 +    'BoundedString',
 +    'BoundedWString',
 +]
-diff --git a/rosidl_runtime_py/experimental/array.py b/rosidl_runtime_py/experimental/array.py
+diff --git a/rosidl_runtime_cpython/rosidl_runtime_cpython/array.py b/rosidl_runtime_cpython/rosidl_runtime_cpython/array.py
 new file mode 100644
-index 0000000..89f98db
+index 0000000..a3678e7
 --- /dev/null
-+++ b/rosidl_runtime_py/experimental/array.py
++++ b/rosidl_runtime_cpython/rosidl_runtime_cpython/array.py
 @@ -0,0 +1,205 @@
 +# Copyright 2026 Ekumen, Inc.
 +#
@@ -388,8 +1944,8 @@ index 0000000..89f98db
 +import numpy as np
 +import numpy.typing as npt
 +
-+from rosidl_runtime_py.experimental.dtype import Dtype
-+from rosidl_runtime_py._raw_buffer import RawBuffer
++from rosidl_runtime_cpython.dtype import Dtype
++from rosidl_runtime_cpython._raw_buffer import RawBuffer
 +
 +
 +class Array:
@@ -570,11 +2126,90 @@ index 0000000..89f98db
 +
 +    def __repr__(self) -> str:
 +        return f'Array({self._dtype!r}, {self._length}, data={self._view.tolist()!r})'
-diff --git a/rosidl_runtime_py/experimental/dtype.py b/rosidl_runtime_py/experimental/dtype.py
+diff --git a/rosidl_runtime_cpython/rosidl_runtime_cpython/constraints.py b/rosidl_runtime_cpython/rosidl_runtime_cpython/constraints.py
+new file mode 100644
+index 0000000..bf41ae0
+--- /dev/null
++++ b/rosidl_runtime_cpython/rosidl_runtime_cpython/constraints.py
+@@ -0,0 +1,73 @@
++# Copyright 2026 Ekumen, Inc.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++"""Constraint types for experimental messages.
++
++These mirror the ``rosidl_runtime_cpp::StringConstraint`` and
++``rosidl_runtime_cpp::SequenceConstraint<T>`` types from the C++ experimental
++runtime, providing runtime-queryable bounds for variable-length message
++members.
++"""
++
++from __future__ import annotations
++
++import dataclasses
++from typing import Any
++
++
++@dataclasses.dataclass
++class StringConstraint:
++    """Constraint for an unbounded string member.
++
++    Carries the maximum character/code-unit length for the string.
++    Bounded strings carry their limit in the type itself, so no
++    constraint is generated for them.
++    """
++
++    size: int = 0
++
++    def __eq__(self, other: object) -> bool:
++        if not isinstance(other, StringConstraint):
++            return NotImplemented
++        return self.size == other.size
++
++    def __repr__(self) -> str:
++        return f'StringConstraint(size={self.size})'
++
++
++@dataclasses.dataclass
++class SequenceConstraint:
++    """Constraint for an unbounded sequence member.
++
++    ``size`` is the maximum number of elements in the sequence.
++    ``element`` optionally carries per-element constraints:
++
++    - For sequences of unbounded strings: a :class:`StringConstraint`.
++    - For sequences of message types: the message's ``Constraints`` class
++      instance.
++    - For sequences of scalars or bounded types: ``None``.
++    """
++
++    size: int = 0
++    element: Any = None
++
++    def __eq__(self, other: object) -> bool:
++        if not isinstance(other, SequenceConstraint):
++            return NotImplemented
++        return self.size == other.size and self.element == other.element
++
++    def __repr__(self) -> str:
++        if self.element is not None:
++            return f'SequenceConstraint(size={self.size}, element={self.element!r})'
++        return f'SequenceConstraint(size={self.size})'
+diff --git a/rosidl_runtime_cpython/rosidl_runtime_cpython/dtype.py b/rosidl_runtime_cpython/rosidl_runtime_cpython/dtype.py
 new file mode 100644
 index 0000000..deb19c7
 --- /dev/null
-+++ b/rosidl_runtime_py/experimental/dtype.py
++++ b/rosidl_runtime_cpython/rosidl_runtime_cpython/dtype.py
 @@ -0,0 +1,86 @@
 +# Copyright 2026 Ekumen, Inc.
 +#
@@ -662,11 +2297,72 @@ index 0000000..deb19c7
 +    def unpack(self, data: bytes | bytearray) -> Any:
 +        """Unpack a single Python value from its raw byte representation."""
 +        return np.frombuffer(data, dtype=self.numpy_dtype, count=1)[0].item()
-diff --git a/rosidl_runtime_py/experimental/scalar.py b/rosidl_runtime_py/experimental/scalar.py
+diff --git a/rosidl_runtime_cpython/rosidl_runtime_cpython/message_initialization.py b/rosidl_runtime_cpython/rosidl_runtime_cpython/message_initialization.py
 new file mode 100644
-index 0000000..a0841b2
+index 0000000..b0bf82c
 --- /dev/null
-+++ b/rosidl_runtime_py/experimental/scalar.py
++++ b/rosidl_runtime_cpython/rosidl_runtime_cpython/message_initialization.py
+@@ -0,0 +1,48 @@
++# Copyright 2026 Ekumen, Inc.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++"""MessageInitialization enum for experimental messages.
++
++Mirrors ``rosidl_runtime_cpp::MessageInitialization`` to control which
++fields are set in the ``_reset()`` method of generated experimental
++messages.
++"""
++
++from __future__ import annotations
++
++import enum
++
++
++class MessageInitialization(enum.Enum):
++    """Control which fields are initialised by ``_reset()``.
++
++    Members
++    -------
++    ALL
++        Apply both default values and zero-initialisation for fields
++        that do not have an explicit default.
++    DEFAULTS_ONLY
++        Only apply fields that carry an explicit ``@default`` annotation.
++    ZERO
++        Zero-initialise all fields that carry a zero value (including
++        fields that also have an explicit default).
++    SKIP
++        Skip all initialisation.  Useful for sub-messages that will be
++        initialised separately.
++    """
++
++    ALL = 'ALL'
++    DEFAULTS_ONLY = 'DEFAULTS_ONLY'
++    ZERO = 'ZERO'
++    SKIP = 'SKIP'
+diff --git a/rosidl_runtime_cpython/rosidl_runtime_cpython/py.typed b/rosidl_runtime_cpython/rosidl_runtime_cpython/py.typed
+new file mode 100644
+index 0000000..0baa9f5
+--- /dev/null
++++ b/rosidl_runtime_cpython/rosidl_runtime_cpython/py.typed
+@@ -0,0 +1 @@
++# Marker file for PEP 561 - indicates this package supports type checking
+diff --git a/rosidl_runtime_cpython/rosidl_runtime_cpython/scalar.py b/rosidl_runtime_cpython/rosidl_runtime_cpython/scalar.py
+new file mode 100644
+index 0000000..f918e23
+--- /dev/null
++++ b/rosidl_runtime_cpython/rosidl_runtime_cpython/scalar.py
 @@ -0,0 +1,168 @@
 +# Copyright 2026 Ekumen, Inc.
 +#
@@ -691,8 +2387,8 @@ index 0000000..a0841b2
 +import numpy as np
 +import numpy.typing as npt
 +
-+from rosidl_runtime_py.experimental.dtype import Dtype
-+from rosidl_runtime_py._raw_buffer import RawBuffer
++from rosidl_runtime_cpython.dtype import Dtype
++from rosidl_runtime_cpython._raw_buffer import RawBuffer
 +
 +
 +class Scalar:
@@ -836,11 +2532,11 @@ index 0000000..a0841b2
 +
 +    def __str__(self) -> str:
 +        return str(self.value)
-diff --git a/rosidl_runtime_py/experimental/sequence.py b/rosidl_runtime_py/experimental/sequence.py
+diff --git a/rosidl_runtime_cpython/rosidl_runtime_cpython/sequence.py b/rosidl_runtime_cpython/rosidl_runtime_cpython/sequence.py
 new file mode 100644
-index 0000000..959fb68
+index 0000000..c4132e5
 --- /dev/null
-+++ b/rosidl_runtime_py/experimental/sequence.py
++++ b/rosidl_runtime_cpython/rosidl_runtime_cpython/sequence.py
 @@ -0,0 +1,465 @@
 +# Copyright 2026 Ekumen, Inc.
 +#
@@ -866,8 +2562,8 @@ index 0000000..959fb68
 +import numpy as np
 +import numpy.typing as npt
 +
-+from rosidl_runtime_py.experimental.dtype import Dtype
-+from rosidl_runtime_py._raw_buffer import RawBuffer
++from rosidl_runtime_cpython.dtype import Dtype
++from rosidl_runtime_cpython._raw_buffer import RawBuffer
 +
 +
 +class Sequence:
@@ -1307,11 +3003,11 @@ index 0000000..959fb68
 +            f'BoundedSequence({self._dtype!r}, {self._upper_bound}, '
 +            f'data={self._view.tolist()!r})'
 +        )
-diff --git a/rosidl_runtime_py/experimental/string.py b/rosidl_runtime_py/experimental/string.py
+diff --git a/rosidl_runtime_cpython/rosidl_runtime_cpython/string.py b/rosidl_runtime_cpython/rosidl_runtime_cpython/string.py
 new file mode 100644
-index 0000000..2786108
+index 0000000..fc163c0
 --- /dev/null
-+++ b/rosidl_runtime_py/experimental/string.py
++++ b/rosidl_runtime_cpython/rosidl_runtime_cpython/string.py
 @@ -0,0 +1,625 @@
 +# Copyright 2026 Ekumen, Inc.
 +#
@@ -1336,8 +3032,8 @@ index 0000000..2786108
 +import numpy as np
 +import numpy.typing as npt
 +
-+from rosidl_runtime_py.experimental.dtype import Dtype
-+from rosidl_runtime_py._raw_buffer import RawBuffer
++from rosidl_runtime_cpython.dtype import Dtype
++from rosidl_runtime_cpython._raw_buffer import RawBuffer
 +
 +
 +class String:
@@ -1938,11 +3634,56 @@ index 0000000..2786108
 +
 +    def __repr__(self) -> str:
 +        return f'BoundedWString({self._upper_bound}, {self.__str__()!r})'
-diff --git a/src/raw_buffer.c b/src/raw_buffer.c
+diff --git a/rosidl_runtime_cpython/setup.py b/rosidl_runtime_cpython/setup.py
 new file mode 100644
-index 0000000..cc79cfa
+index 0000000..d1083f3
 --- /dev/null
-+++ b/src/raw_buffer.c
++++ b/rosidl_runtime_cpython/setup.py
+@@ -0,0 +1,39 @@
++from setuptools import find_packages
++from setuptools import setup
++
++package_name = "rosidl_runtime_cpython"
++
++setup(
++    name=package_name,
++    version="0.27.0",
++    packages=find_packages(exclude=["test"]),
++    data_files=[
++        ("share/" + package_name, ["package.xml"]),
++        ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
++    ],
++    package_data={"": ["py.typed"]},
++    zip_safe=False,
++    author="Michel Hidalgo",
++    author_email="michel@ekumenlabs.com",
++    maintainer="Dharini Dutia, Shane Loretz",
++    maintainer_email="dharini@openrobotics.org",
++    url="https://github.com/ros2/rosidl_python",
++    download_url="https://github.com/ros2/rosidl_python/releases",
++    keywords=[],
++    classifiers=[
++        "Environment :: Console",
++        "Intended Audience :: Developers",
++        "Programming Language :: Python",
++    ],
++    description="CPython runtime support for ROS 2 experimental message types.",
++    long_description=(
++        "This package provides experimental container types (Array, Sequence, Scalar, String) "
++        "and the RawBuffer C extension for zero-copy messaging in Python."
++    ),
++    license="Apache License, Version 2.0",
++    extras_require={
++        "test": [
++            "pytest",
++        ],
++    },
++)
+diff --git a/rosidl_runtime_cpython/src/raw_buffer.c b/rosidl_runtime_cpython/src/raw_buffer.c
+new file mode 100644
+index 0000000..d6595f8
+--- /dev/null
++++ b/rosidl_runtime_cpython/src/raw_buffer.c
 @@ -0,0 +1,709 @@
 +// Copyright 2026 Ekumen, Inc.
 +//
@@ -1985,7 +3726,7 @@ index 0000000..cc79cfa
 +#include <string.h>
 +
 +#include "rosidl_runtime_c/experimental/memory.h"
-+#include "rosidl_runtime_py/raw_buffer.h"
++#include "rosidl_runtime_cpython/raw_buffer.h"
 +
 +// Forward declaration so _RawBuffer_FromRegion can reference the type.
 +static PyTypeObject RawBuffer_Type;
@@ -2653,11 +4394,11 @@ index 0000000..cc79cfa
 +
 +  return m;
 +}
-diff --git a/test/rosidl_runtime_py/experimental/test_array.py b/test/rosidl_runtime_py/experimental/test_array.py
+diff --git a/rosidl_runtime_cpython/test/rosidl_runtime_cpython/test_array.py b/rosidl_runtime_cpython/test/rosidl_runtime_cpython/test_array.py
 new file mode 100644
-index 0000000..f69cdac
+index 0000000..9dd6ab3
 --- /dev/null
-+++ b/test/rosidl_runtime_py/experimental/test_array.py
++++ b/rosidl_runtime_cpython/test/rosidl_runtime_cpython/test_array.py
 @@ -0,0 +1,304 @@
 +# Copyright 2026 Ekumen, Inc.
 +#
@@ -2678,9 +4419,9 @@ index 0000000..f69cdac
 +import numpy as np
 +import pytest
 +
-+from rosidl_runtime_py._raw_buffer import RawBuffer
-+from rosidl_runtime_py.experimental.dtype import Dtype
-+from rosidl_runtime_py.experimental.array import Array
++from rosidl_runtime_cpython._raw_buffer import RawBuffer
++from rosidl_runtime_cpython.dtype import Dtype
++from rosidl_runtime_cpython.array import Array
 +
 +
 +# ---------------------------------------------------------------------------
@@ -2963,11 +4704,11 @@ index 0000000..f69cdac
 +    r = repr(a)
 +    assert 'Array(' in r
 +    assert 'data=' in r
-diff --git a/test/rosidl_runtime_py/experimental/test_dtype.py b/test/rosidl_runtime_py/experimental/test_dtype.py
+diff --git a/rosidl_runtime_cpython/test/rosidl_runtime_cpython/test_dtype.py b/rosidl_runtime_cpython/test/rosidl_runtime_cpython/test_dtype.py
 new file mode 100644
-index 0000000..41e865e
+index 0000000..6da7929
 --- /dev/null
-+++ b/test/rosidl_runtime_py/experimental/test_dtype.py
++++ b/rosidl_runtime_cpython/test/rosidl_runtime_cpython/test_dtype.py
 @@ -0,0 +1,115 @@
 +# Copyright 2026 Ekumen, Inc.
 +#
@@ -2990,7 +4731,7 @@ index 0000000..41e865e
 +import numpy as np
 +import pytest
 +
-+from rosidl_runtime_py.experimental.dtype import Dtype
++from rosidl_runtime_cpython.dtype import Dtype
 +
 +
 +# All 15 ROS primitive Dtype members.
@@ -3084,11 +4825,11 @@ index 0000000..41e865e
 +
 +def test_wchar_uint16_share_numpy_dtype():
 +    assert Dtype.WCHAR.numpy_dtype == Dtype.UINT16.numpy_dtype
-diff --git a/test/rosidl_runtime_py/experimental/test_scalar.py b/test/rosidl_runtime_py/experimental/test_scalar.py
+diff --git a/rosidl_runtime_cpython/test/rosidl_runtime_cpython/test_scalar.py b/rosidl_runtime_cpython/test/rosidl_runtime_cpython/test_scalar.py
 new file mode 100644
-index 0000000..96108c3
+index 0000000..81c79fa
 --- /dev/null
-+++ b/test/rosidl_runtime_py/experimental/test_scalar.py
++++ b/rosidl_runtime_cpython/test/rosidl_runtime_cpython/test_scalar.py
 @@ -0,0 +1,275 @@
 +# Copyright 2026 Ekumen, Inc.
 +#
@@ -3109,9 +4850,9 @@ index 0000000..96108c3
 +import numpy as np
 +import pytest
 +
-+from rosidl_runtime_py._raw_buffer import RawBuffer
-+from rosidl_runtime_py.experimental.dtype import Dtype
-+from rosidl_runtime_py.experimental.scalar import Scalar
++from rosidl_runtime_cpython._raw_buffer import RawBuffer
++from rosidl_runtime_cpython.dtype import Dtype
++from rosidl_runtime_cpython.scalar import Scalar
 +
 +
 +# ---------------------------------------------------------------------------
@@ -3365,11 +5106,11 @@ index 0000000..96108c3
 +def test_str():
 +    s = Scalar(Dtype.FLOAT64, 1.5)
 +    assert str(s) == '1.5'
-diff --git a/test/rosidl_runtime_py/experimental/test_sequence.py b/test/rosidl_runtime_py/experimental/test_sequence.py
+diff --git a/rosidl_runtime_cpython/test/rosidl_runtime_cpython/test_sequence.py b/rosidl_runtime_cpython/test/rosidl_runtime_cpython/test_sequence.py
 new file mode 100644
-index 0000000..05f9d2b
+index 0000000..d001cbc
 --- /dev/null
-+++ b/test/rosidl_runtime_py/experimental/test_sequence.py
++++ b/rosidl_runtime_cpython/test/rosidl_runtime_cpython/test_sequence.py
 @@ -0,0 +1,503 @@
 +# Copyright 2026 Ekumen, Inc.
 +#
@@ -3390,9 +5131,9 @@ index 0000000..05f9d2b
 +import numpy as np
 +import pytest
 +
-+from rosidl_runtime_py._raw_buffer import RawBuffer
-+from rosidl_runtime_py.experimental.dtype import Dtype
-+from rosidl_runtime_py.experimental.sequence import BoundedSequence, Sequence
++from rosidl_runtime_cpython._raw_buffer import RawBuffer
++from rosidl_runtime_cpython.dtype import Dtype
++from rosidl_runtime_cpython.sequence import BoundedSequence, Sequence
 +
 +
 +# ---------------------------------------------------------------------------
@@ -3874,11 +5615,11 @@ index 0000000..05f9d2b
 +    r = repr(s)
 +    assert 'BoundedSequence' in r
 +    assert '10' in r
-diff --git a/test/rosidl_runtime_py/experimental/test_string.py b/test/rosidl_runtime_py/experimental/test_string.py
+diff --git a/rosidl_runtime_cpython/test/rosidl_runtime_cpython/test_string.py b/rosidl_runtime_cpython/test/rosidl_runtime_cpython/test_string.py
 new file mode 100644
-index 0000000..7bea363
+index 0000000..1c8e421
 --- /dev/null
-+++ b/test/rosidl_runtime_py/experimental/test_string.py
++++ b/rosidl_runtime_cpython/test/rosidl_runtime_cpython/test_string.py
 @@ -0,0 +1,535 @@
 +# Copyright 2026 Ekumen, Inc.
 +#
@@ -3899,9 +5640,9 @@ index 0000000..7bea363
 +import numpy as np
 +import pytest
 +
-+from rosidl_runtime_py._raw_buffer import RawBuffer
-+from rosidl_runtime_py.experimental.dtype import Dtype
-+from rosidl_runtime_py.experimental.string import (
++from rosidl_runtime_cpython._raw_buffer import RawBuffer
++from rosidl_runtime_cpython.dtype import Dtype
++from rosidl_runtime_cpython.string import (
 +    BoundedString,
 +    BoundedWString,
 +    String,

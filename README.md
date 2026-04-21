@@ -1,5 +1,13 @@
 # zero_copy_rosidl
 
+<p align="center">
+  <img src=".images/under_construction.png" alt="Under construction banner" width="400">
+</p>
+
+## Overview
+
+This repository hosts the reference implementation and associated performance benchmarks for [REP-0157](https://reps.openrobotics.org/rep-0157-2026/).
+
 ## Development Environment
 
 ### Quick Start
