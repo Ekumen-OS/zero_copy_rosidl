@@ -60,7 +60,7 @@ jobs:
       if: >
         github.event_name == 'pull_request' &&
         steps.benchmark_results.outputs.results != ''
-      uses: actions/github-script@v7
+      uses: actions/github-script@v9
       with:
         script: |
           github.rest.issues.createComment({
