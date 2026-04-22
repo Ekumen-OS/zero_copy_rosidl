@@ -1,12 +1,18 @@
 # zero_copy_rosidl
 
+## Overview
+
+This repository is a Proof-of-Concept (PoC) implementation of zero-copy ROSIDL message serialization and deserialization in ROS 2. It serves as a reference implementation for [REP-0157](https://reps.openrobotics.org/rep-0157-2026/), demonstrating the feasibility and performance benefits of zero-copy communication in ROS 2.
+
+Further reads:
+
+- https://github.com/openrobotics/reps/pull/22
+- https://github.com/openrobotics/reps/pull/28
+
 <p align="center">
   <img src=".images/under_construction.png" alt="Under construction banner" width="400">
 </p>
 
-## Overview
-
-This repository hosts the reference implementation and associated performance benchmarks for [REP-0157](https://reps.openrobotics.org/rep-0157-2026/).
 
 ## Development Environment
 
