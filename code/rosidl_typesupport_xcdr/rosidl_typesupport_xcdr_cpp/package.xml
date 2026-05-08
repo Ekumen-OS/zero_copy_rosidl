@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>rosidl_typesupport_xcdr_cpp</name>
+  <version>0.1.0</version>
+  <description>
+    Generate and provide XCDR-based typesupport for ROS 2 messages in C++.
+    Supports both experimental (zero-copy capable) and non-experimental messages.
+  </description>
+  <maintainer email="miguel@example.com">Miguel Company</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
+
+  <build_depend>rosidl_cmake</build_depend>
+  <build_depend>rosidl_pycommon</build_depend>
+  
+  <depend>rosidl_cli</depend>
+  <depend>rosidl_generator_cpp</depend>
+  <depend>rosidl_parser</depend>
+  <depend>rosidl_runtime_c</depend>
+  <depend>rosidl_runtime_cpp</depend>
+  <depend>rosidl_typesupport_interface</depend>
+  <depend>xcdr_buffers</depend>
+
+  <buildtool_export_depend>ament_cmake</buildtool_export_depend>
+  <buildtool_export_depend>rosidl_cmake</buildtool_export_depend>
+
+  <exec_depend>rosidl_pycommon</exec_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <member_of_group>rosidl_typesupport_cpp_packages</member_of_group>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

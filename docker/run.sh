@@ -18,15 +18,13 @@ set -o errexit
 
 cd $(dirname "$(readlink -f "$0")")
 
-[[ ! -z "${WITHIN_DEV}" ]] && echo "Already in the development environment!" && exit 1
-
 # function to print help options
 function print_help {
     echo "Usage: $(basename $0) [-b|--build] [-s|--service SERVICE_NAME] [-h|--help] [-- COMMAND [ARGS...]]"
-    echo "  --build                      Build the image before starting the container."
-    echo "  --service                    Set the service name (default: zero_rosidl_devel)."
-    echo "  --help                       Display this help message."
-    echo "  --                           Everything after this is used as the command to execute in the container."
+    echo "  --build    Build the image before starting the container."
+    echo "  --service  Set the service name (default: dev_environ). Options: dev_environ, patched_ros, base_ros"
+    echo "  --help     Display this help message."
+    echo "  --         Everything after this is used as the command to execute in the container."
 }
 
 set +o errexit
@@ -44,7 +42,7 @@ if [[ $RET_CODE -ne 0 ]]; then
 fi
 
 BUILD=false
-SERVICE_NAME="zero_rosidl_devel"
+SERVICE_NAME="dev_environ"
 
 eval set -- "$VALID_ARGS"
 while [[ "$1" != "" ]]; do
@@ -75,14 +73,6 @@ done
 
 # Capture any remaining arguments after -- as the command to execute
 COMMAND_ARGS=("$@")
-
-# if the ROS_DOMAIN_ID variable is not set, abort
-if [[ -z "${ROS_DOMAIN_ID}" ]]; then
-  echo
-  echo "The ROS_DOMAIN_ID environment variable must be set."
-  echo
-  exit 1
-fi
 
 CONTAINER_NAME="${USER}_${SERVICE_NAME}"
 

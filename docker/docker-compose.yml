@@ -1,26 +1,73 @@
 services:
-  zero_rosidl_devel_base:
+  base_ros_environ:
+    user: ${USERID:-1000}:${GROUPID:-1000}
+    hostname: zcr-baseline-ros
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+      - XAUTHORITY=${XAUTHORITY:-/tmp/.docker.xauth}
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-90}
     build:
       context: ..
-      dockerfile: docker/Dockerfile.jazzy
-      target: zero_rosidl_service_image_devel
+      dockerfile: docker/Dockerfile
+      target: base_ros
+      args:
+        UID: $USERID
+        GID: $GROUPID
+    image: ekumenlabs/zcr-baseline-ros
+    container_name: zcr-baseline-ros
+    volumes:
+      - ../data:/home/developer/data:rw
+      - ../tools:/home/developer/tools:ro
+      - /tmp:/tmp:rw
+
+  patched_ros_environ:
+    user: ${USERID:-1000}:${GROUPID:-1000}
+    hostname: zcr-ros
     environment:
-      - DISPLAY
+      - DISPLAY=${DISPLAY}
       - QT_X11_NO_MITSHM=1
-      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
-      - XAUTHORITY=/tmp/.docker.xauth
+      - XAUTHORITY=${XAUTHORITY:-/tmp/.docker.xauth}
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-90}
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: patched_ros
+      args:
+        UID: $USERID
+        GID: $GROUPID
+    image: ekumenlabs/zcr-ros
+    container_name: zcr-ros
+    volumes:
+      - ../data:/home/developer/data:rw
+      - ../tools:/home/developer/tools:ro
+      - /tmp:/tmp:rw
+
+  dev_environ:
+    user: ${USERID:-1000}:${GROUPID:-1000}
+    hostname: zcr-dev
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+      - XAUTHORITY=${XAUTHORITY:-/tmp/.docker.xauth}
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-90}
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: dev_environ
+      args:
+        UID: $USERID
+        GID: $GROUPID
+    image: ekumenlabs/zcr-dev
+    container_name: zcr-dev
     stdin_open: true
     tty: true
-    user: ${USERID:-1000}:${GROUPID:-1000}
     volumes:
-      - ..:/home/developer/ws/src/project
-      - /tmp:/tmp:rw
-      - zero_rosidl_persistence:/home/developer/ws/persistence
-
-  zero_rosidl_devel:
-    extends:
-      service: zero_rosidl_devel_base
-    network_mode: host
+      - zero_copy_rosidl_persistence:/home/developer/ws/.persistence
+      - ../code:/home/developer/ws/src
+      - ../data:/home/developer/data
+      - ../tools:/home/developer/tools
+      - /tmp:/tmp
 
 volumes:
-  zero_rosidl_persistence:
+  zero_copy_rosidl_persistence:
