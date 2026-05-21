@@ -24,7 +24,7 @@ cd $(dirname "$(readlink -f "$0")")
 function print_help {
     echo "Usage: $(basename $0) [-b|--build] [-s|--service SERVICE_NAME] [-h|--help] [-- COMMAND [ARGS...]]"
     echo "  --build                      Build the image before starting the container."
-    echo "  --service                    Set the service name (default: unpatched_workspace). Options: unpatched_workspace, patched_workspace"
+    echo "  --service                    Set the service name (default: dev_workspace). Options: unpatched_workspace, patched_workspace, dev_workspace"
     echo "  --help                       Display this help message."
     echo "  --                           Everything after this is used as the command to execute in the container."
 }
@@ -44,7 +44,7 @@ if [[ $RET_CODE -ne 0 ]]; then
 fi
 
 BUILD=false
-SERVICE_NAME="unpatched_workspace"
+SERVICE_NAME="dev_workspace"
 
 eval set -- "$VALID_ARGS"
 while [[ "$1" != "" ]]; do

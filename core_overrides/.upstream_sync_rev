@@ -1,2 +1,4 @@
-rosidl: dac6ead70d25ad68a24d74df089650773fcef381
-rosidl_python: dac6ead70d25ad68a24d74df089650773fcef381
+{
+	"rosidl": "fcb5381aa470d3b4bc0e1f9ff544afc7806ed47c",
+	"rosidl_python": "fcb5381aa470d3b4bc0e1f9ff544afc7806ed47c"
+}

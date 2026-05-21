@@ -21,40 +21,44 @@ Further reads:
 Launch the development container:
 
 ```bash
-./docker/run.sh [--build] [-s unpatched_workspace|patched_workspace] [-- COMMAND [ARGS...]]
+./docker/run.sh [--build] [-s unpatched_workspace|patched_workspace|dev_workspace] [-- COMMAND [ARGS...]]
 ```
 
-Use `--build` to rebuild the image. You can specify whether to run the `unpatched_workspace` (default) or `patched_workspace` using the `-s` flag. Commands after `--` execute inside the container.
+Use `--build` to rebuild the image. Services:
+- `unpatched_workspace` — stock ROS 2 Jazzy build
+- `patched_workspace` — `core_overrides/` baked in (used for CI and reproducible benchmarks)
+- `dev_workspace` (default) — bind-mounts `core_overrides/` for fast local iteration
+
+Commands after `--` execute inside the container.
 
 ### Modifying ROS Core Packages
 
-Modifications are applied during the Docker build when ROS core packages are compiled from source. The script-based approach allows for arbitrary changes beyond simple patches, including removing packages, adding COLCON_IGNORE files, or managing git submodules.
+Modifications to ROS 2 core packages live in `core_overrides/`. Each subdirectory mirrors the upstream package name (e.g. `core_overrides/rosidl/`, `core_overrides/rosidl_python/`). The `dev_workspace` service bind-mounts these directly into the container's ROS core workspace, replacing the corresponding upstream sources:
 
-1. Create a shell script `docker/files/patches_ros/<package_name>.sh` with your modifications
-2. For simple patches, reference a corresponding `.patch` file:
-
-```bash
-#!/bin/bash
-script_location=$(dirname "$(readlink -f "$0")")
-script_name=$(basename "$0")
-script_name_minus_extension="${script_name%.*}"
-git apply ${script_location}/${script_name_minus_extension}.patch
+```
+core_overrides/rosidl/       → $ROS_CORE_WS/src/ros2/rosidl
+core_overrides/rosidl_python/ → $ROS_CORE_WS/src/ros2/rosidl_python
 ```
 
-3. For other modifications, implement custom logic directly in the script
-4. Make the script executable: `chmod +x docker/files/patches_ros/<package_name>.sh`
+After modifying files in `core_overrides/`, rebuild only the affected packages from inside the container:
 
-The script executes automatically during the build phase when processing the corresponding ROS core package. The same mechanism applies to external dependencies using `docker/files/patches_ext/`.
+```bash
+# Inside dev_workspace
+cd $ROS_CORE_WS
+colcon build --symlink-install --packages-select <package_name>
+```
+
+Build artifacts are stored in named Docker volumes (`zero_rosidl_dev_build`, `zero_rosidl_dev_install`) and persist across container restarts.
 
 ### Accessing Running Container
 
 To open a shell in a running container:
 
 ```bash
-docker exec -it <username>_unpatched_workspace bash
+docker exec -it <username>_<service_name> bash
 ```
 
-Replace `<username>` with your system username (e.g., `ekumen_unpatched_workspace`), and the service name depending on which generator you booted.
+Replace `<username>` with your system username and `<service_name>` with the running service (e.g. `ekumen_unpatched_workspace` or `ekumen_dev_workspace`).
 
 ## Running Performance Benchmarks
 
@@ -63,7 +67,7 @@ to benchmark ROS 2 communication performance under zero-copy implementations.
 
 ### Generating Benchmark Data
 
-The testing frameworks are available instantly due to the multi-stage Docker builds. Inside your selected container (`unpatched_workspace` or `patched_workspace`), the ApexAI performance test suite is already compiled inside the core ROS workspace.
+The testing frameworks are available instantly due to the multi-stage Docker builds. Inside `unpatched_workspace` and `patched_workspace` the ApexAI performance test suite is already compiled. In `dev_workspace` a one-time `colcon build` is required after first launch (see below).
 
 ```bash
 # Inside the container, run a performance test

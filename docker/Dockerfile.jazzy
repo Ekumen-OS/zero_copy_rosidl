@@ -1,15 +1,21 @@
+# syntax=docker/dockerfile:1.4
 FROM ubuntu:noble AS base_env
 
 ARG USER=developer
 ARG GROUP=developer
 ARG UID=1001
 ARG GID=1001
+ARG ROS_DISTRO=jazzy
+ARG FIXUID_VERSION=0.6.0
 
-ENV ROS_DISTRO=jazzy
+ENV ROS_DISTRO=${ROS_DISTRO}
 ENV DEBIAN_FRONTEND=noninteractive
+ENV PATH="/usr/lib/ccache:$PATH"
 
-# Install base dependencies
-RUN apt-get update \
+# Install base dependencies with cache mount
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update \
     && apt-get install --no-install-recommends -y \
     bash-completion \
     ccache \
@@ -27,18 +33,18 @@ RUN apt-get update \
     sudo \
     tmux \
     vim \
-    wget \
-   && rm -rf /var/lib/apt/lists/*
+    wget
 
-# Get ros2 infra debian packages and dev tools
-RUN apt-get update \
+# Get ros2 infra debian packages and dev tools with cache mount
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update \
    && apt-get install --no-install-recommends -y curl \
    && export ROS_APT_SOURCE_VERSION=$(curl -s https://api.github.com/repos/ros-infrastructure/ros-apt-source/releases/latest | grep -F "tag_name" | awk -F'"' '{print $4}') \
    && curl -L -o /tmp/ros2-apt-source.deb "https://github.com/ros-infrastructure/ros-apt-source/releases/download/${ROS_APT_SOURCE_VERSION}/ros2-apt-source_${ROS_APT_SOURCE_VERSION}.$(. /etc/os-release && echo ${UBUNTU_CODENAME:-${VERSION_CODENAME}})_all.deb" \
    && dpkg -i /tmp/ros2-apt-source.deb \
    && apt-get update \
-   && apt-get install --no-install-recommends -y ros-dev-tools \
-   && rm -rf /var/lib/apt/lists/*
+   && apt-get install --no-install-recommends -y ros-dev-tools
 
 # Setup container user
 # ubuntu:noble pre-creates the `ubuntu` user at UID 1000. Delete it so we can safely map the host's UID (which is usually 1000) to our developer user.
@@ -49,15 +55,23 @@ RUN addgroup --gid $GID $GROUP \
     && adduser $USER dialout \
     && echo "$USER ALL=NOPASSWD: ALL" >> /etc/sudoers.d/$USER
 
+# Fixuid setup
+COPY --chown=root:root docker/files/fixuid_config.yml /etc/fixuid/config.yml
+RUN ARCH=`uname -m` && if [ "$ARCH" == "aarch64" ]; then FIXUID_ARCH="arm64"; else FIXUID_ARCH="amd64"; fi \
+    && curl -fsSL https://github.com/boxboat/fixuid/releases/download/v${FIXUID_VERSION}/fixuid-${FIXUID_VERSION}-linux-${FIXUID_ARCH}.tar.gz | tar -C /usr/local/bin -xzf - \
+    && chown root:root /usr/local/bin/fixuid \
+    && chmod 4755 /usr/local/bin/fixuid \
+    && cd /etc/fixuid \
+    && sed -i "s/_USER_/$USER/" config.yml \
+    && sed -i "s/_GROUP_/$GROUP/" config.yml
+
 USER $USER:$GROUP
 WORKDIR /home/$USER
 
-RUN sudo rosdep init && rosdep update
-
-# ==============================================================================
-# DOWNLOAD SOURCES
-# ==============================================================================
-FROM base_env AS source_sync
+RUN sudo rosdep init && rosdep update \
+    # Create .ccache so the named volume is initialized with developer ownership.
+    # Without this, Docker creates the mountpoint as root and ccache can't write.
+    && mkdir -p /home/$USER/.ccache
 
 ENV ROS_CORE_WS=/home/$USER/ws_ros_core
 RUN mkdir -p $ROS_CORE_WS/src
@@ -72,30 +86,34 @@ RUN cd src/ \
 # ==============================================================================
 # BASE BUILD (Shared dependencies and unpatched build)
 # ==============================================================================
-FROM source_sync AS unpatched_workspace
+FROM base_env AS unpatched_workspace
 
-# Install dependencies and complete the initial full build
-RUN cd $ROS_CORE_WS \
+# Install dependencies and complete the initial full build with cache mounts
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    cd $ROS_CORE_WS \
     && sudo apt-get update \
     && rosdep install --from-paths src --ignore-src -y --skip-keys "fastcdr rti-connext-dds-6.0.1 urdfdom_headers rosidl_runtime_cpython" \
-    && sudo rm -rf /var/lib/apt/lists/* \
     && colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF --packages-up-to performance_test
 
+ENTRYPOINT ["fixuid", "-q"]
+CMD ["/bin/bash"]
+
 # ==============================================================================
-# PATCHED BUILD (Workspace 2)
+# PATCHED BUILD (core_overrides/ applied on top of unpatched_workspace)
 # ==============================================================================
 FROM unpatched_workspace AS patched_workspace
 
-# Apply patches
-RUN --mount=type=bind,source=docker/files/patches_ros,target=/tmp/patches_ros \
-    --mount=type=bind,source=docker/scripts,target=/tmp/scripts \
-    /tmp/scripts/apply_ros_patches.sh
+# Replace upstream packages with overrides from core_overrides/.
+# --mount=type=bind keeps the override sources out of the image layer.
+RUN --mount=type=bind,source=core_overrides,target=/tmp/core_overrides,readonly \
+    --mount=type=bind,source=docker/scripts,target=/tmp/scripts,readonly \
+    /tmp/scripts/apply_core_overrides.sh /tmp/core_overrides $ROS_CORE_WS/src $ROS_CORE_WS
 
-# Rebuild only the packages affected by the patches (and install any new dependencies added by patches)
-RUN cd $ROS_CORE_WS \
+# Rebuild only the affected packages (and anything that depends on them up to performance_test)
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    cd $ROS_CORE_WS \
     && sudo apt-get update \
     && rosdep install --from-paths src --ignore-src -y --skip-keys "fastcdr rti-connext-dds-6.0.1 urdfdom_headers rosidl_runtime_cpython" \
-    && sudo rm -rf /var/lib/apt/lists/* \
     && colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF --packages-up-to performance_test
-
-CMD ["/bin/bash"]

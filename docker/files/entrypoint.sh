@@ -9,11 +9,14 @@ fi
 mkdir -p $USER_WS/persistence/$(id -u)/ccache
 mkdir -p $USER_WS/persistence/$(id -u)/install
 mkdir -p $USER_WS/persistence/$(id -u)/build
+mkdir -p $HOME/.ccache
 
-if [ ! -d "$HOME/.ccache" ]; then
-    ln -s $USER_WS/persistence/$(id -u)/ccache  $HOME/.ccache
+if [ ! -e "$USER_WS/install" ]; then
     ln -s $USER_WS/persistence/$(id -u)/install $USER_WS/install
-    ln -s $USER_WS/persistence/$(id -u)/build   $USER_WS/build
+fi
+
+if [ ! -e "$USER_WS/build" ]; then
+    ln -s $USER_WS/persistence/$(id -u)/build $USER_WS/build
 fi
 
 # if bash_history is not a symlink or if it does not exist, remove it and create a new symlink
@@ -24,6 +27,8 @@ if [ ! -h "$HOME/.bash_history" ]; then
     touch $USER_WS/persistence/$(id -u)/.bash_history
     ln -s $USER_WS/persistence/$(id -u)/.bash_history $HOME/.bash_history
 fi
+
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-90}"
 
 echo "ROS_DISTRO         : $ROS_DISTRO"
 echo "ROS_DOMAIN_ID      : $ROS_DOMAIN_ID"

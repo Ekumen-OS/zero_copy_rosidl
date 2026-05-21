@@ -1,0 +1,143 @@
+diff --git a/rosidl_generator_py/CMakeLists.txt b/rosidl_generator_py/CMakeLists.txt
+index 07d124a..78d3d76 100644
+--- a/rosidl_generator_py/CMakeLists.txt
++++ b/rosidl_generator_py/CMakeLists.txt
+@@ -35,7 +35,7 @@ if(BUILD_TESTING)
+   # Need to call extras before get_typesupports, to register the extension
+   rosidl_generator_py_extras(
+     "${CMAKE_CURRENT_SOURCE_DIR}/bin/rosidl_generator_py"
+-    "${CMAKE_CURRENT_SOURCE_DIR}/rosidl_generator_py/__init__.py;${CMAKE_CURRENT_SOURCE_DIR}/rosidl_generator_py/generate_py_impl.py"
++    "${CMAKE_CURRENT_SOURCE_DIR}/rosidl_generator_py/__init__.py;${CMAKE_CURRENT_SOURCE_DIR}/rosidl_generator_py/generate_py_impl.py;${CMAKE_CURRENT_SOURCE_DIR}/rosidl_generator_py/experimental.py"
+     "${CMAKE_CURRENT_SOURCE_DIR}/resource"
+   )
+ 
+@@ -79,6 +79,18 @@ if(BUILD_TESTING)
+       APPEND_LIBRARY_DIRS "${_append_library_dirs}"
+       WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_py"
+     )
++
++    ament_add_pytest_test(test_experimental_py test/test_experimental.py
++      APPEND_ENV "PYTHONPATH=${pythonpath}"
++      APPEND_LIBRARY_DIRS "${_append_library_dirs}"
++      WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_py"
++    )
++
++    ament_add_pytest_test(test_experimental_interfaces_py test/test_experimental_interfaces.py
++      APPEND_ENV "PYTHONPATH=${pythonpath}"
++      APPEND_LIBRARY_DIRS "${_append_library_dirs}"
++      WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_py"
++    )
+   endif()
+ endif()
+ 
+diff --git a/rosidl_generator_py/cmake/rosidl_generator_py_generate_interfaces.cmake b/rosidl_generator_py/cmake/rosidl_generator_py_generate_interfaces.cmake
+index cfc424a..1cf3c6a 100644
+--- a/rosidl_generator_py/cmake/rosidl_generator_py_generate_interfaces.cmake
++++ b/rosidl_generator_py/cmake/rosidl_generator_py_generate_interfaces.cmake
+@@ -48,6 +48,8 @@ foreach(_abs_idl_file ${rosidl_generate_interfaces_ABS_IDL_FILES})
+     "${_output_path}/${_parent_folder}/_${_module_name}.py")
+   list(APPEND _generated_c_files
+     "${_output_path}/${_parent_folder}/_${_module_name}_s.c")
++  list(APPEND _generated_py_files
++    "${_output_path}/${_parent_folder}/experimental/_${_module_name}.py")
+ endforeach()
+ 
+ file(MAKE_DIRECTORY "${_output_path}")
+@@ -100,6 +102,10 @@ set(target_dependencies
+   "${rosidl_generator_py_TEMPLATE_DIR}/_msg.py.em"
+   "${rosidl_generator_py_TEMPLATE_DIR}/_srv_pkg_typesupport_entry_point.c.em"
+   "${rosidl_generator_py_TEMPLATE_DIR}/_srv.py.em"
++  "${rosidl_generator_py_TEMPLATE_DIR}/_idl_experimental.py.em"
++  "${rosidl_generator_py_TEMPLATE_DIR}/_msg_experimental.py.em"
++  "${rosidl_generator_py_TEMPLATE_DIR}/_srv_experimental.py.em"
++  "${rosidl_generator_py_TEMPLATE_DIR}/_action_experimental.py.em"
+   ${rosidl_generate_interfaces_ABS_IDL_FILES}
+   ${_dependency_files})
+ foreach(dep ${target_dependencies})
+diff --git a/rosidl_generator_py/package.xml b/rosidl_generator_py/package.xml
+index 0c78a2f..3a9687e 100644
+--- a/rosidl_generator_py/package.xml
++++ b/rosidl_generator_py/package.xml
+@@ -45,6 +45,7 @@
+   <exec_depend>rosidl_generator_c</exec_depend>
+   <exec_depend>rosidl_parser</exec_depend>
+   <exec_depend>rosidl_runtime_c</exec_depend>
++  <exec_depend>rosidl_runtime_cpython</exec_depend>
+   <exec_depend>rpyutils</exec_depend>
+ 
+   <test_depend>ament_cmake_pytest</test_depend>
+diff --git a/rosidl_generator_py/rosidl_generator_py-extras.cmake.in b/rosidl_generator_py/rosidl_generator_py-extras.cmake.in
+index 80bed29..45dcf29 100644
+--- a/rosidl_generator_py/rosidl_generator_py-extras.cmake.in
++++ b/rosidl_generator_py/rosidl_generator_py-extras.cmake.in
+@@ -2,6 +2,6 @@
+ include("${CMAKE_CURRENT_LIST_DIR}/register_py.cmake")
+ rosidl_generator_py_extras(
+   "${rosidl_generator_py_DIR}/../../../lib/rosidl_generator_py/rosidl_generator_py"
+-  "${rosidl_generator_py_DIR}/../../../@PYTHON_INSTALL_DIR@/rosidl_generator_py/__init__.py;${rosidl_generator_py_DIR}/../../../@PYTHON_INSTALL_DIR@/rosidl_generator_py/generate_py_impl.py"
++  "${rosidl_generator_py_DIR}/../../../@PYTHON_INSTALL_DIR@/rosidl_generator_py/__init__.py;${rosidl_generator_py_DIR}/../../../@PYTHON_INSTALL_DIR@/rosidl_generator_py/generate_py_impl.py;${rosidl_generator_py_DIR}/../../../@PYTHON_INSTALL_DIR@/rosidl_generator_py/experimental.py"
+   "${rosidl_generator_py_DIR}/../resource"
+ )
+diff --git a/rosidl_generator_py/rosidl_generator_py/generate_py_impl.py b/rosidl_generator_py/rosidl_generator_py/generate_py_impl.py
+index 0cbaaa1..4def435 100644
+--- a/rosidl_generator_py/rosidl_generator_py/generate_py_impl.py
++++ b/rosidl_generator_py/rosidl_generator_py/generate_py_impl.py
+@@ -57,6 +57,7 @@ def generate_py(generator_arguments_file, typesupport_impls):
+     mapping = {
+         '_idl.py.em': '_%s.py',
+         '_idl_support.c.em': '_%s_s.c',
++        '_idl_experimental.py.em': 'experimental/_%s.py',
+     }
+     generated_files = generate_files(generator_arguments_file, mapping)
+ 
+@@ -161,6 +162,50 @@ def generate_py(generator_arguments_file, typesupport_impls):
+                         f'from {package_name}.{subfolder}.{module_name} import '
+                         f'{idl_stem}_SendGoal_Response  # noqa: F401\n')
+ 
++    # expand experimental init modules for each directory
++    for subfolder in modules.keys():
++        experimental_dir = os.path.join(args['output_dir'], subfolder, 'experimental')
++        os.makedirs(experimental_dir, exist_ok=True)
++        with open(os.path.join(experimental_dir, '__init__.py'), 'w') as f:
++            module_names = {}
++            for idl_stem in modules[subfolder]:
++                module_names[idl_stem] = '_' + \
++                    convert_camel_case_to_lower_case_underscore(idl_stem)
++            for module_name, idl_stem in \
++                    sorted((value, key) for (key, value) in module_names.items()):
++                f.write(
++                    f'from {package_name}.{subfolder}.experimental.{module_name} import '
++                    f'{idl_stem}  # noqa: F401\n')
++                if subfolder == 'srv':
++                    f.write(
++                        f'from {package_name}.{subfolder}.experimental.{module_name} import '
++                        f'{idl_stem}_Event  # noqa: F401\n')
++                    f.write(
++                        f'from {package_name}.{subfolder}.experimental.{module_name} import '
++                        f'{idl_stem}_Request  # noqa: F401\n')
++                    f.write(
++                        f'from {package_name}.{subfolder}.experimental.{module_name} import '
++                        f'{idl_stem}_Response  # noqa: F401\n')
++                elif subfolder == 'action':
++                    f.write(
++                        f'from {package_name}.{subfolder}.experimental.{module_name} import '
++                        f'{idl_stem}_GetResult_Event  # noqa: F401\n')
++                    f.write(
++                        f'from {package_name}.{subfolder}.experimental.{module_name} import '
++                        f'{idl_stem}_GetResult_Request  # noqa: F401\n')
++                    f.write(
++                        f'from {package_name}.{subfolder}.experimental.{module_name} import '
++                        f'{idl_stem}_GetResult_Response  # noqa: F401\n')
++                    f.write(
++                        f'from {package_name}.{subfolder}.experimental.{module_name} import '
++                        f'{idl_stem}_SendGoal_Event  # noqa: F401\n')
++                    f.write(
++                        f'from {package_name}.{subfolder}.experimental.{module_name} import '
++                        f'{idl_stem}_SendGoal_Request  # noqa: F401\n')
++                    f.write(
++                        f'from {package_name}.{subfolder}.experimental.{module_name} import '
++                        f'{idl_stem}_SendGoal_Response  # noqa: F401\n')
++
+     # expand templates per available typesupport implementation
+     template_dir = args['template_dir']
+     type_support_impl_by_filename = {

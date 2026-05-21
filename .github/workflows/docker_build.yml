@@ -37,29 +37,44 @@ jobs:
           colcon test
         '
 
-    - name: Run benchmark
+    - name: Run vanilla benchmark
       run: |
-        ./docker/run.sh --build -- bash -c '
+        mkdir -p ${{ github.workspace }}/benchmark_results
+        ./docker/run.sh --build -s unpatched_workspace -- bash -c '
+          . /opt/ros/jazzy/setup.bash &&
           . install/setup.bash &&
-          cd ./install/irobot_benchmark/lib/irobot_benchmark &&
-          ./irobot_benchmark topology/sierra_nevada.json &&
-          cat sierra_nevada_log/latency_total.txt > /tmp/benchmark_results.txt
-        '
+          ros2 run performance_test perf_test -c ROS2 -m Array1k -t test_topic -s 1 -p 1
+        ' | tee ${{ github.workspace }}/benchmark_results/vanilla_results.txt
 
-    - name: Read benchmark results
-      id: benchmark_results
+    - name: Run patched benchmark
+      run: |
+        ./docker/run.sh --build -s patched_workspace -- bash -c '
+          . /opt/ros/jazzy/setup.bash &&
+          . install/setup.bash &&
+          ros2 run performance_test perf_test -c ROS2 -m Array1k -t test_topic -s 1 -p 1
+        ' | tee ${{ github.workspace }}/benchmark_results/patched_results.txt
+
+    - name: Read vanilla benchmark results
+      id: vanilla_results
       if: github.event_name == 'pull_request'
       run: |
-        if [ -f /tmp/benchmark_results.txt ]; then
-          echo "results<<EOF" >> $GITHUB_OUTPUT
-          cat /tmp/benchmark_results.txt >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-        fi
+        echo "results<<EOF" >> $GITHUB_OUTPUT
+        cat ${{ github.workspace }}/benchmark_results/vanilla_results.txt >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Read patched benchmark results
+      id: patched_results
+      if: github.event_name == 'pull_request'
+      run: |
+        echo "results<<EOF" >> $GITHUB_OUTPUT
+        cat ${{ github.workspace }}/benchmark_results/patched_results.txt >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
 
     - name: Post benchmark results to PR
       if: >
         github.event_name == 'pull_request' &&
-        steps.benchmark_results.outputs.results != ''
+        steps.vanilla_results.outputs.results != '' &&
+        steps.patched_results.outputs.results != ''
       uses: actions/github-script@v9
       with:
         script: |
@@ -67,10 +82,16 @@ jobs:
             issue_number: context.issue.number,
             owner: context.repo.owner,
             repo: context.repo.repo,
-            body: `## Latency total benchmark results
+            body: `## Performance benchmark results
 
+          ### Vanilla (upstream Jazzy)
           \`\`\`
-          ${{ steps.benchmark_results.outputs.results }}
+          ${{ steps.vanilla_results.outputs.results }}
+          \`\`\`
+
+          ### Patched (zero-copy overrides)
+          \`\`\`
+          ${{ steps.patched_results.outputs.results }}
           \`\`\`
           `
           })
