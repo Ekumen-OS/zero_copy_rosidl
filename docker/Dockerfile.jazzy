@@ -10,7 +10,6 @@ ARG FIXUID_VERSION=0.6.0
 
 ENV ROS_DISTRO=${ROS_DISTRO}
 ENV DEBIAN_FRONTEND=noninteractive
-ENV PATH="/usr/lib/ccache:$PATH"
 
 # Install base dependencies with cache mount
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -68,6 +67,11 @@ RUN ARCH=`uname -m` && if [ "$ARCH" == "aarch64" ]; then FIXUID_ARCH="arm64"; el
 USER $USER:$GROUP
 WORKDIR /home/$USER
 
+# Setup colcon mixin for ccache and other build configurations
+COPY --chown=$USER:$GROUP docker/files/colcon_defaults.yaml /home/$USER/.colcon/defaults.yaml
+RUN colcon mixin add default https://raw.githubusercontent.com/colcon/colcon-mixin-repository/master/index.yaml \
+    && colcon mixin update default
+
 RUN sudo rosdep init && rosdep update \
     # Create .ccache so the named volume is initialized with developer ownership.
     # Without this, Docker creates the mountpoint as root and ccache can't write.
@@ -77,10 +81,12 @@ ENV ROS_CORE_WS=/home/$USER/ws_ros_core
 RUN mkdir -p $ROS_CORE_WS/src
 WORKDIR $ROS_CORE_WS
 
-# Clone ROS 2 Core and ApexAI performance_test
+# Clone ROS 2 Core
 RUN cd src/ \
-    && vcs import --recursive --input https://raw.githubusercontent.com/ros2/ros2/${ROS_DISTRO}/ros2.repos \
-    && git clone https://gitlab.com/ApexAI/performance_test.git
+    && vcs import --recursive --input https://raw.githubusercontent.com/ros2/ros2/${ROS_DISTRO}/ros2.repos
+# Clone ApexAI performance_test
+RUN cd src \
+    && git clone https://gitlab.com/ApexAI/performance_test.git --depth 1 --branch 2.4.0
 
 
 # ==============================================================================

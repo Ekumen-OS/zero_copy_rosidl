@@ -33,19 +33,19 @@ Commands after `--` execute inside the container.
 
 ### Modifying ROS Core Packages
 
-Modifications to ROS 2 core packages live in `core_overrides/`. Each subdirectory mirrors the upstream package name (e.g. `core_overrides/rosidl/`, `core_overrides/rosidl_python/`). The `dev_workspace` service bind-mounts these directly into the container's ROS core workspace, replacing the corresponding upstream sources:
+Modifications to ROS 2 core packages live in `core_overrides/`. Each subdirectory mirrors the upstream package name (e.g. `core_overrides/rosidl/`, `core_overrides/rosidl_python/`). When `rebuild_ros.sh` runs, it copies each override on top of the corresponding upstream package in the ROS core workspace.
 
-```
-core_overrides/rosidl/       → $ROS_CORE_WS/src/ros2/rosidl
-core_overrides/rosidl_python/ → $ROS_CORE_WS/src/ros2/rosidl_python
-```
-
-After modifying files in `core_overrides/`, rebuild only the affected packages from inside the container:
+After modifying files in `core_overrides/`, rebuild from inside the container using the convenience script:
 
 ```bash
-# Inside dev_workspace
-cd $ROS_CORE_WS
-colcon build --symlink-install --packages-select <package_name>
+# Inside dev_workspace — rebuilds everything up to performance_test
+~/ws/src/project/docker/scripts/rebuild_ros.sh
+```
+
+This applies the overrides and runs `colcon build --symlink-install --packages-up-to performance_test` by default. To target specific packages instead:
+
+```bash
+~/ws/src/project/docker/scripts/rebuild_ros.sh -- --symlink-install --packages-select <package_name>
 ```
 
 Build artifacts are stored in named Docker volumes (`zero_rosidl_dev_build`, `zero_rosidl_dev_install`) and persist across container restarts.

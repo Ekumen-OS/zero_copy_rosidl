@@ -1,20 +1,17 @@
-x-base-workspace: &base-workspace
-  stdin_open: true
-  tty: true
-  user: ${USERID:-1000}:${GROUPID:-1000}
-  environment:
-    - DISPLAY=${DISPLAY}
-    - QT_X11_NO_MITSHM=1
-    - XAUTHORITY=${XAUTHORITY:-/tmp/.docker.xauth}
-    - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-90}
-  volumes:
-    - ..:/home/developer/ws/src/project
-    - /tmp:/tmp:rw
-    - zero_rosidl_ccache:/home/developer/.ccache
-
 services:
   unpatched_workspace:
-    <<: *base-workspace
+    stdin_open: true
+    tty: true
+    user: ${USERID:-1000}:${GROUPID:-1000}
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+      - XAUTHORITY=${XAUTHORITY:-/tmp/.docker.xauth}
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-90}
+    volumes:
+      - ..:/home/developer/ws/src/project
+      - /tmp:/tmp:rw
+      - zero_rosidl_ccache:/home/developer/.ccache
     build:
       context: ..
       dockerfile: docker/Dockerfile.jazzy
@@ -24,25 +21,18 @@ services:
         GID: ${GROUPID:-1000}
 
   patched_workspace:
-    <<: *base-workspace
+    extends:
+      service: unpatched_workspace
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.jazzy
       target: patched_workspace
-      args:
-        UID: ${USERID:-1000}
-        GID: ${GROUPID:-1000}
 
   dev_workspace:
     extends:
       service: unpatched_workspace
     volumes:
-      - ../core_overrides/rosidl:/home/developer/ws_ros_core/src/ros2/rosidl
-      - ../core_overrides/rosidl_python:/home/developer/ws_ros_core/src/ros2/rosidl_python
       - zero_rosidl_dev_build:/home/developer/ws_ros_core/build
       - zero_rosidl_dev_install:/home/developer/ws_ros_core/install
-    # After modifying core_overrides/, rebuild from inside the container:
-    #   cd $ROS_CORE_WS && colcon build --symlink-install --packages-select <package_name>
+    # After modifying core_overrides/, run rebuild_ros.sh from inside the container.
 
 volumes:
   zero_rosidl_ccache:

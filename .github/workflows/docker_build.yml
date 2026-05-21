@@ -25,32 +25,34 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v6
 
-    - name: Pre-build of the docker image
-      run: ./docker/run.sh --build -- true
+    - name: Pre-build docker images
+      run: |
+        ./docker/run.sh --build -s unpatched_workspace -- true
+        ./docker/run.sh --build -s patched_workspace -- true
 
     - name: Run unit tests
       run: |
-        ./docker/run.sh --build -- bash -c '
+        ./docker/run.sh -- bash -c '
           rm -rf build/* install/* &&
           . /opt/ros/jazzy/setup.bash &&
+          . $ROS_CORE_WS/install/setup.bash &&
           colcon build &&
-          colcon test
+          colcon test &&
+          colcon test-result --verbose
         '
 
     - name: Run vanilla benchmark
       run: |
         mkdir -p ${{ github.workspace }}/benchmark_results
-        ./docker/run.sh --build -s unpatched_workspace -- bash -c '
-          . /opt/ros/jazzy/setup.bash &&
-          . install/setup.bash &&
+        ./docker/run.sh -s unpatched_workspace -- bash -c '
+          . $ROS_CORE_WS/install/setup.bash &&
           ros2 run performance_test perf_test -c ROS2 -m Array1k -t test_topic -s 1 -p 1
         ' | tee ${{ github.workspace }}/benchmark_results/vanilla_results.txt
 
     - name: Run patched benchmark
       run: |
-        ./docker/run.sh --build -s patched_workspace -- bash -c '
-          . /opt/ros/jazzy/setup.bash &&
-          . install/setup.bash &&
+        ./docker/run.sh -s patched_workspace -- bash -c '
+          . $ROS_CORE_WS/install/setup.bash &&
           ros2 run performance_test perf_test -c ROS2 -m Array1k -t test_topic -s 1 -p 1
         ' | tee ${{ github.workspace }}/benchmark_results/patched_results.txt
 

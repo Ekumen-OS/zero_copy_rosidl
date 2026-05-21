@@ -18,8 +18,6 @@ set -o errexit
 
 cd $(dirname "$(readlink -f "$0")")
 
-[[ ! -z "${WITHIN_DEV}" ]] && echo "Already in the development environment!" && exit 1
-
 # function to print help options
 function print_help {
     echo "Usage: $(basename $0) [-b|--build] [-s|--service SERVICE_NAME] [-h|--help] [-- COMMAND [ARGS...]]"

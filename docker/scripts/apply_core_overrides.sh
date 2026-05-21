@@ -29,7 +29,7 @@ COLCON_WS="${3:-}"
 for override in "$OVERRIDES_DIR"/*/; do
     [ -d "$override" ] || continue
     pkg=$(basename "$override")
-    upstream=$(find "$SRC_DIR" -maxdepth 5 -type d -name "$pkg" -print -quit)
+    upstream=$(find "$SRC_DIR" -maxdepth 2 -type d -name "$pkg" -print -quit)
     if [ -z "$upstream" ]; then
         echo "ERROR: override package '$pkg' not found under $SRC_DIR"
         exit 1
