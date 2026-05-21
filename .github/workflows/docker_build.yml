@@ -34,7 +34,6 @@ jobs:
       run: |
         ./docker/run.sh -- bash -c '
           rm -rf build/* install/* &&
-          . /opt/ros/jazzy/setup.bash &&
           . $ROS_CORE_WS/install/setup.bash &&
           colcon build &&
           colcon test &&
@@ -46,22 +45,23 @@ jobs:
         mkdir -p ${{ github.workspace }}/benchmark_results
         ./docker/run.sh -s unpatched_workspace -- bash -c '
           . $ROS_CORE_WS/install/setup.bash &&
-          ros2 run performance_test perf_test -c ROS2 -m Array1k -t test_topic -s 1 -p 1
-        ' | tee ${{ github.workspace }}/benchmark_results/vanilla_results.txt
+          ros2 run performance_test perf_test -c rclcpp-single-threaded-executor -m Array1k -t test_topic -s 1 -p 1 --max-runtime 30 -l /home/developer/ws/src/project/benchmark_results/vanilla_results.json
+        '
 
     - name: Run patched benchmark
       run: |
+        mkdir -p ${{ github.workspace }}/benchmark_results
         ./docker/run.sh -s patched_workspace -- bash -c '
           . $ROS_CORE_WS/install/setup.bash &&
-          ros2 run performance_test perf_test -c ROS2 -m Array1k -t test_topic -s 1 -p 1
-        ' | tee ${{ github.workspace }}/benchmark_results/patched_results.txt
+          ros2 run performance_test perf_test -c rclcpp-single-threaded-executor -m Array1k -t test_topic -s 1 -p 1 --max-runtime 30 -l /home/developer/ws/src/project/benchmark_results/patched_results.json
+        '
 
     - name: Read vanilla benchmark results
       id: vanilla_results
       if: github.event_name == 'pull_request'
       run: |
         echo "results<<EOF" >> $GITHUB_OUTPUT
-        cat ${{ github.workspace }}/benchmark_results/vanilla_results.txt >> $GITHUB_OUTPUT
+        python3 docker/scripts/parse_benchmark_results.py ${{ github.workspace }}/benchmark_results/vanilla_results.json >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
 
     - name: Read patched benchmark results
@@ -69,7 +69,7 @@ jobs:
       if: github.event_name == 'pull_request'
       run: |
         echo "results<<EOF" >> $GITHUB_OUTPUT
-        cat ${{ github.workspace }}/benchmark_results/patched_results.txt >> $GITHUB_OUTPUT
+        python3 docker/scripts/parse_benchmark_results.py ${{ github.workspace }}/benchmark_results/patched_results.json >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
 
     - name: Post benchmark results to PR

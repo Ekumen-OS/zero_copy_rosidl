@@ -21,10 +21,11 @@ OVERRIDES_DIR="$PROJECT_DIR/core_overrides"
 WS="${ROS_CORE_WS:?ROS_CORE_WS is not set - are you inside the container?}"
 
 # Default colcon args, overridable via -- ...
+# TODO(frneer): this package list is duplicated in docker/Dockerfile.jazzy; consider a single source of truth.
 COLCON_ARGS=(
     --symlink-install
     --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
-    --packages-up-to performance_test
+    --packages-up-to performance_test rosidl_cli ros2cli ros2run
 )
 
 # Parse: everything after -- overrides the default colcon args

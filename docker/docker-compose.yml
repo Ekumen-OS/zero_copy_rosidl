@@ -28,7 +28,7 @@ services:
 
   dev_workspace:
     extends:
-      service: unpatched_workspace
+      service: patched_workspace
     volumes:
       - zero_rosidl_dev_build:/home/developer/ws_ros_core/build
       - zero_rosidl_dev_install:/home/developer/ws_ros_core/install
