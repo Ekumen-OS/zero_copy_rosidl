@@ -28,7 +28,12 @@ add_library(${PROJECT_NAME}
   "src/primitives_sequence_functions.c"
   "src/sequence_bound.c"
   "src/service_type_support.c"
+  "src/experimental/array.c"
+  "src/experimental/scalar.c"
+  "src/experimental/sequence.c"
+  "src/experimental/memory.c"
   "src/string_functions.c"
+  "src/experimental/string.c"
   "src/type_hash.c"
   "src/u16string_functions.c"
   "src/type_description_utils.c"
@@ -145,6 +150,26 @@ if(BUILD_TESTING)
   ament_add_gtest(test_type_description_utils test/test_type_description_utils.cpp)
   if(TARGET test_type_description_utils)
     target_link_libraries(test_type_description_utils ${PROJECT_NAME})
+  endif()
+
+  ament_add_gtest(test_experimental_scalar test/experimental/test_scalar.cpp)
+  if(TARGET test_experimental_scalar)
+    target_link_libraries(test_experimental_scalar ${PROJECT_NAME})
+  endif()
+
+  ament_add_gtest(test_experimental_array test/experimental/test_array.cpp)
+  if(TARGET test_experimental_array)
+    target_link_libraries(test_experimental_array ${PROJECT_NAME})
+  endif()
+
+  ament_add_gtest(test_experimental_sequence test/experimental/test_sequence.cpp)
+  if(TARGET test_experimental_sequence)
+    target_link_libraries(test_experimental_sequence ${PROJECT_NAME})
+  endif()
+
+  ament_add_gtest(test_experimental_string test/experimental/test_string.cpp)
+  if(TARGET test_experimental_string)
+    target_link_libraries(test_experimental_string ${PROJECT_NAME})
   endif()
 
   add_performance_test(benchmark_string_conversion test/benchmark/benchmark_string_conversion.cpp)

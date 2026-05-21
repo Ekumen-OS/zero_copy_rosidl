@@ -35,7 +35,7 @@ if(BUILD_TESTING)
   # Need to call extras before get_typesupports, to register the extension
   rosidl_generator_py_extras(
     "${CMAKE_CURRENT_SOURCE_DIR}/bin/rosidl_generator_py"
-    "${CMAKE_CURRENT_SOURCE_DIR}/rosidl_generator_py/__init__.py;${CMAKE_CURRENT_SOURCE_DIR}/rosidl_generator_py/generate_py_impl.py"
+    "${CMAKE_CURRENT_SOURCE_DIR}/rosidl_generator_py/__init__.py;${CMAKE_CURRENT_SOURCE_DIR}/rosidl_generator_py/generate_py_impl.py;${CMAKE_CURRENT_SOURCE_DIR}/rosidl_generator_py/experimental.py"
     "${CMAKE_CURRENT_SOURCE_DIR}/resource"
   )
 
@@ -75,6 +75,18 @@ if(BUILD_TESTING)
     ament_add_pytest_test(test_cli_extension test/test_cli_extension.py)
 
     ament_add_pytest_test(test_property_py test/test_property.py
+      APPEND_ENV "PYTHONPATH=${pythonpath}"
+      APPEND_LIBRARY_DIRS "${_append_library_dirs}"
+      WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_py"
+    )
+
+    ament_add_pytest_test(test_experimental_py test/test_experimental.py
+      APPEND_ENV "PYTHONPATH=${pythonpath}"
+      APPEND_LIBRARY_DIRS "${_append_library_dirs}"
+      WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_py"
+    )
+
+    ament_add_pytest_test(test_experimental_interfaces_py test/test_experimental_interfaces.py
       APPEND_ENV "PYTHONPATH=${pythonpath}"
       APPEND_LIBRARY_DIRS "${_append_library_dirs}"
       WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_py"

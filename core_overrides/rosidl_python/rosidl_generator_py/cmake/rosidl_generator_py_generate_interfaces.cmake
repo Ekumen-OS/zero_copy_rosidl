@@ -48,6 +48,8 @@ foreach(_abs_idl_file ${rosidl_generate_interfaces_ABS_IDL_FILES})
     "${_output_path}/${_parent_folder}/_${_module_name}.py")
   list(APPEND _generated_c_files
     "${_output_path}/${_parent_folder}/_${_module_name}_s.c")
+  list(APPEND _generated_py_files
+    "${_output_path}/${_parent_folder}/experimental/_${_module_name}.py")
 endforeach()
 
 file(MAKE_DIRECTORY "${_output_path}")
@@ -100,6 +102,10 @@ set(target_dependencies
   "${rosidl_generator_py_TEMPLATE_DIR}/_msg.py.em"
   "${rosidl_generator_py_TEMPLATE_DIR}/_srv_pkg_typesupport_entry_point.c.em"
   "${rosidl_generator_py_TEMPLATE_DIR}/_srv.py.em"
+  "${rosidl_generator_py_TEMPLATE_DIR}/_idl_experimental.py.em"
+  "${rosidl_generator_py_TEMPLATE_DIR}/_msg_experimental.py.em"
+  "${rosidl_generator_py_TEMPLATE_DIR}/_srv_experimental.py.em"
+  "${rosidl_generator_py_TEMPLATE_DIR}/_action_experimental.py.em"
   ${rosidl_generate_interfaces_ABS_IDL_FILES}
   ${_dependency_files})
 foreach(dep ${target_dependencies})

@@ -1,0 +1,108 @@
+// Copyright 2026 Ekumen, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#include "rosidl_runtime_c/experimental/sequence.h"
+
+// Unbounded sequences of unbounded strings
+ROSIDL_RUNTIME_C__EXPERIMENTAL__SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__String__Sequence,
+  rosidl_runtime_c__experimental__String);
+ROSIDL_RUNTIME_C__EXPERIMENTAL__SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__WString__Sequence,
+  rosidl_runtime_c__experimental__WString);
+
+// Unbounded sequences of unbounded strings
+ROSIDL_RUNTIME_C__EXPERIMENTAL__BOUNDED_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__String__BoundedSequence,
+  rosidl_runtime_c__experimental__String);
+ROSIDL_RUNTIME_C__EXPERIMENTAL__BOUNDED_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__WString__BoundedSequence,
+  rosidl_runtime_c__experimental__WString);
+
+// Unbounded sequences of bounded strings
+ROSIDL_RUNTIME_C__EXPERIMENTAL__BOUNDED_ELEMENT_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__BoundedString__Sequence,
+  rosidl_runtime_c__experimental__BoundedString);
+ROSIDL_RUNTIME_C__EXPERIMENTAL__BOUNDED_ELEMENT_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__BoundedWString__Sequence,
+  rosidl_runtime_c__experimental__BoundedWString);
+
+// Bounded sequences of bounded strings
+ROSIDL_RUNTIME_C__EXPERIMENTAL__BOUNDED_ELEMENT_BOUNDED_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__BoundedString__BoundedSequence,
+  rosidl_runtime_c__experimental__BoundedString);
+ROSIDL_RUNTIME_C__EXPERIMENTAL__BOUNDED_ELEMENT_BOUNDED_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__BoundedWString__BoundedSequence,
+  rosidl_runtime_c__experimental__BoundedWString);
+
+// Unbounded sequences of primitives
+
+ROSIDL_RUNTIME_C__EXPERIMENTAL__PRIMITIVE_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__Float__Sequence, float);
+ROSIDL_RUNTIME_C__EXPERIMENTAL__PRIMITIVE_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__Double__Sequence, double);
+ROSIDL_RUNTIME_C__EXPERIMENTAL__PRIMITIVE_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__LongDouble__Sequence, long double);
+ROSIDL_RUNTIME_C__EXPERIMENTAL__PRIMITIVE_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__Char__Sequence, char);
+ROSIDL_RUNTIME_C__EXPERIMENTAL__PRIMITIVE_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__WChar__Sequence, char16_t);
+ROSIDL_RUNTIME_C__EXPERIMENTAL__PRIMITIVE_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__Boolean__Sequence, bool);
+ROSIDL_RUNTIME_C__EXPERIMENTAL__PRIMITIVE_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__UInt8__Sequence, uint8_t);
+ROSIDL_RUNTIME_C__EXPERIMENTAL__PRIMITIVE_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__Int8__Sequence, int8_t);
+ROSIDL_RUNTIME_C__EXPERIMENTAL__PRIMITIVE_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__UInt16__Sequence, uint16_t);
+ROSIDL_RUNTIME_C__EXPERIMENTAL__PRIMITIVE_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__Int16__Sequence, int16_t);
+ROSIDL_RUNTIME_C__EXPERIMENTAL__PRIMITIVE_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__UInt32__Sequence, uint32_t);
+ROSIDL_RUNTIME_C__EXPERIMENTAL__PRIMITIVE_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__Int32__Sequence, int32_t);
+ROSIDL_RUNTIME_C__EXPERIMENTAL__PRIMITIVE_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__UInt64__Sequence, uint64_t);
+ROSIDL_RUNTIME_C__EXPERIMENTAL__PRIMITIVE_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__Int64__Sequence, int64_t);
+
+// Bounded sequences of primitives
+ROSIDL_RUNTIME_C__EXPERIMENTAL__PRIMITIVE_BOUNDED_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__Float__BoundedSequence, float);
+ROSIDL_RUNTIME_C__EXPERIMENTAL__PRIMITIVE_BOUNDED_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__Double__BoundedSequence, double);
+ROSIDL_RUNTIME_C__EXPERIMENTAL__PRIMITIVE_BOUNDED_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__LongDouble__BoundedSequence, long double);
+ROSIDL_RUNTIME_C__EXPERIMENTAL__PRIMITIVE_BOUNDED_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__Char__BoundedSequence, char);
+ROSIDL_RUNTIME_C__EXPERIMENTAL__PRIMITIVE_BOUNDED_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__WChar__BoundedSequence, char16_t);
+ROSIDL_RUNTIME_C__EXPERIMENTAL__PRIMITIVE_BOUNDED_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__Boolean__BoundedSequence, bool);
+ROSIDL_RUNTIME_C__EXPERIMENTAL__PRIMITIVE_BOUNDED_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__UInt8__BoundedSequence, uint8_t);
+ROSIDL_RUNTIME_C__EXPERIMENTAL__PRIMITIVE_BOUNDED_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__Int8__BoundedSequence, int8_t);
+ROSIDL_RUNTIME_C__EXPERIMENTAL__PRIMITIVE_BOUNDED_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__UInt16__BoundedSequence, uint16_t);
+ROSIDL_RUNTIME_C__EXPERIMENTAL__PRIMITIVE_BOUNDED_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__Int16__BoundedSequence, int16_t);
+ROSIDL_RUNTIME_C__EXPERIMENTAL__PRIMITIVE_BOUNDED_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__UInt32__BoundedSequence, uint32_t);
+ROSIDL_RUNTIME_C__EXPERIMENTAL__PRIMITIVE_BOUNDED_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__Int32__BoundedSequence, int32_t);
+ROSIDL_RUNTIME_C__EXPERIMENTAL__PRIMITIVE_BOUNDED_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__UInt64__BoundedSequence, uint64_t);
+ROSIDL_RUNTIME_C__EXPERIMENTAL__PRIMITIVE_BOUNDED_SEQUENCE_DEFINE(
+  rosidl_runtime_c__experimental__Int64__BoundedSequence, int64_t);

@@ -32,11 +32,15 @@ foreach(_abs_idl_file ${rosidl_generate_interfaces_ABS_IDL_FILES})
     "${_output_path}/${_parent_folder}/detail/${_header_name}__functions.h"
     "${_output_path}/${_parent_folder}/detail/${_header_name}__struct.h"
     "${_output_path}/${_parent_folder}/detail/${_header_name}__type_support.h"
+    "${_output_path}/${_parent_folder}/experimental/${_header_name}.h"
+    "${_output_path}/${_parent_folder}/experimental/detail/${_header_name}__functions.h"
+    "${_output_path}/${_parent_folder}/experimental/detail/${_header_name}__struct.h"
   )
   list(APPEND _generated_sources
     "${_output_path}/${_parent_folder}/detail/${_header_name}__description.c"
     "${_output_path}/${_parent_folder}/detail/${_header_name}__functions.c"
     "${_output_path}/${_parent_folder}/detail/${_header_name}__type_support.c"
+    "${_output_path}/${_parent_folder}/experimental/detail/${_header_name}__functions.c"
   )
 endforeach()
 
@@ -70,6 +74,13 @@ set(target_dependencies
   "${rosidl_generator_c_TEMPLATE_DIR}/msg__type_support.h.em"
   "${rosidl_generator_c_TEMPLATE_DIR}/srv__type_support.c.em"
   "${rosidl_generator_c_TEMPLATE_DIR}/srv__type_support.h.em"
+  "${rosidl_generator_c_TEMPLATE_DIR}/idl__experimental_functions.c.em"
+  "${rosidl_generator_c_TEMPLATE_DIR}/idl__experimental_functions.h.em"
+  "${rosidl_generator_c_TEMPLATE_DIR}/idl__experimental_struct.h.em"
+  "${rosidl_generator_c_TEMPLATE_DIR}/idl__experimental.h.em"
+  "${rosidl_generator_c_TEMPLATE_DIR}/msg__experimental_functions.c.em"
+  "${rosidl_generator_c_TEMPLATE_DIR}/msg__experimental_functions.h.em"
+  "${rosidl_generator_c_TEMPLATE_DIR}/msg__experimental_struct.h.em"
   ${rosidl_generate_interfaces_ABS_IDL_FILES}
   ${_dependency_files})
 foreach(dep ${target_dependencies})

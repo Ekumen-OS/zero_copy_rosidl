@@ -35,6 +35,9 @@ def generate_cpp(generator_arguments_file):
         'idl__struct.hpp.em': 'detail/%s__struct.hpp',
         'idl__traits.hpp.em': 'detail/%s__traits.hpp',
         'idl__type_support.hpp.em': 'detail/%s__type_support.hpp',
+        'idl__experimental_struct.hpp.em': 'experimental/detail/%s__struct.hpp',
+        'idl__experimental_traits.hpp.em': 'experimental/detail/%s__traits.hpp',
+        'idl__experimental.hpp.em': 'experimental/%s.hpp',
     }
     return generate_files(
         generator_arguments_file, mapping,
@@ -73,7 +76,6 @@ MSG_TYPE_TO_CPP = {
     'wstring': 'std::basic_string<char16_t, std::char_traits<char16_t>, typename ' +
                'std::allocator_traits<ContainerAllocator>::template rebind_alloc<char16_t>>',
 }
-
 
 def msg_type_only_to_cpp(type_):
     """

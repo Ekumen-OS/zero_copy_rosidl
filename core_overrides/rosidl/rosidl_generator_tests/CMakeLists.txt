@@ -73,6 +73,30 @@ if(BUILD_TESTING)
     add_generator_cpp_test()
   endforeach()
 
+  macro(add_generator_cpp_experimental_test)
+    ament_add_gtest(
+      ${test_name}
+      test/rosidl_generator_cpp/experimental/${test_name}.cpp)
+    if(TARGET ${test_name})
+      add_dependencies(${test_name} ${PROJECT_NAME})
+      target_link_libraries(${test_name}
+        ${cpp_generator_target}
+        rosidl_runtime_cpp::rosidl_runtime_cpp
+      )
+    endif()
+  endmacro()
+
+  set(generator_cpp_experimental_test_names
+    test_experimental_interfaces
+    test_experimental_initialization
+    test_experimental_traits
+    test_experimental_constraints
+  )
+
+  foreach(test_name ${generator_cpp_experimental_test_names})
+    add_generator_cpp_experimental_test()
+  endforeach()
+
   rosidl_get_typesupport_target(c_generator_target "${PROJECT_NAME}" "rosidl_generator_c")
 
   add_executable(
@@ -129,6 +153,34 @@ if(BUILD_TESTING)
     rosidl_runtime_c::rosidl_runtime_c
     ${type_description_interfaces_TARGETS}
   )
+
+  macro(add_generator_c_experimental_test)
+    add_executable(
+      ${test_name}_c
+      test/rosidl_generator_c/experimental/${test_name}.c)
+    ament_add_test(
+      ${test_name}_c
+      COMMAND "$<TARGET_FILE:${test_name}_c>"
+      GENERATE_RESULT_FOR_RETURN_CODE_ZERO
+    )
+    if(TARGET ${test_name}_c)
+      add_dependencies(${test_name}_c ${PROJECT_NAME})
+      target_link_libraries(${test_name}_c
+        ${c_generator_target}
+        rosidl_runtime_c::rosidl_runtime_c
+      )
+    endif()
+  endmacro()
+
+  set(generator_c_experimental_test_names
+    test_experimental_interfaces
+    test_experimental_initialization
+    test_experimental_constraints
+  )
+
+  foreach(test_name ${generator_c_experimental_test_names})
+    add_generator_c_experimental_test()
+  endforeach()
 
   ament_add_pytest_test(test_hash_generator test/rosidl_generator_type_description
     ENV GENERATED_TEST_FILE_DIR=${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_type_description/${PROJECT_NAME}

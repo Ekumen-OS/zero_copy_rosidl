@@ -77,6 +77,26 @@ if(BUILD_TESTING)
     target_link_libraries(test_bounded_vector ${PROJECT_NAME})
   endif()
 
+  ament_add_gtest(test_experimental_scalar test/experimental/test_scalar.cpp)
+  if(TARGET test_experimental_scalar)
+    target_link_libraries(test_experimental_scalar ${PROJECT_NAME})
+  endif()
+
+  ament_add_gtest(test_experimental_array test/experimental/test_array.cpp)
+  if(TARGET test_experimental_array)
+    target_link_libraries(test_experimental_array ${PROJECT_NAME})
+  endif()
+
+  ament_add_gtest(test_experimental_sequence test/experimental/test_sequence.cpp)
+  if(TARGET test_experimental_sequence)
+    target_link_libraries(test_experimental_sequence ${PROJECT_NAME})
+  endif()
+
+  ament_add_gtest(test_experimental_string test/experimental/test_string.cpp)
+  if(TARGET test_experimental_string)
+    target_link_libraries(test_experimental_string ${PROJECT_NAME})
+  endif()
+
   add_performance_test(benchmark_bounded_vector test/benchmark/benchmark_bounded_vector.cpp)
   if(TARGET benchmark_bounded_vector)
     target_link_libraries(benchmark_bounded_vector ${PROJECT_NAME})

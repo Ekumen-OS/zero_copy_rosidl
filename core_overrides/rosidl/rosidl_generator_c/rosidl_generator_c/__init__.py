@@ -37,6 +37,10 @@ def generate_c(generator_arguments_file, disable_description_codegen=False):
         'idl__struct.h.em': 'detail/%s__struct.h',
         'idl__type_support.c.em': 'detail/%s__type_support.c',
         'idl__type_support.h.em': 'detail/%s__type_support.h',
+        'idl__experimental.h.em': 'experimental/%s.h',
+        'idl__experimental_struct.h.em': 'experimental/detail/%s__struct.h',
+        'idl__experimental_functions.h.em': 'experimental/detail/%s__functions.h',
+        'idl__experimental_functions.c.em': 'experimental/detail/%s__functions.c',
     }
     return generate_files(
         generator_arguments_file, mapping,

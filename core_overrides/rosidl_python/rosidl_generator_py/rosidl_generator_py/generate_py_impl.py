@@ -57,6 +57,7 @@ def generate_py(generator_arguments_file, typesupport_impls):
     mapping = {
         '_idl.py.em': '_%s.py',
         '_idl_support.c.em': '_%s_s.c',
+        '_idl_experimental.py.em': 'experimental/_%s.py',
     }
     generated_files = generate_files(generator_arguments_file, mapping)
 
@@ -160,6 +161,56 @@ def generate_py(generator_arguments_file, typesupport_impls):
                     f.write(
                         f'from {package_name}.{subfolder}.{module_name} import '
                         f'{idl_stem}_SendGoal_Response  # noqa: F401\n')
+
+    # expand experimental init modules for each directory
+    for subfolder in modules.keys():
+        experimental_dir = os.path.join(args['output_dir'], subfolder, 'experimental')
+        os.makedirs(experimental_dir, exist_ok=True)
+        with open(os.path.join(experimental_dir, '__init__.py'), 'w') as f:
+            module_names = {}
+            for idl_stem in modules[subfolder]:
+                module_names[idl_stem] = '_' + \
+                    convert_camel_case_to_lower_case_underscore(idl_stem)
+            for module_name, idl_stem in \
+                    sorted((value, key) for (key, value) in module_names.items()):
+                f.write(
+                    f'from {package_name}.{subfolder}.experimental.{module_name} import '
+                    f'{idl_stem} as {idl_stem}  # noqa: F401\n')
+                if subfolder == 'srv':
+                    f.write(
+                        f'from {package_name}.{subfolder}.experimental.{module_name} import '
+                        f'{idl_stem}_Event as {idl_stem}_Event  # noqa: F401\n')
+                    f.write(
+                        f'from {package_name}.{subfolder}.experimental.{module_name} import '
+                        f'{idl_stem}_Request as {idl_stem}_Request  # noqa: F401\n')
+                    f.write(
+                        f'from {package_name}.{subfolder}.experimental.{module_name} import '
+                        f'{idl_stem}_Response as {idl_stem}_Response  # noqa: F401\n')
+                elif subfolder == 'action':
+                    f.write(
+                        f'from {package_name}.{subfolder}.experimental.{module_name} import '
+                        f'{idl_stem}_GetResult_Event as {idl_stem}_GetResult_Event'
+                        '  # noqa: F401\n')
+                    f.write(
+                        f'from {package_name}.{subfolder}.experimental.{module_name} import '
+                        f'{idl_stem}_GetResult_Request as {idl_stem}_GetResult_Request'
+                        '  # noqa: F401\n')
+                    f.write(
+                        f'from {package_name}.{subfolder}.experimental.{module_name} import '
+                        f'{idl_stem}_GetResult_Response as {idl_stem}_GetResult_Response'
+                        '  # noqa: F401\n')
+                    f.write(
+                        f'from {package_name}.{subfolder}.experimental.{module_name} import '
+                        f'{idl_stem}_SendGoal_Event as {idl_stem}_SendGoal_Event'
+                        '  # noqa: F401\n')
+                    f.write(
+                        f'from {package_name}.{subfolder}.experimental.{module_name} import '
+                        f'{idl_stem}_SendGoal_Request as {idl_stem}_SendGoal_Request'
+                        '  # noqa: F401\n')
+                    f.write(
+                        f'from {package_name}.{subfolder}.experimental.{module_name} import '
+                        f'{idl_stem}_SendGoal_Response as {idl_stem}_SendGoal_Response'
+                        '  # noqa: F401\n')
 
     # expand templates per available typesupport implementation
     template_dir = args['template_dir']
