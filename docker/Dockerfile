@@ -142,18 +142,24 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 FROM base_environ AS base_ros
 
-RUN --mount=type=cache,target=$USER_WS/build,sharing=locked \
-    --mount=type=cache,target=$USER_WS/install,sharing=locked \
-    --mount=type=cache,target=$HOME/.ccache,sharing=locked \
+ARG UID=1001
+ARG GID=1001
+
+RUN --mount=type=cache,target=$USER_WS/build,sharing=locked,uid=${UID},gid=${GID} \
+    --mount=type=cache,target=$USER_WS/install,sharing=locked,uid=${UID},gid=${GID} \
+    --mount=type=cache,target=$HOME/.ccache,sharing=locked,uid=${UID},gid=${GID} \
     colcon build --parallel-workers=2 --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
 
 RUN echo "source $USER_WS/install/setup.bash" >> $HOME/.bashrc
 
 FROM dev_environ AS patched_ros
 
-RUN --mount=type=cache,target=$USER_WS/build,sharing=locked \
-    --mount=type=cache,target=$USER_WS/install,sharing=locked \
-    --mount=type=cache,target=$HOME/.ccache,sharing=locked \
+ARG UID=1001
+ARG GID=1001
+
+RUN --mount=type=cache,target=$USER_WS/build,sharing=locked,uid=${UID},gid=${GID} \
+    --mount=type=cache,target=$USER_WS/install,sharing=locked,uid=${UID},gid=${GID} \
+    --mount=type=cache,target=$HOME/.ccache,sharing=locked,uid=${UID},gid=${GID} \
     colcon build --parallel-workers=2 --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
 
 RUN echo "source $USER_WS/install/setup.bash" >> $HOME/.bashrc
