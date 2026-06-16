@@ -1,0 +1,9 @@
+repositories:
+  performance_test:
+    type: git
+    url: https://gitlab.com/ApexAI/performance_test.git
+    version: 2.4.0
+  ros2-performance:
+    type: git
+    url: https://github.com/irobot-ros/ros2-performance.git
+    version: 241bf86e9e69760f893869435c9ad2400517f606

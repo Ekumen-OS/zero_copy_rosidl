@@ -1,0 +1,21 @@
+repositories:
+  ros2/rmw:
+    type: git
+    url: https://github.com/Ekumen-OS/rmw.git
+    version: zero-copy-jazzy
+  ros2/rmw_fastrtps:
+    type: git
+    url: https://github.com/Ekumen-OS/rmw_fastrtps.git
+    version: zero-copy-jazzy
+  ros2/rmw_implementation:
+    type: git
+    url: https://github.com/Ekumen-OS/rmw_implementation.git
+    version: zero-copy-jazzy
+  ros2/rosidl:
+    type: git
+    url: https://github.com/Ekumen-OS/rosidl.git
+    version: zero-copy-jazzy
+  ros2/rosidl_python:
+    type: git
+    url: https://github.com/Ekumen-OS/rosidl_python.git
+    version: zero-copy-jazzy
