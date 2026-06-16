@@ -148,7 +148,7 @@ ARG GID=1001
 RUN --mount=type=cache,target=$USER_WS/build,sharing=locked,uid=${UID},gid=${GID} \
     --mount=type=cache,target=$USER_WS/install,sharing=locked,uid=${UID},gid=${GID} \
     --mount=type=cache,target=$HOME/.ccache,sharing=locked,uid=${UID},gid=${GID} \
-    colcon build --parallel-workers=2 --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
+    colcon build --parallel-workers=2 --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release --packages-ignore-regex "rosidl_typesupport_xcdr.*|xcdr_buffers"
 
 RUN echo "source $USER_WS/install/setup.bash" >> $HOME/.bashrc
 

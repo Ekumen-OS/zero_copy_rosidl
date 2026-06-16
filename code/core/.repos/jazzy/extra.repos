@@ -7,3 +7,7 @@ repositories:
     type: git
     url: https://github.com/irobot-ros/ros2-performance.git
     version: 241bf86e9e69760f893869435c9ad2400517f606
+  third-party/cpp_polyfills:
+    type: git
+    url: https://github.com/PickNikRobotics/cpp_polyfills.git
+    version: 2.0.3
