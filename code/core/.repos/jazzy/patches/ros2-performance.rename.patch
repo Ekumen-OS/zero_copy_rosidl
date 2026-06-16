@@ -1296,6 +1296,40 @@ index 5507138..6d621e6 100644
 +irobot_performance_test_msgs/PerformanceHeader header
  byte[4194304] data
 \ No newline at end of file
+diff --git a/performance_metrics/CMakeLists.txt b/performance_metrics/CMakeLists.txt
+index 410d471..8939652 100644
+--- a/performance_metrics/CMakeLists.txt
++++ b/performance_metrics/CMakeLists.txt
+@@ -1,5 +1,5 @@
+ cmake_minimum_required(VERSION 3.5)
+-project(performance_metrics)
++project(irobot_performance_metrics)
+ 
+ # Default to C++14
+ if(NOT CMAKE_CXX_STANDARD)
+@@ -11,11 +11,11 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+ endif()
+ 
+ find_package(ament_cmake REQUIRED)
+-find_package(performance_test_msgs REQUIRED)
++find_package(irobot_performance_test_msgs REQUIRED)
+ find_package(rclcpp REQUIRED)
+ 
+ set(LIBRARY_DEPENDENCIES
+-  performance_test_msgs
++  irobot_performance_test_msgs
+   rclcpp
+ )
+ 
+@@ -34,7 +34,7 @@ target_include_directories(${LIBRARY_NAME} PUBLIC
+   include
+ )
+ target_link_libraries(${LIBRARY_NAME}
+-  ${performance_test_msgs_TARGETS}
++  ${irobot_performance_test_msgs_TARGETS}
+   rclcpp::rclcpp
+ )
+ 
 diff --git a/performance_metrics/include/performance_metrics/dummy_work.hpp b/performance_metrics/include/irobot_performance_metrics/dummy_work.hpp
 similarity index 60%
 rename from performance_metrics/include/performance_metrics/dummy_work.hpp
