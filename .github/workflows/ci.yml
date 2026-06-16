@@ -18,16 +18,28 @@ concurrency:
 env:
   ROS_DOMAIN_ID: 90
 jobs:
-  test:
+  build:
     runs-on: self-hosted
 
     steps:
     - name: Checkout repository
       uses: actions/checkout@v6
 
-    - name: Build ROS
+    - name: Build base ROS
+      run: |
+        ./docker/run.sh -s base_ros_environ -- true
+
+    - name: Build patched ROS
       run: |
         ./docker/run.sh -s patched_ros_environ -- true
+
+  test:
+    runs-on: self-hosted
+    needs: build
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
 
     - name: Test ROS
       run: |
@@ -36,15 +48,11 @@ jobs:
 
   ros2_performance_benchmark:
     runs-on: self-hosted
+    needs: build
 
     steps:
     - name: Checkout repository
       uses: actions/checkout@v6
-
-    - name: Build base and patched ROS
-      run: |
-        ./docker/run.sh -s base_ros_environ -- true
-        ./docker/run.sh -s patched_ros_environ -- true
 
     - name: Benchmark baseline ROS
       id: baseline
@@ -95,15 +103,11 @@ jobs:
 
   performance_test_benchmark:
     runs-on: self-hosted
+    needs: build
 
     steps:
     - name: Checkout repository
       uses: actions/checkout@v6
-
-    - name: Build base and patched ROS
-      run: |
-        ./docker/run.sh -s base_ros_environ -- true
-        ./docker/run.sh -s patched_ros_environ -- true
 
     - name: Benchmark base ROS
       id: baseline
