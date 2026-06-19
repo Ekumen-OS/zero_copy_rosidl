@@ -16,6 +16,7 @@
 #define ROSIDL_TYPESUPPORT_XCDR_CPP__SERVICE_TYPE_SUPPORT_HPP_
 
 #include "rosidl_runtime_c/service_type_support_struct.h"
+#include "rosidl_typesupport_xcdr_cpp/message_type_support.hpp"
 #include "rosidl_typesupport_xcdr_cpp/visibility_control.h"
 
 namespace rosidl_typesupport_xcdr_cpp

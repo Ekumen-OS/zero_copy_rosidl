@@ -14,7 +14,6 @@
 
 """Generator for XCDR-based C++ typesupport."""
 
-import sys
 from rosidl_pycommon import generate_files
 
 

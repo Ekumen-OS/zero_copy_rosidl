@@ -15,7 +15,6 @@
 """Helper functions for rosidl_typesupport_xcdr_cpp templates."""
 
 from rosidl_parser.definition import (
-    AbstractNestedType,
     AbstractSequence,
     AbstractString,
     AbstractWString,
@@ -94,17 +93,17 @@ def generate_layout_field(member, constraints_prefix='constraints'):
     """Generate layout builder code for a single field."""
     member_name = member.name
     member_type = member.type
-    
+
     if isinstance(member_type, BasicType):
         return f'  builder.allocate_primitive("{member_name}", {get_xcdr_primitive_kind(member_type)});'
-    
+
     elif isinstance(member_type, (BoundedString, BoundedWString)):
         max_size = member_type.maximum_size
         return f'  builder.allocate_string("{member_name}", {max_size});'
-    
+
     elif isinstance(member_type, (AbstractString, AbstractWString)):
         return f'  builder.allocate_string("{member_name}", {constraints_prefix}.{member_name}.size);'
-    
+
     elif isinstance(member_type, Array):
         if isinstance(member_type.value_type, BasicType):
             return f'  builder.allocate_primitive_array("{member_name}", {get_xcdr_primitive_kind(member_type.value_type)}, {member_type.size});'
@@ -128,7 +127,7 @@ def generate_layout_field(member, constraints_prefix='constraints'):
                 lines.append('    builder.end_allocate_struct();')
             lines.append('  builder.end_allocate_array();')
             return '\n'.join(lines)
-    
+
     elif isinstance(member_type, BoundedSequence):
         if isinstance(member_type.value_type, BasicType):
             return f'  builder.allocate_primitive_sequence("{member_name}", {get_xcdr_primitive_kind(member_type.value_type)}, {constraints_prefix}.{member_name}.size);'
@@ -151,7 +150,7 @@ def generate_layout_field(member, constraints_prefix='constraints'):
                 lines.append('    builder.end_allocate_struct();')
             lines.append('  builder.end_allocate_sequence();')
             return '\n'.join(lines)
-    
+
     elif isinstance(member_type, AbstractSequence):
         if isinstance(member_type.value_type, BasicType):
             return f'  builder.allocate_primitive_sequence("{member_name}", {get_xcdr_primitive_kind(member_type.value_type)}, {constraints_prefix}.{member_name}.size);'
@@ -174,7 +173,7 @@ def generate_layout_field(member, constraints_prefix='constraints'):
                 lines.append('    builder.end_allocate_struct();')
             lines.append('  builder.end_allocate_sequence();')
             return '\n'.join(lines)
-    
+
     elif isinstance(member_type, NamespacedType):
         # Nested message: use build_layout_fields callback for recursion
         msg_type = get_message_type_name(member_type)
@@ -193,20 +192,20 @@ def generate_layout_field(member, constraints_prefix='constraints'):
         lines.append('  }')
         lines.append('  builder.end_allocate_struct();')
         return '\n'.join(lines)
-    
+
     return f'  // TODO: Handle {member_name} of type {member_type}'
 
 
 def generate_parser_field(member):
     """Generate layout parser code for a single field."""
     member_type = member.type
-    
+
     if isinstance(member_type, BasicType):
         return f'  parser.parse_primitive({get_xcdr_primitive_kind(member_type)});'
-    
+
     elif isinstance(member_type, (AbstractString, AbstractWString)):
         return f'  parser.parse_string();'
-    
+
     elif isinstance(member_type, Array):
         if isinstance(member_type.value_type, BasicType):
             return f'  parser.parse_primitive_array({get_xcdr_primitive_kind(member_type.value_type)}, {member_type.size});'
@@ -219,7 +218,7 @@ def generate_parser_field(member):
                 lines.append('    parser.end_parse_struct();')
             lines.append('  parser.end_parse_array();')
             return '\n'.join(lines)
-    
+
     elif isinstance(member_type, AbstractSequence):
         if isinstance(member_type.value_type, BasicType):
             lines = [f'  auto {member.name}_size = parser.begin_parse_sequence();']
@@ -235,13 +234,13 @@ def generate_parser_field(member):
                 lines.append('    parser.end_parse_struct();')
             lines.append('  parser.end_parse_sequence();')
             return '\n'.join(lines)
-    
+
     elif isinstance(member_type, NamespacedType):
         # Nested message
         lines = [f'  parser.begin_parse_struct();']
         lines.append('  parser.end_parse_struct();')
         return '\n'.join(lines)
-    
+
     return f'  // TODO: Parse {member.name}'
 
 
@@ -249,18 +248,18 @@ def generate_writer_field(member, is_experimental, msg_prefix='msg'):
     """Generate XCdrWriter serialization for a field."""
     member_name = member.name
     member_type = member.type
-    
+
     if isinstance(member_type, BasicType):
         cpp_type = get_cpp_type(member_type)
         return f'  writer.write<{cpp_type}>({msg_prefix}.{member_name});'
-    
+
     elif isinstance(member_type, (AbstractString, AbstractWString)):
         # String fields in experimental messages
         if is_experimental:
             return f'  writer.write(std::string_view({msg_prefix}.{member_name}.data(), {msg_prefix}.{member_name}.size()));'
         else:
             return f'  writer.write(std::string_view({msg_prefix}.{member_name}));'
-    
+
     elif isinstance(member_type, Array):
         if isinstance(member_type.value_type, BasicType):
             cpp_type = get_cpp_type(member_type.value_type)
@@ -289,7 +288,7 @@ def generate_writer_field(member, is_experimental, msg_prefix='msg'):
                 lines.append('  }')
             lines.append('  writer.end_write_array();')
             return '\n'.join(lines)
-    
+
     elif isinstance(member_type, AbstractSequence):
         if isinstance(member_type.value_type, BasicType):
             cpp_type = get_cpp_type(member_type.value_type)
@@ -321,7 +320,7 @@ def generate_writer_field(member, is_experimental, msg_prefix='msg'):
                 lines.append('  }')
             lines.append('  writer.end_write_sequence();')
             return '\n'.join(lines)
-    
+
     elif isinstance(member_type, NamespacedType):
         # Nested message: serialize inline using private callback
         msg_type = get_message_type_name(member_type)
@@ -332,7 +331,7 @@ def generate_writer_field(member, is_experimental, msg_prefix='msg'):
         lines.append(f'    nested_callbacks_{member_name}->serialize_into_writer(&{msg_prefix}.{member_name}, writer);')
         lines.append('  }')
         return '\n'.join(lines)
-    
+
     return f'  // TODO: Write {member_name}'
 
 
@@ -340,11 +339,11 @@ def generate_reader_field(member, is_experimental, msg_prefix='msg'):
     """Generate XCdrReader deserialization for a field."""
     member_name = member.name
     member_type = member.type
-    
+
     if isinstance(member_type, BasicType):
         cpp_type = get_cpp_type(member_type)
         return f'  {msg_prefix}.{member_name} = *reader.read<{cpp_type}>();'
-    
+
     elif isinstance(member_type, (AbstractString, AbstractWString)):
         if is_experimental:
             lines = [f'  auto {member_name}_view = *reader.read<std::string_view>();']
@@ -354,7 +353,7 @@ def generate_reader_field(member, is_experimental, msg_prefix='msg'):
             lines = [f'  auto {member_name}_view = *reader.read<std::string_view>();']
             lines.append(f'  {msg_prefix}.{member_name}.assign({member_name}_view);')
             return '\n'.join(lines)
-    
+
     elif isinstance(member_type, Array):
         if isinstance(member_type.value_type, BasicType):
             cpp_type = get_cpp_type(member_type.value_type)
@@ -385,7 +384,7 @@ def generate_reader_field(member, is_experimental, msg_prefix='msg'):
                 lines.append('  }')
             lines.append('  reader.end_read_array();')
             return '\n'.join(lines)
-    
+
     elif isinstance(member_type, AbstractSequence):
         if isinstance(member_type.value_type, BasicType):
             cpp_type = get_cpp_type(member_type.value_type)
@@ -421,7 +420,7 @@ def generate_reader_field(member, is_experimental, msg_prefix='msg'):
                 lines.append('  }')
             lines.append('  reader.end_read_sequence();')
             return '\n'.join(lines)
-    
+
     elif isinstance(member_type, NamespacedType):
         # Nested message: deserialize inline using private callback
         msg_type = get_message_type_name(member_type)
@@ -432,7 +431,7 @@ def generate_reader_field(member, is_experimental, msg_prefix='msg'):
         lines.append(f'    nested_callbacks_{member_name}->deserialize_from_reader(reader, &{msg_prefix}.{member_name});')
         lines.append('  }')
         return '\n'.join(lines)
-    
+
     return f'  // TODO: Read {member_name}'
 
 
@@ -440,20 +439,20 @@ def generate_external_storage_field(member, index):
     """Generate external storage population code."""
     member_name = member.name
     member_type = member.type
-    
+
     if isinstance(member_type, BasicType):
         cpp_type = get_cpp_type(member_type)
         lines = [f'  auto {member_name}_slice = accessor[{index}].slice();']
         lines.append(f'  ext_storage.members.{member_name} = rosidl_runtime_cpp::Memory<{cpp_type}>(static_cast<{cpp_type}*>(const_cast<void*>(static_cast<const void*>({member_name}_slice.data()))), 0);')
         return '\n'.join(lines)
-    
+
     elif isinstance(member_type, (AbstractString, AbstractWString)):
         lines = [f'  auto {member_name}_slice = accessor[{index}].slice();']
         lines.append(f'  ext_storage.members.{member_name} = rosidl_runtime_cpp::MemoryRegion<char>(')
         lines.append(f'    static_cast<char*>(const_cast<void*>(static_cast<const void*>({member_name}_slice.data()))),')
         lines.append(f'    {member_name}_slice.size());')
         return '\n'.join(lines)
-    
+
     elif isinstance(member_type, Array):
         if isinstance(member_type.value_type, BasicType):
             cpp_type = get_cpp_type(member_type.value_type)
@@ -462,7 +461,7 @@ def generate_external_storage_field(member, index):
             lines.append(f'    static_cast<{cpp_type}*>(const_cast<void*>(static_cast<const void*>({member_name}_slice.data()))),')
             lines.append(f'    {member_type.size});')
             return '\n'.join(lines)
-    
+
     elif isinstance(member_type, AbstractSequence):
         if isinstance(member_type.value_type, BasicType):
             cpp_type = get_cpp_type(member_type.value_type)
@@ -471,7 +470,7 @@ def generate_external_storage_field(member, index):
             lines.append(f'    static_cast<{cpp_type}*>(const_cast<void*>(static_cast<const void*>({member_name}_slice.data()))),')
             lines.append(f'    *accessor[{index}].size());')
             return '\n'.join(lines)
-    
+
     return f'  // TODO: External storage for {member_name}'
 
 
@@ -494,15 +493,15 @@ def generate_size_calculation(member, msg_prefix='msg'):
     """Generate code to calculate message member size for serialization."""
     member_name = member.name
     member_type = member.type
-    
+
     if isinstance(member_type, BasicType):
         cpp_type = get_cpp_type(member_type)
         return f'  *size += sizeof({cpp_type});'
-    
+
     elif isinstance(member_type, (AbstractString, AbstractWString)):
         # String: 4-byte length + data + null terminator
         return f'  *size += 4 + {msg_prefix}.{member_name}.size() + 1;'
-    
+
     elif isinstance(member_type, Array):
         if isinstance(member_type.value_type, BasicType):
             cpp_type = get_cpp_type(member_type.value_type)
@@ -523,7 +522,7 @@ def generate_size_calculation(member, msg_prefix='msg'):
             lines.append('    }')
             lines.append('  }')
             return '\n'.join(lines)
-    
+
     elif isinstance(member_type, AbstractSequence):
         if isinstance(member_type.value_type, BasicType):
             cpp_type = get_cpp_type(member_type.value_type)
@@ -546,7 +545,7 @@ def generate_size_calculation(member, msg_prefix='msg'):
             lines.append('    }')
             lines.append('  }')
             return '\n'.join(lines)
-    
+
     elif isinstance(member_type, NamespacedType):
         # Nested message: size without XCDR header (inlined in parent)
         msg_type = get_message_type_name(member_type)
@@ -557,17 +556,6 @@ def generate_size_calculation(member, msg_prefix='msg'):
         lines.append('    *size += nested_size - 4;  // Nested messages are inlined without XCDR header')
         lines.append('  }')
         return '\n'.join(lines)
-    
-    elif isinstance(member_type, NamespacedType):
-        # Nested message: size without XCDR header (inlined in parent)
-        msg_type = get_message_type_name(member_type)
-        lines = [f'  {{']
-        lines.append(f'    auto nested_ts = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<{msg_type}>();')
-        lines.append('    size_t nested_size = 0;')
-        lines.append(f'    rosidl_typesupport_xcdr_cpp::get_message_size(nested_ts, &{msg_prefix}.{member_name}, &nested_size);')
-        lines.append('    *size += nested_size - 4;  // Nested messages are inlined without XCDR header')
-        lines.append('  }')
-        return '\n'.join(lines)
-    
+
     return f'  // TODO: Size calculation for {member_name}'
 

@@ -73,7 +73,7 @@ nested_includes = set()
 for member in message.structure.members:
     member_type = member.type
     if isinstance(member_type, NamespacedType):
-        # Skip service messages (they're declared in the service header, not individual headers)
+        # Skip service messages (they are declared in the service header, not individual headers)
         is_nested_service_msg = ('srv' in member_type.namespaces and
                                 (member_type.name.endswith(SERVICE_REQUEST_MESSAGE_SUFFIX) or
                                  member_type.name.endswith(SERVICE_RESPONSE_MESSAGE_SUFFIX) or
@@ -398,60 +398,6 @@ serialize_message_into_@(msg_typename)(
   
   return RCUTILS_RET_OK;
 }
-  auto reader = *reader_result;
-  
-  // Write into existing message
-  auto & msg = *static_cast<@(full_msg_typename) *>(message_ptr);
-@[  for member in message.structure.members]@
-@(generate_reader_field(member, is_experimental, 'msg'))
-@[  end for]@
-  
-  return RCUTILS_RET_OK;
-}
-
-// Serialize message into storage (traditional)
-rcutils_ret_t
-serialize_message_into_@(msg_typename)(
-  const void * message_ptr,
-  rosidl_runtime_cpp::MemoryRegion<void> storage)
-{
-  auto buffer_span = tcb::span<uint8_t>(
-    static_cast<uint8_t*>(storage.data()), storage.size());
-  
-  xcdr_buffers::XCdrWriter writer(buffer_span);
-  
-  auto & msg = *static_cast<const @(full_msg_typename) *>(message_ptr);
-@[  for member in message.structure.members]@
-@(generate_writer_field(member, is_experimental, 'msg'))
-@[  end for]@
-  
-  if (writer.has_error()) {
-    // Buffer overflow
-    return RCUTILS_RET_ERROR;
-  }
-  
-  return RCUTILS_RET_OK;
-}
-
-// Get message size (for experimental messages)
-rcutils_ret_t
-get_message_size_@(msg_typename)(
-  const void * message_ptr,
-  size_t * size)
-{
-  if (!message_ptr || !size) {
-    return RCUTILS_RET_ERROR;
-  }
-  
-  auto & msg = *static_cast<const @(full_msg_typename) *>(message_ptr);
-  *size = 4;  // XCDR header
-  
-@[  for member in message.structure.members]@
-@(generate_size_calculation(member, 'msg'))
-@[  end for]@
-  
-  return RCUTILS_RET_OK;
-}
 
 // Destroy message created by construct_at or cast_at
 void
@@ -583,8 +529,9 @@ get_message_size_@(msg_typename)(
   }
   
   auto & msg = *static_cast<const @(full_msg_typename) *>(message_ptr);
+  (void)msg;
   *size = 4;  // XCDR header
-  
+
 @[  for member in message.structure.members]@
 @(generate_size_calculation(member, 'msg'))
 @[  end for]@

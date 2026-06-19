@@ -18,7 +18,7 @@ if(NOT TARGET ${rosidl_generate_interfaces_TARGET}__rosidl_generator_cpp)
     "'rosidl_typesupport_xcdr_cpp' extension.")
 endif()
 
-find_package(ament_cmake_ros_core REQUIRED)
+find_package(ament_cmake_ros REQUIRED)
 find_package(rosidl_runtime_c REQUIRED)
 find_package(rosidl_runtime_cpp REQUIRED)
 find_package(rosidl_typesupport_interface REQUIRED)

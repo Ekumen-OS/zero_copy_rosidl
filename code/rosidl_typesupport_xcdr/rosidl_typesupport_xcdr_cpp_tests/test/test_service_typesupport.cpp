@@ -81,28 +81,25 @@ TEST(TestServiceTypesupport, ServiceRequestResponseSerialization)
     handle->request_typesupport->data);
   
   ASSERT_NE(nullptr, request_callbacks);
+  ASSERT_NE(nullptr, request_callbacks->get_message_size);
   ASSERT_NE(nullptr, request_callbacks->serialize_message_into);
   ASSERT_NE(nullptr, request_callbacks->deserialize_message_from);
   
-  // Serialize request
-  std::vector<uint8_t> buffer(256);
+  // Get serialized size
   size_t size = 0;
-  auto ret = request_callbacks->serialize_message_into(
-    &request,
-    buffer.data(),
-    buffer.size(),
-    &size);
+  auto ret = request_callbacks->get_message_size(&request, &size);
+  ASSERT_EQ(RCUTILS_RET_OK, ret);
+  ASSERT_GT(size, 0u);
   
+  // Serialize request
+  std::vector<uint8_t> buffer(size);
+  rosidl_runtime_cpp::MemoryRegion<void> storage(buffer.data(), size);
+  ret = request_callbacks->serialize_message_into(&request, storage);
   EXPECT_EQ(RCUTILS_RET_OK, ret);
-  EXPECT_GT(size, 0u);
   
   // Deserialize request
   rosidl_typesupport_xcdr_cpp_tests::srv::AddTwoInts_Request request_out;
-  ret = request_callbacks->deserialize_message_from(
-    buffer.data(),
-    size,
-    &request_out);
-  
+  ret = request_callbacks->deserialize_message_from(storage, &request_out);
   EXPECT_EQ(RCUTILS_RET_OK, ret);
   EXPECT_EQ(request.a, request_out.a);
   EXPECT_EQ(request.b, request_out.b);

@@ -265,10 +265,6 @@ T XCdrConstAccessor::as() const
       throw XCdrError("Primitive type mismatch");
     }
 
-    if (prim_layout.kind() != expected_kind) {
-      throw XCdrError("Primitive type mismatch");
-    }
-
     return read_primitive<T>(base_offset_);
   }
 }

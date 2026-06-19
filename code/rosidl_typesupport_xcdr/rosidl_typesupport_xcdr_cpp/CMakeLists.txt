@@ -64,8 +64,7 @@ install(
 # Install Python package
 ament_python_install_package(${PROJECT_NAME})
 
-# Set Python install directory for extras file  
-# ament_python_install_package sets this automatically, but we need to ensure it's available
+# Set Python install directory for extras file
 if(NOT DEFINED PYTHON_INSTALL_DIR)
   set(PYTHON_INSTALL_DIR "lib/python3/dist-packages")
 endif()
