@@ -67,6 +67,7 @@ services:
       - ../code:/home/developer/ws/src
       - ../data:/home/developer/data
       - ../tools:/home/developer/tools
+      - /dev/null:/home/developer/ws/src/core/.gitignore
       - /tmp:/tmp
 
 volumes:

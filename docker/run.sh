@@ -85,5 +85,4 @@ fi
 USERID=$(id -u) GROUPID=$(id -g) \
     docker compose run \
     --name ${CONTAINER_NAME} \
-    --remove-orphans \
     --rm ${SERVICE_NAME} "${COMMAND_ARGS[@]}"

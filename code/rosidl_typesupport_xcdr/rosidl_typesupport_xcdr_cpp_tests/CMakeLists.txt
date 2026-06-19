@@ -27,9 +27,9 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
-  
+
   ament_lint_auto_find_test_dependencies()
-  
+
   # Test basic typesupport
   ament_add_gtest(test_basic_typesupport
     test/test_basic_typesupport.cpp
@@ -42,7 +42,7 @@ if(BUILD_TESTING)
     rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_xcdr_cpp")
     target_link_libraries(test_basic_typesupport ${cpp_typesupport_target})
   endif()
-  
+
   # Test serialization
   ament_add_gtest(test_serialization
     test/test_serialization.cpp
@@ -55,7 +55,7 @@ if(BUILD_TESTING)
     rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_xcdr_cpp")
     target_link_libraries(test_serialization ${cpp_typesupport_target})
   endif()
-  
+
   # Test nested message serialization
   ament_add_gtest(test_nested_serialization
     test/test_nested_serialization.cpp
@@ -68,7 +68,7 @@ if(BUILD_TESTING)
     rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_xcdr_cpp")
     target_link_libraries(test_nested_serialization ${cpp_typesupport_target})
   endif()
-  
+
   # Test service typesupport
   ament_add_gtest(test_service_typesupport
     test/test_service_typesupport.cpp

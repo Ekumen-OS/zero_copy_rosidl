@@ -22,14 +22,8 @@ from rosidl_typesupport_xcdr_cpp.template_helpers import (
     get_xcdr_primitive_kind,
     get_cpp_type,
     needs_constraints,
-    generate_layout_field,
-    generate_parser_field,
-    generate_writer_field,
-    generate_reader_field,
-    generate_external_storage_field,
     get_message_type_name,
     get_nested_typesupport_include,
-    generate_size_calculation,
 )
 
 # Check if this is an experimental message
@@ -40,7 +34,7 @@ msg_typename = message.structure.namespaced_type.name
 msg_namespace = '::'.join(message.structure.namespaced_type.namespaces)
 full_msg_typename = '::'.join(message.structure.namespaced_type.namespaces + [msg_typename])
 
-# Check if this is a service message by checking if it has 'srv' namespace
+# Check if this is a service message by checking if it has srv namespace
 # and ends with Request/Response/Event suffix
 is_service_message = ('srv' in message.structure.namespaced_type.namespaces and 
                      (msg_typename.endswith(SERVICE_REQUEST_MESSAGE_SUFFIX) or
@@ -72,7 +66,7 @@ for member in message.structure.members:
 nested_includes = set()
 for member in message.structure.members:
     member_type = member.type
-    if isinstance(member_type, NamespacedType):
+    if isinstance(member.type, NamespacedType):
         # Skip service messages (they are declared in the service header, not individual headers)
         is_nested_service_msg = ('srv' in member_type.namespaces and
                                 (member_type.name.endswith(SERVICE_REQUEST_MESSAGE_SUFFIX) or
@@ -80,7 +74,7 @@ for member in message.structure.members:
                                  member_type.name.endswith(SERVICE_EVENT_MESSAGE_SUFFIX)))
         if not is_nested_service_msg:
             nested_includes.add(get_nested_typesupport_include(member_type))
-    elif isinstance(member_type, (Array, AbstractSequence)):
+    elif isinstance(member.type, (Array, AbstractSequence)):
         elem_type = member_type.value_type
         if isinstance(elem_type, NamespacedType):
             # Skip service messages
@@ -92,6 +86,374 @@ for member in message.structure.members:
                 nested_includes.add(get_nested_typesupport_include(elem_type))
 
 }@
+@# ===== EmPy macros for field code generation =====
+
+@[def generate_layout_field(member, constraints_prefix='constraints')]@
+@{ from rosidl_parser.definition import BasicType, AbstractString, AbstractWString, BoundedString, BoundedWString, Array, BoundedSequence, AbstractSequence, NamespacedType }@ @
+@{ from rosidl_typesupport_xcdr_cpp.template_helpers import get_xcdr_primitive_kind, get_cpp_type, get_message_type_name }@ @
+@[if isinstance(member.type, BasicType)]@
+  builder.allocate_primitive("@(member.name)", @(get_xcdr_primitive_kind(member.type)));
+@[elif isinstance(member.type, (BoundedString, BoundedWString))]@
+  builder.allocate_string("@(member.name)", @(member.type.maximum_size));
+@[elif isinstance(member.type, (AbstractString, AbstractWString))]@
+  builder.allocate_string("@(member.name)", @(constraints_prefix).@(member.name).size);
+@[elif isinstance(member.type, Array)]@
+@[  if isinstance(member.type.value_type, BasicType)]@
+  builder.allocate_primitive_array("@(member.name)", @(get_xcdr_primitive_kind(member.type.value_type)), @(member.type.size));
+@[  else]@
+  builder.begin_allocate_array("@(member.name)", @(member.type.size));
+@[    if isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
+@[      if isinstance(member.type.value_type, (BoundedString, BoundedWString))]@
+    builder.allocate_string(@(member.type.value_type.maximum_size));
+@[      else]@
+    builder.allocate_string(@(constraints_prefix).@(member.name).size);
+@[      end if]@
+@[    elif isinstance(member.type.value_type, NamespacedType)]@
+    builder.begin_allocate_struct();
+    {
+      auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type))>();
+      auto nested_callbacks_@(member.name) = static_cast<const rosidl_typesupport_xcdr_cpp::message_type_support_callbacks_experimental_t *>(nested_ts_@(member.name)->data);
+      nested_callbacks_@(member.name)->build_layout_fields(builder, nullptr);
+    }
+    builder.end_allocate_struct();
+@[    end if]@
+  builder.end_allocate_array();
+@[  end if]@
+@[elif isinstance(member.type, (BoundedSequence, AbstractSequence))]@
+@[  if isinstance(member.type.value_type, BasicType)]@
+  builder.allocate_primitive_sequence("@(member.name)", @(get_xcdr_primitive_kind(member.type.value_type)), @(constraints_prefix).@(member.name).size);
+@[  else]@
+  builder.begin_allocate_sequence("@(member.name)", @(constraints_prefix).@(member.name).size);
+@[    if isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
+@[      if isinstance(member.type.value_type, (BoundedString, BoundedWString))]@
+    builder.allocate_string(@(member.type.value_type.maximum_size));
+@[      else]@
+    builder.allocate_string(@(constraints_prefix).@(member.name).element.size);
+@[      end if]@
+@[    elif isinstance(member.type.value_type, NamespacedType)]@
+    builder.begin_allocate_struct();
+    {
+      auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type))>();
+      auto nested_callbacks_@(member.name) = 
+        static_cast<const rosidl_typesupport_xcdr_cpp::message_type_support_callbacks_experimental_t *>(nested_ts_@(member.name)->data);
+      nested_callbacks_@(member.name)->build_layout_fields(builder, nullptr);
+    }
+    builder.end_allocate_struct();
+@[    end if]@
+  builder.end_allocate_sequence();
+@[  end if]@
+@[elif isinstance(member.type, NamespacedType)]@
+  // Nested message: @(member.name)
+  builder.begin_allocate_struct();
+  {
+    auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type))>();
+    auto nested_callbacks_@(member.name) = 
+      static_cast<const rosidl_typesupport_xcdr_cpp::message_type_support_callbacks_experimental_t *>(nested_ts_@(member.name)->data);
+    if (@(constraints_prefix).@(member.name)) {
+      nested_callbacks_@(member.name)->build_layout_fields(builder, @(constraints_prefix).@(member.name));
+    } else {
+      nested_callbacks_@(member.name)->build_layout_fields(builder, nullptr);
+    }
+  }
+  builder.end_allocate_struct();
+@[else]@
+  // TODO: Handle @(member.name) of type @(member.type)
+@[end if]@
+@[end def]@
+
+@[def generate_parser_field(member)]@
+@{ from rosidl_parser.definition import BasicType, AbstractString, AbstractWString, BoundedString, BoundedWString, Array, BoundedSequence, AbstractSequence, NamespacedType }@ @
+@{ from rosidl_typesupport_xcdr_cpp.template_helpers import get_xcdr_primitive_kind, get_cpp_type, get_message_type_name }@ @
+@[if isinstance(member.type, BasicType)]@
+  parser.parse_primitive(@(get_xcdr_primitive_kind(member.type)));
+@[elif isinstance(member.type, (AbstractString, AbstractWString))]@
+  parser.parse_string();
+@[elif isinstance(member.type, Array)]@
+@[  if isinstance(member.type.value_type, BasicType)]@
+  parser.parse_primitive_array(@(get_xcdr_primitive_kind(member.type.value_type)), @(member.type.size));
+@[  else]@
+  parser.begin_parse_array(@(member.type.size));
+@[    if isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
+    parser.parse_string();
+@[    elif isinstance(member.type.value_type, NamespacedType)]@
+    parser.begin_parse_struct();
+    parser.end_parse_struct();
+@[    end if]@
+  parser.end_parse_array();
+@[  end if]@
+@[elif isinstance(member.type, AbstractSequence)]@
+  auto @(member.name)_size = parser.begin_parse_sequence();
+@[  if isinstance(member.type.value_type, BasicType)]@
+    parser.parse_primitive(@(get_xcdr_primitive_kind(member.type.value_type)));
+@[  elif isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
+    parser.parse_string();
+@[  elif isinstance(member.type.value_type, NamespacedType)]@
+    parser.begin_parse_struct();
+    parser.end_parse_struct();
+@[  end if]@
+  parser.end_parse_sequence();
+@[elif isinstance(member.type, NamespacedType)]@
+  parser.begin_parse_struct();
+  parser.end_parse_struct();
+@[else]@
+  // TODO: Parse @(member.name)
+@[end if]@
+@[end def]@
+
+@[def generate_writer_field(member, is_experimental, msg_prefix='msg')]@
+@{ from rosidl_parser.definition import BasicType, AbstractString, AbstractWString, BoundedString, BoundedWString, Array, BoundedSequence, AbstractSequence, NamespacedType }@ @
+@{ from rosidl_typesupport_xcdr_cpp.template_helpers import get_xcdr_primitive_kind, get_cpp_type, get_message_type_name }@ @
+@[if isinstance(member.type, BasicType)]@
+  writer.write<@(get_cpp_type(member.type))>(@(msg_prefix).@(member.name));
+@[elif isinstance(member.type, (AbstractString, AbstractWString))]@
+@[  if is_experimental]@
+  writer.write(std::string_view(@(msg_prefix).@(member.name).data(), @(msg_prefix).@(member.name).size()));
+@[  else]@
+  writer.write(std::string_view(@(msg_prefix).@(member.name)));
+@[  end if]@
+@[elif isinstance(member.type, Array)]@
+@[  if isinstance(member.type.value_type, BasicType)]@
+  writer.write_array(tcb::span<const @(get_cpp_type(member.type.value_type))>(@(msg_prefix).@(member.name).data(), @(member.type.size)));
+@[  else]@
+  writer.begin_write_array(@(member.type.size));
+@[    if isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
+@[      if is_experimental]@
+  for (size_t i = 0; i < @(member.type.size); ++i) {
+    writer.write(std::string_view(@(msg_prefix).@(member.name)[i].data(), @(msg_prefix).@(member.name)[i].size()));
+  }
+@[      else]@
+  for (const auto & elem : @(msg_prefix).@(member.name)) {
+    writer.write(std::string_view(elem));
+  }
+@[      end if]@
+@[    elif isinstance(member.type.value_type, NamespacedType)]@
+  {
+    auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type))>();
+    auto nested_callbacks_@(member.name) = 
+      static_cast<const rosidl_typesupport_xcdr_cpp::message_type_support_callbacks_experimental_t *>(nested_ts_@(member.name)->data);
+    for (size_t i = 0; i < @(member.type.size); ++i) {
+      nested_callbacks_@(member.name)->serialize_into_writer(&@(msg_prefix).@(member.name)[i], writer);
+    }
+  }
+@[    end if]@
+  writer.end_write_array();
+@[  end if]@
+@[elif isinstance(member.type, AbstractSequence)]@
+@[  if isinstance(member.type.value_type, BasicType)]@
+  writer.write_sequence(tcb::span<const @(get_cpp_type(member.type.value_type))>(@(msg_prefix).@(member.name).data(), @(msg_prefix).@(member.name).size()));
+@[  else]@
+  writer.begin_write_sequence(@(msg_prefix).@(member.name).size());
+@[    if isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
+@[      if is_experimental]@
+  for (size_t i = 0; i < @(msg_prefix).@(member.name).size(); ++i) {
+    writer.write(std::string_view(@(msg_prefix).@(member.name)[i].data(), @(msg_prefix).@(member.name)[i].size()));
+  }
+@[      else]@
+  for (const auto & elem : @(msg_prefix).@(member.name)) {
+    writer.write(std::string_view(elem));
+  }
+@[      end if]@
+@[    elif isinstance(member.type.value_type, NamespacedType)]@
+  {
+    auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type))>();
+    auto nested_callbacks_@(member.name) = 
+      static_cast<const rosidl_typesupport_xcdr_cpp::message_type_support_callbacks_experimental_t *>(nested_ts_@(member.name)->data);
+    for (const auto & elem : @(msg_prefix).@(member.name)) {
+      nested_callbacks_@(member.name)->serialize_into_writer(&elem, writer);
+    }
+  }
+@[    end if]@
+  writer.end_write_sequence();
+@[  end if]@
+@[elif isinstance(member.type, NamespacedType)]@
+  // Nested message: @(member.name)
+  {
+    auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type))>();
+    auto nested_callbacks_@(member.name) = 
+      static_cast<const rosidl_typesupport_xcdr_cpp::message_type_support_callbacks_experimental_t *>(nested_ts_@(member.name)->data);
+    nested_callbacks_@(member.name)->serialize_into_writer(&@(msg_prefix).@(member.name), writer);
+  }
+@[else]@
+  // TODO: Write @(member.name)
+@[end if]@
+@[end def]@
+
+@[def generate_reader_field(member, is_experimental, msg_prefix='msg')]@
+@{ from rosidl_parser.definition import BasicType, AbstractString, AbstractWString, BoundedString, BoundedWString, Array, BoundedSequence, AbstractSequence, NamespacedType }@ @
+@{ from rosidl_typesupport_xcdr_cpp.template_helpers import get_xcdr_primitive_kind, get_cpp_type, get_message_type_name }@ @
+@[if isinstance(member.type, BasicType)]@
+  @(msg_prefix).@(member.name) = *reader.read<@(get_cpp_type(member.type))>();
+@[elif isinstance(member.type, (AbstractString, AbstractWString))]@
+  auto @(member.name)_view = *reader.read<std::string_view>();
+@[  if is_experimental]@
+  @(msg_prefix).@(member.name).assign(@(member.name)_view.data(), @(member.name)_view.size());
+@[  else]@
+  @(msg_prefix).@(member.name).assign(@(member.name)_view);
+@[  end if]@
+@[elif isinstance(member.type, Array)]@
+@[  if isinstance(member.type.value_type, BasicType)]@
+  auto @(member.name)_array = *reader.read<std::array<@(get_cpp_type(member.type.value_type)), @(member.type.size)> >();
+@[    if is_experimental]@
+  std::copy(@(member.name)_array.begin(), @(member.name)_array.end(), @(msg_prefix).@(member.name).begin());
+@[    else]@
+  @(msg_prefix).@(member.name) = @(member.name)_array;
+@[    end if]@
+@[  else]@
+  reader.begin_read_array();
+@[    if isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
+  for (size_t i = 0; i < @(member.type.size); ++i) {
+    auto elem_view = *reader.read<std::string_view>();
+@[      if is_experimental]@
+    @(msg_prefix).@(member.name)[i].assign(elem_view.data(), elem_view.size());
+@[      else]@
+    @(msg_prefix).@(member.name)[i].assign(elem_view);
+@[      end if]@
+  }
+@[    elif isinstance(member.type.value_type, NamespacedType)]@
+  {
+    auto nested_ts_@(member.name) = 
+      rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type))>();
+    auto nested_callbacks_@(member.name) = 
+      static_cast<const rosidl_typesupport_xcdr_cpp::message_type_support_callbacks_experimental_t *>(nested_ts_@(member.name)->data);
+    for (size_t i = 0; i < @(member.type.size); ++i) {
+      nested_callbacks_@(member.name)->deserialize_from_reader(reader, &@(msg_prefix).@(member.name)[i]);
+    }
+  }
+@[    end if]@
+  reader.end_read_array();
+@[  end if]@
+@[elif isinstance(member.type, AbstractSequence)]@
+@[  if isinstance(member.type.value_type, BasicType)]@
+  auto @(member.name)_vec = *reader.read<std::vector<@(get_cpp_type(member.type.value_type))>>();
+@[    if is_experimental]@
+  @(msg_prefix).@(member.name).resize(@(member.name)_vec.size());
+  std::copy(@(member.name)_vec.begin(), @(member.name)_vec.end(), @(msg_prefix).@(member.name).begin());
+@[    else]@
+  @(msg_prefix).@(member.name) = @(member.name)_vec;
+@[    end if]@
+@[  else]@
+  auto @(member.name)_size = *reader.begin_read_sequence();
+  @(msg_prefix).@(member.name).resize(@(member.name)_size);
+@[    if isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
+  for (size_t i = 0; i < @(member.name)_size; ++i) {
+    auto elem_view = *reader.read<std::string_view>();
+@[      if is_experimental]@
+    @(msg_prefix).@(member.name)[i].assign(elem_view.data(), elem_view.size());
+@[      else]@
+    @(msg_prefix).@(member.name)[i].assign(elem_view);
+@[      end if]@
+  }
+@[    elif isinstance(member.type.value_type, NamespacedType)]@
+  {
+    auto nested_ts_@(member.name) = 
+      rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type))>();
+    auto nested_callbacks_@(member.name) = 
+      static_cast<const rosidl_typesupport_xcdr_cpp::message_type_support_callbacks_experimental_t *>(nested_ts_@(member.name)->data);
+    for (size_t i = 0; i < @(member.name)_size; ++i) {
+      nested_callbacks_@(member.name)->deserialize_from_reader(reader, &@(msg_prefix).@(member.name)[i]);
+    }
+  }
+@[    end if]@
+  reader.end_read_sequence();
+@[  end if]@
+@[elif isinstance(member.type, NamespacedType)]@
+  // Nested message: @(member.name)
+  {
+    auto nested_ts_@(member.name) = 
+      rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type))>();
+    auto nested_callbacks_@(member.name) = 
+      static_cast<const rosidl_typesupport_xcdr_cpp::message_type_support_callbacks_experimental_t *>(nested_ts_@(member.name)->data);
+    nested_callbacks_@(member.name)->deserialize_from_reader(reader, &@(msg_prefix).@(member.name));
+  }
+@[else]@
+  // TODO: Read @(member.name)
+@[end if]@
+@[end def]@
+
+@[def generate_external_storage_field(member, index)]@
+@{ from rosidl_parser.definition import BasicType, AbstractString, AbstractWString, BoundedString, BoundedWString, Array, BoundedSequence, AbstractSequence, NamespacedType }@ @
+@{ from rosidl_typesupport_xcdr_cpp.template_helpers import get_xcdr_primitive_kind, get_cpp_type, get_message_type_name }@ @
+@[if isinstance(member.type, BasicType)]@
+  auto @(member.name)_slice = accessor[@(index)].slice();
+  ext_storage.members.@(member.name) = rosidl_runtime_cpp::Memory<@(get_cpp_type(member.type))>(static_cast<@(get_cpp_type(member.type))*>(const_cast<void*>(static_cast<const void*>(@(member.name)_slice.data()))), 0);
+@[elif isinstance(member.type, (AbstractString, AbstractWString))]@
+  auto @(member.name)_slice = accessor[@(index)].slice();
+  ext_storage.members.@(member.name) = rosidl_runtime_cpp::MemoryRegion<char>(
+    static_cast<char*>(const_cast<void*>(static_cast<const void*>(@(member.name)_slice.data()))),
+    @(member.name)_slice.size());
+@[elif isinstance(member.type, Array)]@
+@[  if isinstance(member.type.value_type, BasicType)]@
+  auto @(member.name)_slice = accessor[@(index)].slice();
+  ext_storage.members.@(member.name) = rosidl_runtime_cpp::MemoryRegion<@(get_cpp_type(member.type.value_type))>(
+    static_cast<@(get_cpp_type(member.type.value_type))*>(const_cast<void*>(static_cast<const void*>(@(member.name)_slice.data()))),
+    @(member.type.size));
+@[  end if]@
+@[elif isinstance(member.type, AbstractSequence)]@
+@[  if isinstance(member.type.value_type, BasicType)]@
+  auto @(member.name)_slice = accessor[@(index)].slice();
+  ext_storage.members.@(member.name).region = rosidl_runtime_cpp::MemoryRegion<@(get_cpp_type(member.type.value_type))>(
+    static_cast<@(get_cpp_type(member.type.value_type))*>(const_cast<void*>(static_cast<const void*>(@(member.name)_slice.data()))),
+    *accessor[@(index)].size());
+@[  end if]@
+@[else]@
+  // TODO: External storage for @(member.name)
+@[end if]@
+@[end def]@
+
+@[def generate_size_calculation(member, msg_prefix='msg')]@
+@{ from rosidl_parser.definition import BasicType, AbstractString, AbstractWString, BoundedString, BoundedWString, Array, BoundedSequence, AbstractSequence, NamespacedType }@ @
+@{ from rosidl_typesupport_xcdr_cpp.template_helpers import get_xcdr_primitive_kind, get_cpp_type, get_message_type_name }@ @
+@[if isinstance(member.type, BasicType)]@
+  *size += sizeof(@(get_cpp_type(member.type)));
+@[elif isinstance(member.type, (AbstractString, AbstractWString))]@
+  *size += 4 + @(msg_prefix).@(member.name).size() + 1;
+@[elif isinstance(member.type, Array)]@
+@[  if isinstance(member.type.value_type, BasicType)]@
+  *size += sizeof(@(get_cpp_type(member.type.value_type))) * @(member.type.size);
+@[  elif isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
+  for (size_t i = 0; i < @(member.type.size); ++i) {
+    *size += 4 + @(msg_prefix).@(member.name)[i].size() + 1;
+  }
+@[  elif isinstance(member.type.value_type, NamespacedType)]@
+  {
+    auto nested_ts = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type))>();
+    for (size_t i = 0; i < @(member.type.size); ++i) {
+      size_t nested_size = 0;
+      rosidl_typesupport_xcdr_cpp::get_message_size(nested_ts, &@(msg_prefix).@(member.name)[i], &nested_size);
+      *size += nested_size - 4;  // Nested messages are inlined without XCDR header
+    }
+  }
+@[  end if]@
+@[elif isinstance(member.type, AbstractSequence)]@
+@[  if isinstance(member.type.value_type, BasicType)]@
+  *size += 4 + sizeof(@(get_cpp_type(member.type.value_type))) * @(msg_prefix).@(member.name).size();
+@[  elif isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
+  *size += 4;  // sequence length
+  for (const auto & elem : @(msg_prefix).@(member.name)) {
+    *size += 4 + elem.size() + 1;
+  }
+@[  elif isinstance(member.type.value_type, NamespacedType)]@
+  *size += 4;  // sequence length
+  {
+    auto nested_ts = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type))>();
+    for (const auto & elem : @(msg_prefix).@(member.name)) {
+      size_t nested_size = 0;
+      rosidl_typesupport_xcdr_cpp::get_message_size(nested_ts, &elem, &nested_size);
+      *size += nested_size - 4;  // Nested messages are inlined without XCDR header
+    }
+  }
+@[  end if]@
+@[elif isinstance(member.type, NamespacedType)]@
+  {
+    auto nested_ts = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type))>();
+    size_t nested_size = 0;
+    rosidl_typesupport_xcdr_cpp::get_message_size(nested_ts, &@(msg_prefix).@(member.name), &nested_size);
+    *size += nested_size - 4;  // Nested messages are inlined without XCDR header
+  }
+@[else]@
+  // TODO: Size calculation for @(member.name)
+@[end if]@
+@[end def]@
 
 #include <cstddef>
 #include <cstdint>
