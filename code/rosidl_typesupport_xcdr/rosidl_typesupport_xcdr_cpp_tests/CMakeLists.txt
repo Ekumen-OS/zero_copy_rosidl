@@ -30,6 +30,19 @@ if(BUILD_TESTING)
 
   ament_lint_auto_find_test_dependencies()
 
+  # Test experimental zero-copy roundtrip
+  ament_add_gtest(test_experimental_zero_copy
+    test/test_experimental_zero_copy.cpp
+  )
+  if(TARGET test_experimental_zero_copy)
+    target_link_libraries(test_experimental_zero_copy
+      rosidl_typesupport_xcdr_cpp::rosidl_typesupport_xcdr_cpp
+      xcdr_buffers::xcdr_buffers
+    )
+    rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_xcdr_cpp")
+    target_link_libraries(test_experimental_zero_copy ${cpp_typesupport_target})
+  endif()
+
   # Test basic typesupport
   ament_add_gtest(test_basic_typesupport
     test/test_basic_typesupport.cpp

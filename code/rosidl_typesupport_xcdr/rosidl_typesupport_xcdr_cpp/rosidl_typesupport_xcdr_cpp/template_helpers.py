@@ -29,7 +29,7 @@ from rosidl_parser.definition import (
 def get_xcdr_primitive_kind(basic_type):
     """Map BasicType to XCdr primitive kind."""
     type_map = {
-        'boolean': 'kBoolean',
+        'boolean': 'kBool',
         'octet': 'kUint8',
         'uint8': 'kUint8',
         'int8': 'kInt8',
@@ -94,15 +94,29 @@ def needs_constraints(member_type):
 # as EmPy @[def] macros.
 
 
-def get_message_type_name(namespaced_type):
-    """Get fully qualified C++ type name for a message."""
-    return '::'.join(namespaced_type.namespaced_name())
+def get_message_type_name(namespaced_type, experimental_context=False):
+    """Get fully qualified C++ type name for a message.
+
+    If experimental_context is True, append 'experimental' to the namespace
+    so that the type resolves to the experimental variant.
+    """
+    ns = list(namespaced_type.namespaced_name())
+    if experimental_context and 'experimental' not in ns:
+        # Insert 'experimental' before the type name (last element)
+        ns.insert(-1, 'experimental')
+    return '::'.join(ns)
 
 
-def get_nested_typesupport_include(namespaced_type):
-    """Get include path for nested message's XCDR typesupport."""
+def get_nested_typesupport_include(namespaced_type, experimental_context=False):
+    """Get include path for nested message's XCDR typesupport.
+
+    If experimental_context is True, the include path targets the experimental
+    variant of the nested type's typesupport header.
+    """
     from rosidl_pycommon import convert_camel_case_to_lower_case_underscore
     parts = list(namespaced_type.namespaces)
+    if experimental_context and 'experimental' not in parts:
+        parts.append('experimental')
     filename = convert_camel_case_to_lower_case_underscore(namespaced_type.name)
     parts.append('detail')
     parts.append(f'{filename}__rosidl_typesupport_xcdr_cpp')

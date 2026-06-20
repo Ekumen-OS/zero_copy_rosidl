@@ -19,12 +19,13 @@
 #include "rosidl_typesupport_xcdr_cpp/message_type_support.hpp"
 #include "rosidl_runtime_cpp/experimental/memory.hpp"
 
-#include "rosidl_typesupport_xcdr_cpp_tests/msg/bounded_message.hpp"
-#include "rosidl_typesupport_xcdr_cpp_tests/msg/unbounded_message.hpp"
+#include "rosidl_typesupport_xcdr_cpp_tests/msg/experimental/bounded_message.hpp"
+#include "rosidl_typesupport_xcdr_cpp_tests/msg/experimental/unbounded_message.hpp"
 
-TEST(TestSerialization, SerializeDeserializeBoundedMessage)
+TEST(TestExperimentalZeroCopy, BoundedMessageRoundtrip)
 {
-  using BoundedMessage = rosidl_typesupport_xcdr_cpp_tests::msg::BoundedMessage;
+  using BoundedMessage =
+    rosidl_typesupport_xcdr_cpp_tests::msg::experimental::BoundedMessage;
 
   // Create message
   BoundedMessage msg;
@@ -42,11 +43,11 @@ TEST(TestSerialization, SerializeDeserializeBoundedMessage)
   std::vector<uint8_t> buffer(4096);
   rosidl_runtime_cpp::MemoryRegion<void> storage{buffer.data(), buffer.size()};
 
-  // Serialize
+  // Serialize (zero-copy: writes directly into storage)
   auto ret = rosidl_typesupport_xcdr_cpp::serialize_message_into(ts, &msg, storage);
   ASSERT_EQ(RCUTILS_RET_OK, ret);
 
-  // Deserialize
+  // Deserialize (zero-copy: constructs in-place from storage)
   void * deserialized_msg_ptr = nullptr;
   ret = rosidl_typesupport_xcdr_cpp::deserialize_message_from(ts, storage, &deserialized_msg_ptr);
   ASSERT_EQ(RCUTILS_RET_OK, ret);
@@ -54,7 +55,7 @@ TEST(TestSerialization, SerializeDeserializeBoundedMessage)
 
   auto deserialized_msg = static_cast<BoundedMessage *>(deserialized_msg_ptr);
 
-  // Verify
+  // Verify values match
   EXPECT_EQ(msg.id, deserialized_msg->id);
   EXPECT_DOUBLE_EQ(msg.value, deserialized_msg->value);
   for (size_t i = 0; i < 10; ++i) {
@@ -65,9 +66,10 @@ TEST(TestSerialization, SerializeDeserializeBoundedMessage)
   delete deserialized_msg;
 }
 
-TEST(TestSerialization, SerializeDeserializeUnboundedMessage)
+TEST(TestExperimentalZeroCopy, UnboundedMessageRoundtrip)
 {
-  using UnboundedMessage = rosidl_typesupport_xcdr_cpp_tests::msg::UnboundedMessage;
+  using UnboundedMessage =
+    rosidl_typesupport_xcdr_cpp_tests::msg::experimental::UnboundedMessage;
 
   // Create message
   UnboundedMessage msg;
@@ -76,18 +78,19 @@ TEST(TestSerialization, SerializeDeserializeUnboundedMessage)
   msg.data = {1, 2, 3, 4, 5};
 
   // Get typesupport
-  auto ts = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<UnboundedMessage>();
+  auto ts =
+    rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<UnboundedMessage>();
   ASSERT_NE(nullptr, ts);
 
   // Allocate buffer
   std::vector<uint8_t> buffer(4096);
   rosidl_runtime_cpp::MemoryRegion<void> storage{buffer.data(), buffer.size()};
 
-  // Serialize
+  // Serialize (zero-copy)
   auto ret = rosidl_typesupport_xcdr_cpp::serialize_message_into(ts, &msg, storage);
   ASSERT_EQ(RCUTILS_RET_OK, ret);
 
-  // Deserialize
+  // Deserialize (zero-copy)
   void * deserialized_msg_ptr = nullptr;
   ret = rosidl_typesupport_xcdr_cpp::deserialize_message_from(ts, storage, &deserialized_msg_ptr);
   ASSERT_EQ(RCUTILS_RET_OK, ret);
@@ -95,7 +98,7 @@ TEST(TestSerialization, SerializeDeserializeUnboundedMessage)
 
   auto deserialized_msg = static_cast<UnboundedMessage *>(deserialized_msg_ptr);
 
-  // Verify
+  // Verify values match
   EXPECT_EQ(msg.id, deserialized_msg->id);
   EXPECT_EQ(msg.name, deserialized_msg->name);
   ASSERT_EQ(msg.data.size(), deserialized_msg->data.size());

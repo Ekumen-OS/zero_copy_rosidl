@@ -253,6 +253,27 @@ void XCdrLayoutBuilder::end_allocate_sequence()
   }
 }
 
+void XCdrLayoutBuilder::begin_allocate_struct()
+{
+  // If we're inside a struct context, delegate to the nested builder
+  if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
+    context_stack_.back().nested_builder->begin_allocate_struct();
+    return;
+  }
+
+  // Create new struct context (unnamed — used inside array/sequence)
+  BuildContext ctx;
+  ctx.type = BuildContext::Type::kStruct;
+  ctx.element_count = 0;
+  ctx.nested_builder = std::make_unique<XCdrLayoutBuilder>(endianness_, memory_resource_, false);
+  ctx.element_layouts = std::pmr::vector<XCdrLayout>(memory_resource_);
+  ctx.element_offsets = std::pmr::vector<size_t>(memory_resource_);
+
+  ctx.start_offset = current_offset_;
+
+  context_stack_.push_back(std::move(ctx));
+}
+
 void XCdrLayoutBuilder::begin_allocate_struct(std::string_view name)
 {
   // If we're inside a struct context, delegate to the nested builder
