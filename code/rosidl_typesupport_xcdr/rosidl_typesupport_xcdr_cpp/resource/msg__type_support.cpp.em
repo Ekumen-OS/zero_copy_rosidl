@@ -298,23 +298,37 @@ for member in message.structure.members:
 @{ from rosidl_parser.definition import BasicType, AbstractString, AbstractWString, BoundedString, BoundedWString, Array, BoundedSequence, AbstractSequence, NamespacedType }@ @
 @{ from rosidl_typesupport_xcdr_cpp.template_helpers import get_xcdr_primitive_kind, get_cpp_type, get_message_type_name }@ @
 @[if isinstance(member.type, BasicType)]@
-  @(msg_prefix).@(member.name) = *reader.read<@(get_cpp_type(member.type))>();
+  {
+    auto @(member.name)_result = reader.read<@(get_cpp_type(member.type))>();
+    if (!@(member.name)_result) { return RCUTILS_RET_ERROR; }
+    @(msg_prefix).@(member.name) = *@(member.name)_result;
+  }
 @[elif isinstance(member.type, (AbstractString, AbstractWString))]@
-  auto @(member.name)_view = *reader.read<std::string_view>();
-@(msg_prefix).@(member.name).assign(@(member.name)_view);
+  {
+    auto @(member.name)_result = reader.read<std::string_view>();
+    if (!@(member.name)_result) { return RCUTILS_RET_ERROR; }
+    auto @(member.name)_view = *@(member.name)_result;
+    @(msg_prefix).@(member.name).assign(@(member.name)_view);
+  }
 @[elif isinstance(member.type, Array)]@
 @[  if isinstance(member.type.value_type, BasicType)]@
-  auto @(member.name)_array = *reader.read<std::array<@(get_cpp_type(member.type.value_type)), @(member.type.size)> >();
+  {
+    auto @(member.name)_result = reader.read<std::array<@(get_cpp_type(member.type.value_type)), @(member.type.size)> >();
+    if (!@(member.name)_result) { return RCUTILS_RET_ERROR; }
+    auto @(member.name)_array = *@(member.name)_result;
 @[    if is_experimental]@
-  std::copy(@(member.name)_array.begin(), @(member.name)_array.end(), @(msg_prefix).@(member.name).begin());
+    std::copy(@(member.name)_array.begin(), @(member.name)_array.end(), @(msg_prefix).@(member.name).begin());
 @[    else]@
-  @(msg_prefix).@(member.name) = @(member.name)_array;
+    @(msg_prefix).@(member.name) = @(member.name)_array;
 @[    end if]@
+  }
 @[  else]@
   reader.begin_read_array();
 @[    if isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
   for (size_t i = 0; i < @(member.type.size); ++i) {
-    auto elem_view = *reader.read<std::string_view>();
+    auto @(member.name)_elem_result = reader.read<std::string_view>();
+    if (!@(member.name)_elem_result) { return RCUTILS_RET_ERROR; }
+    auto elem_view = *@(member.name)_elem_result;
     @(msg_prefix).@(member.name)[i].assign(elem_view);
   }
 @[    elif isinstance(member.type.value_type, NamespacedType)]@
@@ -332,33 +346,43 @@ for member in message.structure.members:
 @[  end if]@
 @[elif isinstance(member.type, AbstractSequence)]@
 @[  if isinstance(member.type.value_type, BasicType)]@
-  auto @(member.name)_vec = *reader.read<std::vector<@(get_cpp_type(member.type.value_type))>>();
-@[    if is_experimental]@
-  @(msg_prefix).@(member.name).resize(@(member.name)_vec.size());
-  std::copy(@(member.name)_vec.begin(), @(member.name)_vec.end(), @(msg_prefix).@(member.name).begin());
-@[    else]@
-  @(msg_prefix).@(member.name) = @(member.name)_vec;
-@[    end if]@
-@[  else]@
-  auto @(member.name)_size = *reader.begin_read_sequence();
-  @(msg_prefix).@(member.name).resize(@(member.name)_size);
-@[    if isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
-  for (size_t i = 0; i < @(member.name)_size; ++i) {
-    auto elem_view = *reader.read<std::string_view>();
-    @(msg_prefix).@(member.name)[i].assign(elem_view);
-  }
-@[    elif isinstance(member.type.value_type, NamespacedType)]@
   {
-    auto nested_ts_@(member.name) = 
-      rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental))>();
-    auto nested_callbacks_@(member.name) = 
-      static_cast<const rosidl_typesupport_xcdr_cpp::message_type_support_callbacks_experimental_t *>(nested_ts_@(member.name)->data);
-    for (size_t i = 0; i < @(member.name)_size; ++i) {
-      nested_callbacks_@(member.name)->deserialize_from_reader(reader, &@(msg_prefix).@(member.name)[i]);
-    }
-  }
+    auto @(member.name)_result = reader.read<std::vector<@(get_cpp_type(member.type.value_type))>>();
+    if (!@(member.name)_result) { return RCUTILS_RET_ERROR; }
+    auto @(member.name)_vec = *@(member.name)_result;
+@[    if is_experimental]@
+    @(msg_prefix).@(member.name).resize(@(member.name)_vec.size());
+    std::copy(@(member.name)_vec.begin(), @(member.name)_vec.end(), @(msg_prefix).@(member.name).begin());
+@[    else]@
+    @(msg_prefix).@(member.name) = @(member.name)_vec;
 @[    end if]@
-  reader.end_read_sequence();
+  }
+@[  else]@
+  {
+    auto @(member.name)_size_result = reader.begin_read_sequence();
+    if (!@(member.name)_size_result) { return RCUTILS_RET_ERROR; }
+    auto @(member.name)_size = *@(member.name)_size_result;
+    @(msg_prefix).@(member.name).resize(@(member.name)_size);
+@[    if isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
+    for (size_t i = 0; i < @(member.name)_size; ++i) {
+      auto @(member.name)_elem_result = reader.read<std::string_view>();
+      if (!@(member.name)_elem_result) { return RCUTILS_RET_ERROR; }
+      auto elem_view = *@(member.name)_elem_result;
+      @(msg_prefix).@(member.name)[i].assign(elem_view);
+    }
+@[    elif isinstance(member.type.value_type, NamespacedType)]@
+    {
+      auto nested_ts_@(member.name) = 
+        rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental))>();
+      auto nested_callbacks_@(member.name) = 
+        static_cast<const rosidl_typesupport_xcdr_cpp::message_type_support_callbacks_experimental_t *>(nested_ts_@(member.name)->data);
+      for (size_t i = 0; i < @(member.name)_size; ++i) {
+        nested_callbacks_@(member.name)->deserialize_from_reader(reader, &@(msg_prefix).@(member.name)[i]);
+      }
+    }
+@[    end if]@
+    reader.end_read_sequence();
+  }
 @[  end if]@
 @[elif isinstance(member.type, NamespacedType)]@
   // Nested message: @(member.name)

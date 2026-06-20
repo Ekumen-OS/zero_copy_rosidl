@@ -30,70 +30,55 @@ if(BUILD_TESTING)
 
   ament_lint_auto_find_test_dependencies()
 
-  # Test experimental zero-copy roundtrip
-  ament_add_gtest(test_experimental_zero_copy
-    test/test_experimental_zero_copy.cpp
-  )
-  if(TARGET test_experimental_zero_copy)
-    target_link_libraries(test_experimental_zero_copy
-      rosidl_typesupport_xcdr_cpp::rosidl_typesupport_xcdr_cpp
-      xcdr_buffers::xcdr_buffers
-    )
-    rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_xcdr_cpp")
-    target_link_libraries(test_experimental_zero_copy ${cpp_typesupport_target})
-  endif()
+  # Helper macro to reduce repetition
+  macro(add_xcdr_test target_name source_file)
+    ament_add_gtest(${target_name} ${source_file})
+    if(TARGET ${target_name})
+      target_link_libraries(${target_name}
+        rosidl_typesupport_xcdr_cpp::rosidl_typesupport_xcdr_cpp
+        xcdr_buffers::xcdr_buffers
+      )
+      rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME}
+        "rosidl_typesupport_xcdr_cpp")
+      target_link_libraries(${target_name} ${cpp_typesupport_target})
+    endif()
+  endmacro()
 
-  # Test basic typesupport
-  ament_add_gtest(test_basic_typesupport
-    test/test_basic_typesupport.cpp
+  # --- Typesupport handle lookup ---
+  add_xcdr_test(test_typesupport_handle
+    test/test_typesupport_handle.cpp
   )
-  if(TARGET test_basic_typesupport)
-    target_link_libraries(test_basic_typesupport
-      rosidl_typesupport_xcdr_cpp::rosidl_typesupport_xcdr_cpp
-      xcdr_buffers::xcdr_buffers
-    )
-    rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_xcdr_cpp")
-    target_link_libraries(test_basic_typesupport ${cpp_typesupport_target})
-  endif()
 
-  # Test serialization
-  ament_add_gtest(test_serialization
-    test/test_serialization.cpp
+  # --- Serialization roundtrip ---
+  add_xcdr_test(test_serialization_roundtrip
+    test/test_serialization_roundtrip.cpp
   )
-  if(TARGET test_serialization)
-    target_link_libraries(test_serialization
-      rosidl_typesupport_xcdr_cpp::rosidl_typesupport_xcdr_cpp
-      xcdr_buffers::xcdr_buffers
-    )
-    rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_xcdr_cpp")
-    target_link_libraries(test_serialization ${cpp_typesupport_target})
-  endif()
 
-  # Test nested message serialization
-  ament_add_gtest(test_nested_serialization
-    test/test_nested_serialization.cpp
+  # --- Serialization overflow / buffer-too-small ---
+  add_xcdr_test(test_serialization_overflow
+    test/test_serialization_overflow.cpp
   )
-  if(TARGET test_nested_serialization)
-    target_link_libraries(test_nested_serialization
-      rosidl_typesupport_xcdr_cpp::rosidl_typesupport_xcdr_cpp
-      xcdr_buffers::xcdr_buffers
-    )
-    rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_xcdr_cpp")
-    target_link_libraries(test_nested_serialization ${cpp_typesupport_target})
-  endif()
 
-  # Test service typesupport
-  ament_add_gtest(test_service_typesupport
+  # --- Zero-copy lifecycle (experimental only) ---
+  add_xcdr_test(test_zero_copy_lifecycle
+    test/test_zero_copy_lifecycle.cpp
+  )
+
+  # --- Service typesupport ---
+  add_xcdr_test(test_service_typesupport
     test/test_service_typesupport.cpp
   )
-  if(TARGET test_service_typesupport)
-    target_link_libraries(test_service_typesupport
-      rosidl_typesupport_xcdr_cpp::rosidl_typesupport_xcdr_cpp
-      xcdr_buffers::xcdr_buffers
-    )
-    rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_xcdr_cpp")
-    target_link_libraries(test_service_typesupport ${cpp_typesupport_target})
-  endif()
+
+  # --- Constrained typesupport lifecycle ---
+  add_xcdr_test(test_constrained_typesupport
+    test/test_constrained_typesupport.cpp
+  )
+
+  # --- API error contracts ---
+  add_xcdr_test(test_typesupport_api_errors
+    test/test_typesupport_api_errors.cpp
+  )
+
 endif()
 
 ament_package()
