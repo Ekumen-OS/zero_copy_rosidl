@@ -138,15 +138,7 @@ TEST(TestZeroCopyLifecycle, UnboundedMessage_CastMessageAt)
   ASSERT_NE(nullptr, deserialized_ptr);
 
   auto * deserialized = static_cast<UnboundedMessage *>(deserialized_ptr);
-  // NOTE: cast_message_at for unbounded messages with variable-length fields
-  // (string, sequence) does not yet produce correct external storage references.
-  // The XCdrLayoutParser identifies the field locations in the buffer but the
-  // accessor slice wiring for variable-length content is incomplete for
-  // unbounded experimental types.  BoundedMessage (all fixed-size fields)
-  // works correctly above.  This test verifies the API does not crash and
-  // returns a non-null message; data roundtrip for unbounded types via
-  // cast_message_at is tracked separately.
-  (void)deserialized;
+  verify_unbounded_message(msg, *deserialized);
 
   rosidl_typesupport_xcdr_cpp::destroy_message(ts, deserialized);
 }

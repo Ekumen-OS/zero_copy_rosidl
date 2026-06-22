@@ -406,9 +406,10 @@ for member in message.structure.members:
   ext_storage.members.@(member.name) = rosidl_runtime_cpp::Memory<@(get_cpp_type(member.type))>(static_cast<@(get_cpp_type(member.type))*>(const_cast<void*>(static_cast<const void*>(@(member.name)_slice.data()))), 0);
 @[elif isinstance(member.type, (AbstractString, AbstractWString))]@
   auto @(member.name)_slice = accessor[@(index)].slice();
+  auto @(member.name)_data = @(member.name)_slice.subspan(xcdr_buffers::kStringLengthPrefixSize);
   ext_storage.members.@(member.name) = rosidl_runtime_cpp::MemoryRegion<char>(
-    static_cast<char*>(const_cast<void*>(static_cast<const void*>(@(member.name)_slice.data()))),
-    @(member.name)_slice.size());
+    static_cast<char*>(const_cast<void*>(static_cast<const void*>(@(member.name)_data.data()))),
+    @(member.name)_data.size());
 @[elif isinstance(member.type, Array)]@
 @[  if isinstance(member.type.value_type, BasicType)]@
   auto @(member.name)_slice = accessor[@(index)].slice();
@@ -419,9 +420,10 @@ for member in message.structure.members:
 @[elif isinstance(member.type, AbstractSequence)]@
 @[  if isinstance(member.type.value_type, BasicType)]@
   auto @(member.name)_slice = accessor[@(index)].slice();
+  auto @(member.name)_data = @(member.name)_slice.subspan(xcdr_buffers::kSequenceLengthPrefixSize);
   ext_storage.members.@(member.name) = rosidl_runtime_cpp::MemoryRegion<@(get_cpp_type(member.type.value_type))>(
-    static_cast<@(get_cpp_type(member.type.value_type))*>(const_cast<void*>(static_cast<const void*>(@(member.name)_slice.data()))),
-    *accessor[@(index)].size());
+    static_cast<@(get_cpp_type(member.type.value_type))*>(const_cast<void*>(static_cast<const void*>(@(member.name)_data.data()))),
+    *accessor[@(index)].size() * sizeof(@(get_cpp_type(member.type.value_type))));
 @[  end if]@
 @[else]@
   // TODO: External storage for @(member.name)
@@ -694,7 +696,7 @@ construct_message_at_@(msg_typename)(
 @(generate_external_storage_field(member, idx))
 @[  end for]@
   
-  // 4. Construct message from external storage
+  // 4. Construct message from external storage (prepopulated=false by default)
   *message_ptr = new @(full_msg_typename)(ext_storage, rosidl_runtime_cpp::MessageInitialization::SKIP);
   
   return RCUTILS_RET_OK;
@@ -740,7 +742,10 @@ cast_message_at_@(msg_typename)(
 @(generate_external_storage_field(member, idx))
 @[  end for]@
   
-  // 4. Construct message from external storage
+  // 4. Mark external storage as prepopulated (data already in buffer)
+  ext_storage.prepopulated = true;
+  
+  // 5. Construct message from external storage
   *message_ptr = new @(full_msg_typename)(ext_storage, rosidl_runtime_cpp::MessageInitialization::SKIP);
   
   return RCUTILS_RET_OK;
