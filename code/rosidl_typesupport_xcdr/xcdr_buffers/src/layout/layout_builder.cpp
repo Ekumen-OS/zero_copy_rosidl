@@ -65,7 +65,10 @@ void XCdrLayoutBuilder::allocate_primitive(std::string_view name, XCdrPrimitiveK
         elem_offset -= kSequenceLengthPrefixSize;  // Sequences have length prefix
       }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
       ctx.element_layouts.push_back(XCdrPrimitiveLayout(kind));
+#pragma GCC diagnostic pop
       ctx.element_offsets.push_back(elem_offset);
       current_offset_ += get_primitive_size(kind);
       return;
@@ -97,7 +100,10 @@ void XCdrLayoutBuilder::allocate_string(
         elem_offset -= kSequenceLengthPrefixSize;  // Sequences have length prefix
       }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
       ctx.element_layouts.push_back(XCdrStringLayout(actual_length, char_kind, memory_resource_));
+#pragma GCC diagnostic pop
       ctx.element_offsets.push_back(elem_offset);
       current_offset_ += kStringLengthPrefixSize + actual_length + kStringNullTerminatorSize;
       return;
