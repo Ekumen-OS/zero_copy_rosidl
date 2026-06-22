@@ -110,7 +110,7 @@ for member in message.structure.members:
 
 @[def generate_layout_field(member, is_experimental=True, constraints_prefix='constraints')]@
 @{ from rosidl_parser.definition import BasicType, AbstractString, AbstractWString, BoundedString, BoundedWString, Array, BoundedSequence, AbstractSequence, NamespacedType }@ @
-@{ from rosidl_typesupport_xcdr_cpp.template_helpers import get_xcdr_primitive_kind, get_cpp_type, get_message_type_name }@ @
+@{ from rosidl_typesupport_xcdr_cpp.template_helpers import get_xcdr_primitive_kind, get_cpp_type, get_message_type_name, needs_constraints }@ @
 @[if isinstance(member.type, BasicType)]@
   builder.allocate_primitive("@(member.name)", @(get_xcdr_primitive_kind(member.type)));
 @[elif isinstance(member.type, (BoundedString, BoundedWString))]@
@@ -141,9 +141,37 @@ for member in message.structure.members:
 @[  end if]@
 @[elif isinstance(member.type, (BoundedSequence, AbstractSequence))]@
 @[  if isinstance(member.type.value_type, BasicType)]@
+@[    if isinstance(member.type, BoundedSequence)]@
+@[      if needs_constraints(member.type)]@
+  {
+    auto & @(member.name)_cs = @(constraints_prefix).@(member.name);
+    if (@(member.name)_cs.size > @(member.type.maximum_size)) {
+      ret = RCUTILS_RET_ERROR;
+    }
+    builder.allocate_primitive_sequence("@(member.name)", @(get_xcdr_primitive_kind(member.type.value_type)), @(member.name)_cs.size);
+  }
+@[      else]@
+  builder.allocate_primitive_sequence("@(member.name)", @(get_xcdr_primitive_kind(member.type.value_type)), @(member.type.maximum_size));
+@[      end if]@
+@[    else]@
   builder.allocate_primitive_sequence("@(member.name)", @(get_xcdr_primitive_kind(member.type.value_type)), @(constraints_prefix).@(member.name).size);
+@[    end if]@
 @[  else]@
+@[    if isinstance(member.type, BoundedSequence)]@
+@[      if needs_constraints(member.type)]@
+  {
+    auto & @(member.name)_cs = @(constraints_prefix).@(member.name);
+    if (@(member.name)_cs.size > @(member.type.maximum_size)) {
+      ret = RCUTILS_RET_ERROR;
+    }
+    builder.begin_allocate_sequence("@(member.name)", @(member.name)_cs.size);
+  }
+@[      else]@
+  builder.begin_allocate_sequence("@(member.name)", @(member.type.maximum_size));
+@[      end if]@
+@[    else]@
   builder.begin_allocate_sequence("@(member.name)", @(constraints_prefix).@(member.name).size);
+@[    end if]@
 @[    if isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
 @[      if isinstance(member.type.value_type, (BoundedString, BoundedWString))]@
     builder.allocate_string(@(member.type.value_type.maximum_size));
@@ -221,7 +249,13 @@ for member in message.structure.members:
 @{ from rosidl_typesupport_xcdr_cpp.template_helpers import get_xcdr_primitive_kind, get_cpp_type, get_message_type_name }@ @
 @[if isinstance(member.type, BasicType)]@
   writer.write<@(get_cpp_type(member.type))>(@(msg_prefix).@(member.name));
-@[elif isinstance(member.type, (AbstractString, AbstractWString))]@
+@[elif isinstance(member.type, AbstractWString)]@
+@[  if is_experimental]@
+  writer.write(std::u16string_view(@(msg_prefix).@(member.name).data(), @(msg_prefix).@(member.name).size()));
+@[  else]@
+  writer.write(std::u16string_view(@(msg_prefix).@(member.name)));
+@[  end if]@
+@[elif isinstance(member.type, AbstractString)]@
 @[  if is_experimental]@
   writer.write(std::string_view(@(msg_prefix).@(member.name).data(), @(msg_prefix).@(member.name).size()));
 @[  else]@
@@ -232,7 +266,17 @@ for member in message.structure.members:
   writer.write_array(tcb::span<const @(get_cpp_type(member.type.value_type))>(@(msg_prefix).@(member.name).data(), @(member.type.size)));
 @[  else]@
   writer.begin_write_array(@(member.type.size));
-@[    if isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
+@[    if isinstance(member.type.value_type, AbstractWString)]@
+@[      if is_experimental]@
+  for (size_t i = 0; i < @(member.type.size); ++i) {
+    writer.write(std::u16string_view(@(msg_prefix).@(member.name)[i].data(), @(msg_prefix).@(member.name)[i].size()));
+  }
+@[      else]@
+  for (const auto & elem : @(msg_prefix).@(member.name)) {
+    writer.write(std::u16string_view(elem));
+  }
+@[      end if]@
+@[    elif isinstance(member.type.value_type, AbstractString)]@
 @[      if is_experimental]@
   for (size_t i = 0; i < @(member.type.size); ++i) {
     writer.write(std::string_view(@(msg_prefix).@(member.name)[i].data(), @(msg_prefix).@(member.name)[i].size()));
@@ -256,10 +300,28 @@ for member in message.structure.members:
 @[  end if]@
 @[elif isinstance(member.type, AbstractSequence)]@
 @[  if isinstance(member.type.value_type, BasicType)]@
+@[    if get_cpp_type(member.type.value_type) == 'bool']@
+  writer.begin_write_sequence(@(msg_prefix).@(member.name).size());
+  for (const auto & elem : @(msg_prefix).@(member.name)) {
+    writer.write(static_cast<uint8_t>(elem));
+  }
+  writer.end_write_sequence();
+@[    else]@
   writer.write_sequence(tcb::span<const @(get_cpp_type(member.type.value_type))>(@(msg_prefix).@(member.name).data(), @(msg_prefix).@(member.name).size()));
+@[    end if]@
 @[  else]@
   writer.begin_write_sequence(@(msg_prefix).@(member.name).size());
-@[    if isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
+@[    if isinstance(member.type.value_type, AbstractWString)]@
+@[      if is_experimental]@
+  for (size_t i = 0; i < @(msg_prefix).@(member.name).size(); ++i) {
+    writer.write(std::u16string_view(@(msg_prefix).@(member.name)[i].data(), @(msg_prefix).@(member.name)[i].size()));
+  }
+@[      else]@
+  for (const auto & elem : @(msg_prefix).@(member.name)) {
+    writer.write(std::u16string_view(elem));
+  }
+@[      end if]@
+@[    elif isinstance(member.type.value_type, AbstractString)]@
 @[      if is_experimental]@
   for (size_t i = 0; i < @(msg_prefix).@(member.name).size(); ++i) {
     writer.write(std::string_view(@(msg_prefix).@(member.name)[i].data(), @(msg_prefix).@(member.name)[i].size()));
@@ -303,7 +365,14 @@ for member in message.structure.members:
     if (!@(member.name)_result) { return RCUTILS_RET_ERROR; }
     @(msg_prefix).@(member.name) = *@(member.name)_result;
   }
-@[elif isinstance(member.type, (AbstractString, AbstractWString))]@
+@[elif isinstance(member.type, AbstractWString)]@
+  {
+    auto @(member.name)_result = reader.read<std::u16string_view>();
+    if (!@(member.name)_result) { return RCUTILS_RET_ERROR; }
+    auto @(member.name)_view = *@(member.name)_result;
+    @(msg_prefix).@(member.name).assign(@(member.name)_view);
+  }
+@[elif isinstance(member.type, AbstractString)]@
   {
     auto @(member.name)_result = reader.read<std::string_view>();
     if (!@(member.name)_result) { return RCUTILS_RET_ERROR; }
@@ -323,8 +392,15 @@ for member in message.structure.members:
 @[    end if]@
   }
 @[  else]@
-  reader.begin_read_array();
-@[    if isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
+  reader.begin_read_array(@(member.type.size));
+@[    if isinstance(member.type.value_type, AbstractWString)]@
+  for (size_t i = 0; i < @(member.type.size); ++i) {
+    auto @(member.name)_elem_result = reader.read<std::u16string_view>();
+    if (!@(member.name)_elem_result) { return RCUTILS_RET_ERROR; }
+    auto elem_view = *@(member.name)_elem_result;
+    @(msg_prefix).@(member.name)[i].assign(elem_view);
+  }
+@[    elif isinstance(member.type.value_type, AbstractString)]@
   for (size_t i = 0; i < @(member.type.size); ++i) {
     auto @(member.name)_elem_result = reader.read<std::string_view>();
     if (!@(member.name)_elem_result) { return RCUTILS_RET_ERROR; }
@@ -350,12 +426,7 @@ for member in message.structure.members:
     auto @(member.name)_result = reader.read<std::vector<@(get_cpp_type(member.type.value_type))>>();
     if (!@(member.name)_result) { return RCUTILS_RET_ERROR; }
     auto @(member.name)_vec = *@(member.name)_result;
-@[    if is_experimental]@
-    @(msg_prefix).@(member.name).resize(@(member.name)_vec.size());
-    std::copy(@(member.name)_vec.begin(), @(member.name)_vec.end(), @(msg_prefix).@(member.name).begin());
-@[    else]@
-    @(msg_prefix).@(member.name) = @(member.name)_vec;
-@[    end if]@
+    @(msg_prefix).@(member.name) = std::move(@(member.name)_vec);
   }
 @[  else]@
   {
@@ -363,7 +434,14 @@ for member in message.structure.members:
     if (!@(member.name)_size_result) { return RCUTILS_RET_ERROR; }
     auto @(member.name)_size = *@(member.name)_size_result;
     @(msg_prefix).@(member.name).resize(@(member.name)_size);
-@[    if isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
+@[    if isinstance(member.type.value_type, AbstractWString)]@
+    for (size_t i = 0; i < @(member.name)_size; ++i) {
+      auto @(member.name)_elem_result = reader.read<std::u16string_view>();
+      if (!@(member.name)_elem_result) { return RCUTILS_RET_ERROR; }
+      auto elem_view = *@(member.name)_elem_result;
+      @(msg_prefix).@(member.name)[i].assign(elem_view);
+    }
+@[    elif isinstance(member.type.value_type, AbstractString)]@
     for (size_t i = 0; i < @(member.name)_size; ++i) {
       auto @(member.name)_elem_result = reader.read<std::string_view>();
       if (!@(member.name)_elem_result) { return RCUTILS_RET_ERROR; }
@@ -404,12 +482,22 @@ for member in message.structure.members:
 @[if isinstance(member.type, BasicType)]@
   auto @(member.name)_slice = accessor[@(index)].slice();
   ext_storage.members.@(member.name) = rosidl_runtime_cpp::Memory<@(get_cpp_type(member.type))>(static_cast<@(get_cpp_type(member.type))*>(const_cast<void*>(static_cast<const void*>(@(member.name)_slice.data()))), 0);
-@[elif isinstance(member.type, (AbstractString, AbstractWString))]@
-  auto @(member.name)_slice = accessor[@(index)].slice();
-  auto @(member.name)_data = @(member.name)_slice.subspan(xcdr_buffers::kStringLengthPrefixSize);
-  ext_storage.members.@(member.name) = rosidl_runtime_cpp::MemoryRegion<char>(
-    static_cast<char*>(const_cast<void*>(static_cast<const void*>(@(member.name)_data.data()))),
-    @(member.name)_data.size());
+@[elif isinstance(member.type, AbstractWString)]@
+  {
+    auto @(member.name)_slice = accessor[@(index)].slice();
+    auto @(member.name)_data = @(member.name)_slice.subspan(xcdr_buffers::kStringLengthPrefixSize);
+    ext_storage.members.@(member.name) = rosidl_runtime_cpp::MemoryRegion<char16_t>(
+      static_cast<char16_t*>(const_cast<void*>(static_cast<const void*>(@(member.name)_data.data()))),
+      @(member.name)_data.size());
+  }
+@[elif isinstance(member.type, AbstractString)]@
+  {
+    auto @(member.name)_slice = accessor[@(index)].slice();
+    auto @(member.name)_data = @(member.name)_slice.subspan(xcdr_buffers::kStringLengthPrefixSize);
+    ext_storage.members.@(member.name) = rosidl_runtime_cpp::MemoryRegion<char>(
+      static_cast<char*>(const_cast<void*>(static_cast<const void*>(@(member.name)_data.data()))),
+      @(member.name)_data.size());
+  }
 @[elif isinstance(member.type, Array)]@
 @[  if isinstance(member.type.value_type, BasicType)]@
   auto @(member.name)_slice = accessor[@(index)].slice();
@@ -542,10 +630,13 @@ build_layout_@(msg_typename)(const void * constraints_ptr)
   auto & constraints = *static_cast<const @(full_msg_typename)::Constraints *>(constraints_ptr);
   
   xcdr_buffers::XCdrLayoutBuilder builder;
+  rcutils_ret_t ret = RCUTILS_RET_OK;
 @[    for member in message.structure.members]@
 @(generate_layout_field(member))
 @[    end for]@
-  
+  if (ret != RCUTILS_RET_OK) {
+    return nullptr;
+  }
   return std::make_shared<xcdr_buffers::XCdrStructLayout>(builder.finalize());
 }
 
@@ -560,11 +651,12 @@ build_layout_fields_@(msg_typename)(
   }
   
   auto & constraints = *static_cast<const @(full_msg_typename)::Constraints *>(constraints_ptr);
+  rcutils_ret_t ret = RCUTILS_RET_OK;
 @[    for member in message.structure.members]@
 @(generate_layout_field(member))
 @[    end for]@
   
-  return RCUTILS_RET_OK;
+  return ret;
 }
 @[  else]@
 // Get singleton layout (for fully bounded messages)
