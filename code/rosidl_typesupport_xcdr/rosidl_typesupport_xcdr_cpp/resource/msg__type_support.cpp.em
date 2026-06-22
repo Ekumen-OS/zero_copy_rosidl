@@ -776,7 +776,7 @@ construct_message_at_@(msg_typename)(
     // Error:("Failed to create accessor");
     return RCUTILS_RET_ERROR;
   }
-  auto accessor = *accessor_result;
+  [[maybe_unused]] auto accessor = *accessor_result;
   
   // 3. Build external storage from accessor
   @(full_msg_typename)::ExternalStorage ext_storage;
@@ -822,7 +822,7 @@ cast_message_at_@(msg_typename)(
     // Error:("Failed to create accessor from parsed layout");
     return RCUTILS_RET_ERROR;
   }
-  auto accessor = *accessor_result;
+  [[maybe_unused]] auto accessor = *accessor_result;
   
   // 3. Build external storage from accessor
   @(full_msg_typename)::ExternalStorage ext_storage;
