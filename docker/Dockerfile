@@ -148,7 +148,7 @@ ARG GID=1001
 RUN --mount=type=cache,target=$HOME/.ccache,sharing=locked,uid=${UID},gid=${GID} \
     colcon build --parallel-workers=2 --merge-install --cmake-args -DCMAKE_BUILD_TYPE=Release --packages-ignore-regex "rosidl_typesupport_xcdr.*|xcdr_buffers"
 
-RUN echo "source $USER_WS/install/setup.bash" >> $HOME/.bashrc
+RUN sed -i "3a source $USER_WS/install/setup.bash" $HOME/.bashrc
 
 FROM dev_environ AS patched_ros
 
@@ -158,4 +158,4 @@ ARG GID=1001
 RUN --mount=type=cache,target=$HOME/.ccache,sharing=locked,uid=${UID},gid=${GID} \
     colcon build --parallel-workers=2 --merge-install --cmake-args -DCMAKE_BUILD_TYPE=Release
 
-RUN echo "source $USER_WS/install/setup.bash" >> $HOME/.bashrc
+RUN sed -i "3a source $USER_WS/install/setup.bash" $HOME/.bashrc
