@@ -44,7 +44,7 @@ jobs:
     - name: Test ROS
       run: |
         ./docker/run.sh -s patched_ros_environ -- \
-          colcon test --event-handlers=console_cohesion+
+          colcon test --merge-install --event-handlers=console_cohesion+
 
   ros2_performance_benchmark:
     runs-on: self-hosted
