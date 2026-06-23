@@ -83,6 +83,7 @@ if [[ "$BUILD" = true ]]; then
 fi
 
 docker kill ${CONTAINER_NAME} 2>/dev/null || true
+docker rm ${CONTAINER_NAME} 2>/dev//null || true
 
 USERID=$(id -u) GROUPID=$(id -g) \
     docker compose run \
