@@ -87,7 +87,7 @@ jobs:
             issue_number: context.issue.number,
             owner: context.repo.owner,
             repo: context.repo.repo,
-            body: `## \`performance-test\` results
+            body: `## Apex.AI \`performance-test\` results
 
           ### Base (upstream)
           \`\`\`
@@ -142,7 +142,7 @@ jobs:
             issue_number: context.issue.number,
             owner: context.repo.owner,
             repo: context.repo.repo,
-            body: `## \`performance-test\` results
+            body: `## iRobot \`performance-test\` results
 
           ### Base (upstream)
           \`\`\`
