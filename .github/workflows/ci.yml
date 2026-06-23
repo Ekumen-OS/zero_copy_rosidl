@@ -114,24 +114,23 @@ jobs:
       run: |
         mkdir -p ./data/benchmark_results
         ./docker/run.sh -s base_ros_environ -- bash -c '
-          cd ./install/irobot_benchmark/lib/irobot_benchmark &&
+          cd $USER_WS/install/irobot_benchmark/lib/irobot_benchmark &&
           ros2 run irobot_benchmark irobot_benchmark topology/sierra_nevada.json &&
-          cat sierra_nevada_log/latency_total.txt > /tmp/benchmark_results.txt
-        '
+          cat sierra_nevada_log/latency_total.txt > ./data/benchmark_results/base_results.txt'
         echo "results<<EOF" >> $GITHUB_OUTPUT
-        python3 ./tools/parse_performance_test_results.py ./data/benchmark_results/base_results.json >> $GITHUB_OUTPUT
+        cat ./data/benchmark_results/base_results.txt >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
 
     - name: Benchmark patched ROS
       id: patched
       run: |
         mkdir -p ./data/benchmark_results
-        ./docker/run.sh -s patched_ros_environ -- \
-          ros2 run performance_test perf_test -c rclcpp-single-threaded-executor \
-            -m Array1k -t test_topic -s 1 -p 1 --max-runtime 30 \
-            -l ./data/benchmark_results/patched_results.json
+        ./docker/run.sh -s patched_ros_environ -- bash -c '
+          cd $USER_WS/install/irobot_benchmark/lib/irobot_benchmark &&
+          ros2 run irobot_benchmark irobot_benchmark topology/sierra_nevada.json &&
+          cat sierra_nevada_log/latency_total.txt > ./data/benchmark_results/patched_results.txt'
         echo "results<<EOF" >> $GITHUB_OUTPUT
-        python3 ./tools/parse_performance_test_results.py ./data/benchmark_results/patched_results.json >> $GITHUB_OUTPUT
+        cat ./data/benchmark_results/patched_results.txt >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
 
     - name: Post benchmark results
