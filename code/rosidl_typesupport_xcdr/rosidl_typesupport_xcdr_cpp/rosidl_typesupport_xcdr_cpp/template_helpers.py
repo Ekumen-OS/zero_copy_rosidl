@@ -42,8 +42,8 @@ def get_xcdr_primitive_kind(basic_type):
         'float': 'kFloat',
         'double': 'kDouble',
         'long double': 'kLongDouble',
-        'char': 'kChar8',
-        'wchar': 'kChar16',
+        'char': 'kChar',
+        'wchar': 'kWchar',
     }
     return 'xcdr_buffers::XCdrPrimitiveKind::' + type_map.get(basic_type.typename, 'kUint8')
 
@@ -64,7 +64,7 @@ def get_cpp_type(basic_type):
         'float': 'float',
         'double': 'double',
         'long double': 'long double',
-        'char': 'char',
+        'char': 'unsigned char',
         'wchar': 'char16_t',
     }
     return type_map.get(basic_type.typename, 'uint8_t')
