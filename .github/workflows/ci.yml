@@ -27,11 +27,11 @@ jobs:
 
     - name: Build base ROS
       run: |
-        ./docker/run.sh -s base_ros_environ -- true
+        ./docker/run.sh --build --service base_ros_environ -- true
 
     - name: Build patched ROS
       run: |
-        ./docker/run.sh -s patched_ros_environ -- true
+        ./docker/run.sh --build --service patched_ros_environ -- true
 
   test:
     runs-on: self-hosted
