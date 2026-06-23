@@ -82,6 +82,8 @@ if [[ "$BUILD" = true ]]; then
     { echo "Failed to build ${SERVICE_NAME} image."; exit 1; }
 fi
 
+docker kill ${CONTAINER_NAME} 2>/dev/null || true
+
 USERID=$(id -u) GROUPID=$(id -g) \
     docker compose run \
     --name ${CONTAINER_NAME} \
