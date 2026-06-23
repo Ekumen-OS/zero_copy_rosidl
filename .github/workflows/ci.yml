@@ -116,7 +116,7 @@ jobs:
         ./docker/run.sh -s base_ros_environ -- bash -c '
           cd $USER_WS/install/lib/irobot_benchmark &&
           ros2 run irobot_benchmark irobot_benchmark topology/sierra_nevada.json &&
-          cat sierra_nevada_log/latency_total.txt > ../data/benchmark_results/base_results.txt'
+          cat sierra_nevada_log/latency_total.txt > ~/data/benchmark_results/base_results.txt'
         echo "results<<EOF" >> $GITHUB_OUTPUT
         cat ./data/benchmark_results/base_results.txt >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
@@ -128,7 +128,7 @@ jobs:
         ./docker/run.sh -s patched_ros_environ -- bash -c '
           cd $USER_WS/install/lib/irobot_benchmark &&
           ros2 run irobot_benchmark irobot_benchmark topology/sierra_nevada.json &&
-          cat sierra_nevada_log/latency_total.txt > ../data/benchmark_results/patched_results.txt'
+          cat sierra_nevada_log/latency_total.txt > ~/data/benchmark_results/patched_results.txt'
         echo "results<<EOF" >> $GITHUB_OUTPUT
         cat ./data/benchmark_results/patched_results.txt >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
