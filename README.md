@@ -18,108 +18,72 @@ Further reads:
 
 ### Quick Start
 
-Set the ROS domain ID and launch the development container:
+Launch the development container:
 
 ```bash
-export ROS_DOMAIN_ID=<your_domain_id>
-./docker/run.sh [--build] [-- COMMAND [ARGS...]]
+./docker/run.sh [--build] [-s unpatched_workspace|patched_workspace|dev_workspace] [-- COMMAND [ARGS...]]
 ```
 
-Use `--build` to rebuild the image. Commands after `--` execute inside the container.
+Use `--build` to rebuild the image. Services:
+- `unpatched_workspace` — stock ROS 2 Jazzy build
+- `patched_workspace` — `core_overrides/` applied on top (used for CI and reproducible benchmarks)
+- `dev_workspace` (default) — same as `patched_workspace` but with persistent named volumes for `build/` and `install/`, enabling fast incremental rebuilds; `core_overrides/` is accessible via the repo bind-mount so host edits are picked up immediately by `rebuild_ros.sh`
+
+Commands after `--` execute inside the container.
 
 ### Modifying ROS Core Packages
 
-Modifications are applied during the Docker build when ROS core packages are compiled from source. The script-based approach allows for arbitrary changes beyond simple patches, including removing packages, adding COLCON_IGNORE files, or managing git submodules.
+Modifications to ROS 2 core packages live in `core_overrides/`. Each subdirectory mirrors the upstream package name (e.g. `core_overrides/rosidl/`, `core_overrides/rosidl_python/`). When `rebuild_ros.sh` runs, it copies each override on top of the corresponding upstream package in the ROS core workspace.
 
-1. Create a shell script `docker/files/patches_ros/<package_name>.sh` with your modifications
-2. For simple patches, reference a corresponding `.patch` file:
+After modifying files in `core_overrides/`, rebuild from inside the container using the convenience script:
 
 ```bash
-#!/bin/bash
-script_location=$(dirname "$(readlink -f "$0")")
-script_name=$(basename "$0")
-script_name_minus_extension="${script_name%.*}"
-git apply ${script_location}/${script_name_minus_extension}.patch
+# Inside dev_workspace — rebuilds everything up to performance_test, rosidl_cli, ros2cli, ros2run
+~/ws/src/project/docker/scripts/rebuild_ros.sh
 ```
 
-3. For other modifications, implement custom logic directly in the script
-4. Make the script executable: `chmod +x docker/files/patches_ros/<package_name>.sh`
+This applies the overrides and runs `colcon build --symlink-install --packages-up-to performance_test rosidl_cli ros2cli ros2run` by default. To target specific packages instead:
 
-The script executes automatically during the build phase when processing the corresponding ROS core package. The same mechanism applies to external dependencies using `docker/files/patches_ext/`.
+```bash
+~/ws/src/project/docker/scripts/rebuild_ros.sh -- --symlink-install --packages-select <package_name>
+```
+
+Build artifacts are stored in named Docker volumes (`zero_rosidl_dev_build`, `zero_rosidl_dev_install`) and persist across container restarts.
 
 ### Accessing Running Container
 
 To open a shell in a running container:
 
 ```bash
-docker exec -it <username>_zero_rosidl_devel bash
+docker exec -it <username>_<service_name> bash
 ```
 
-Replace `<username>` with your system username (e.g., `ekumen_zero_rosidl_devel`).
+Replace `<username>` with your system username and `<service_name>` with the running service (e.g. `ekumen_unpatched_workspace` or `ekumen_dev_workspace`).
 
 ## Running Performance Benchmarks
 
-This project includes [iRobot's ros2-performance](https://github.com/irobot-ros/ros2-performance)
-benchmark suite to measure ROS 2 communication performance.
+This project uses [ApexAI's performance_test](https://gitlab.com/ApexAI/performance_test)
+to benchmark ROS 2 communication performance under zero-copy implementations.
 
-### Building the Workspace
+### Generating Benchmark Data
 
-The benchmark packages are built automatically during the Docker image build.
-To rebuild the workspace inside a running container:
-
-```bash
-# Inside the container, rebuild the workspace
-cd $USER_WS
-rm -rf build/* install/*
-source /opt/ros/jazzy/setup.bash
-colcon build
-```
-
-### Running the Benchmark
-
-To run the default Sierra Nevada topology benchmark:
+The testing frameworks are available instantly due to the multi-stage Docker builds. Inside `unpatched_workspace` and `patched_workspace` the ApexAI performance test suite is already compiled. In `dev_workspace`, run `rebuild_ros.sh` after first launch to build the workspace into the persistent volumes.
 
 ```bash
-# Inside the container, run the benchmark
-cd $USER_WS
-source $USER_WS/install/setup.bash
-cd ./install/irobot_benchmark/lib/irobot_benchmark
-./irobot_benchmark topology/sierra_nevada.json
+# Inside the container, source the workspace and run a performance test
+cd $ROS_CORE_WS
+source install/setup.bash
+ros2 run performance_test perf_test --help
 ```
 
 ### Viewing Benchmark Results
 
-Results are saved in the `sierra_nevada_log/` directory:
-
-- **`latency_total.txt`**: Summary statistics (mean latency, late messages, lost messages)
-- **`latency_all.txt`**: Detailed per-message latency data
-- **`metadata.txt`**: Benchmark configuration parameters
-- **`resources.txt`**: CPU and memory usage during the test
-
-To view the summary results:
+Results are written to a JSON log file via the `-l` flag. Use the bundled parser script to print a summary:
 
 ```bash
-cat $USER_WS/install/irobot_benchmark/lib/irobot_benchmark/sierra_nevada_log/latency_total.txt
-```
+# Example: run a 30-second publisher/subscriber test and write results to a JSON file
+ros2 run performance_test perf_test -c rclcpp-single-threaded-executor -m Array1k -t test_topic -s 1 -p 1 --max-runtime 30 -l /tmp/results.json
 
-Example output:
-```
-received_msgs  mean_us   late_msgs late_perc too_late_msgs  too_late_perc  lost_msgs lost_perc
-5278           131       0         0         0              0              0         0
-```
-
-### Available Topology Configurations
-
-The benchmark includes several predefined topologies in the `topology/` directory:
-
-- `sierra_nevada.json` - Default topology (10 nodes, complex graph)
-- `mont_blanc.json` - Large topology
-- `cedar.json` - Medium complexity
-- `white_mountain.json` - High complexity
-- `debug_*.json` - Smaller topologies for testing
-
-To run a different topology:
-
-```bash
-./irobot_benchmark topology/<topology_name>.json
+# Parse and display key metrics
+python3 ~/ws/src/project/docker/scripts/parse_benchmark_results.py /tmp/results.json
 ```

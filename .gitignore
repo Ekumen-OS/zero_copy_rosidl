@@ -1,0 +1,18 @@
+# CodeGraph knowledge graph (auto-generated, environment-specific)
+.codegraph/
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+build/
+install/
+log/

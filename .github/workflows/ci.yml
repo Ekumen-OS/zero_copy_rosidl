@@ -1,0 +1,157 @@
+name: Unit tests and benchmark run
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: >
+    ${{ github.workflow }} @
+    ${{ github.event.pull_request.head.label || github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+env:
+  ROS_DOMAIN_ID: 90
+jobs:
+  build:
+    runs-on: self-hosted
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+
+    - name: Build base ROS
+      run: |
+        ./docker/run.sh --build --service base_ros_environ -- true
+
+    - name: Build patched ROS
+      run: |
+        ./docker/run.sh --build --service patched_ros_environ -- true
+
+  test:
+    runs-on: self-hosted
+    needs: build
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+
+    - name: Test ROS
+      run: |
+        ./docker/run.sh -s patched_ros_environ -- \
+          colcon test --merge-install --event-handlers=console_cohesion+
+
+  ros2_performance_benchmark:
+    runs-on: self-hosted
+    needs: build
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+
+    - name: Benchmark baseline ROS
+      id: baseline
+      run: |
+        mkdir -p ./data/benchmark_results
+        ./docker/run.sh -s base_ros_environ -- \
+            ros2 run performance_test perf_test -c rclcpp-single-threaded-executor \
+              -m Array1k -t test_topic -s 1 -p 1 --max-runtime 30 \
+              -l ../data/benchmark_results/base_results.json
+        echo "results<<EOF" >> $GITHUB_OUTPUT
+        python3 ./tools/parse_performance_test_results.py ./data/benchmark_results/base_results.json >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Benchmark patched ROS
+      id: patched
+      run: |
+        mkdir -p ./data/benchmark_results
+        ./docker/run.sh -s patched_ros_environ -- \
+          ros2 run performance_test perf_test -c rclcpp-single-threaded-executor \
+            -m Array1k -t test_topic -s 1 -p 1 --max-runtime 30 \
+            -l ../data/benchmark_results/patched_results.json
+        echo "results<<EOF" >> $GITHUB_OUTPUT
+        python3 ./tools/parse_performance_test_results.py ./data/benchmark_results/patched_results.json >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Post benchmark results
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v9
+      with:
+        script: |
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: `## Apex.AI \`performance-test\` results
+
+          ### Base (upstream)
+          \`\`\`
+          ${{ steps.baseline.outputs.results }}
+          \`\`\`
+
+          ### Patched (zero-copy)
+          \`\`\`
+          ${{ steps.patched.outputs.results }}
+          \`\`\`
+          `
+          })
+
+  performance_test_benchmark:
+    runs-on: self-hosted
+    needs: build
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+
+    - name: Benchmark base ROS
+      id: baseline
+      run: |
+        mkdir -p ./data/benchmark_results
+        ./docker/run.sh -s base_ros_environ -- bash -c '
+          cd $USER_WS/install/lib/irobot_benchmark &&
+          ros2 run irobot_benchmark irobot_benchmark topology/sierra_nevada.json &&
+          cat sierra_nevada_log/latency_total.txt > ~/data/benchmark_results/base_results.txt'
+        echo "results<<EOF" >> $GITHUB_OUTPUT
+        cat ./data/benchmark_results/base_results.txt >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Benchmark patched ROS
+      id: patched
+      run: |
+        mkdir -p ./data/benchmark_results
+        ./docker/run.sh -s patched_ros_environ -- bash -c '
+          cd $USER_WS/install/lib/irobot_benchmark &&
+          ros2 run irobot_benchmark irobot_benchmark topology/sierra_nevada.json &&
+          cat sierra_nevada_log/latency_total.txt > ~/data/benchmark_results/patched_results.txt'
+        echo "results<<EOF" >> $GITHUB_OUTPUT
+        cat ./data/benchmark_results/patched_results.txt >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Post benchmark results
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v9
+      with:
+        script: |
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: `## iRobot \`performance-test\` results
+
+          ### Base (upstream)
+          \`\`\`
+          ${{ steps.baseline.outputs.results }}
+          \`\`\`
+
+          ### Patched (zero-copy)
+          \`\`\`
+          ${{ steps.patched.outputs.results }}
+          \`\`\`
+          `
+          })
