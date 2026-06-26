@@ -26,4 +26,4 @@ repositories:
   ros2/rclcpp:
     type: git
     url: https://github.com/Ekumen-OS/rclcpp.git
-    version: 82830cb5a0770aaf4d0d3a09d05849876de38098 
+    version: bcca72636c4bea9900ab8122579fb765d8357cfc
