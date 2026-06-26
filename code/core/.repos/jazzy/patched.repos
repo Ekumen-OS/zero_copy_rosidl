@@ -14,7 +14,7 @@ repositories:
   ros2/rosidl:
     type: git
     url: https://github.com/Ekumen-OS/rosidl.git
-    version: a0a204b3635bf4887dd40e0b1d0fd6d8c158fa1c
+    version: 939f5026b3d71a2b44ed3dec44fcd9a46645b356
   ros2/rosidl_python:
     type: git
     url: https://github.com/Ekumen-OS/rosidl_python.git
