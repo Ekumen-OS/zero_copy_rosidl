@@ -2,7 +2,7 @@ repositories:
   ros2/rmw:
     type: git
     url: https://github.com/Ekumen-OS/rmw.git
-    version: 9f42ff0f18c8c4fd2a84a7c27d11ec8371e968ea
+    version: 86b35621a22425e5d38d2114e814930324c1b463
   ros2/rmw_fastrtps:
     type: git
     url: https://github.com/Ekumen-OS/rmw_fastrtps.git
@@ -10,12 +10,20 @@ repositories:
   ros2/rmw_implementation:
     type: git
     url: https://github.com/Ekumen-OS/rmw_implementation.git
-    version: 23fe893a860545da06ec98d0a22fdc8554d5c0ac
+    version: b55437b07e6ce1e465c40a597e4f6eac97965265
   ros2/rosidl:
     type: git
     url: https://github.com/Ekumen-OS/rosidl.git
-    version: b48f96a4f52aa8fa3113092a739107cdbd59c1a1
+    version: 939f5026b3d71a2b44ed3dec44fcd9a46645b356
   ros2/rosidl_python:
     type: git
     url: https://github.com/Ekumen-OS/rosidl_python.git
     version: 1c0646f96b3922b6d9f2027695a890e3268c6064
+  ros2/rcl:
+    type: git
+    url: https://github.com/Ekumen-OS/rcl.git
+    version: 3807c7ab69882c35e0c11201f33f963bb597b777
+  ros2/rclcpp:
+    type: git
+    url: https://github.com/Ekumen-OS/rclcpp.git
+    version: bcca72636c4bea9900ab8122579fb765d8357cfc
