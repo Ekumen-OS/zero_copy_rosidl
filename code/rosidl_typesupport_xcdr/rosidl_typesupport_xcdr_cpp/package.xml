@@ -22,6 +22,7 @@
   <depend>rosidl_runtime_c</depend>
   <depend>rosidl_runtime_cpp</depend>
   <depend>rosidl_typesupport_interface</depend>
+  <depend>rosidl_typesupport_xcdr_c</depend>
   <depend>xcdr_buffers</depend>
 
   <buildtool_export_depend>ament_cmake</buildtool_export_depend>

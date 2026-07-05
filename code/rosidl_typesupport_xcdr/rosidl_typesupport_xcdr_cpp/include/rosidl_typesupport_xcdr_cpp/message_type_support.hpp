@@ -20,13 +20,17 @@
 
 #include "rcutils/types/rcutils_ret.h"
 #include "rosidl_runtime_c/message_type_support_struct.h"
+#include "rosidl_runtime_cpp/experimental/constraints.hpp"
 #include "rosidl_runtime_cpp/experimental/memory.hpp"
+#include "rosidl_typesupport_xcdr_c/message_type_support.h"
 #include "rosidl_typesupport_xcdr_cpp/visibility_control.h"
 
-// Forward declare xcdr_buffers types to avoid including xcdr_buffers here
+// xcdr_buffers headers needed by the inner struct definition
+#include "xcdr_buffers/layout/layout.hpp"
+
+// Forward declare remaining xcdr_buffers types
 namespace xcdr_buffers
 {
-class XCdrStructLayout;
 class XCdrWriter;
 class XCdrReader;
 class XCdrLayoutBuilder;
@@ -35,135 +39,98 @@ class XCdrLayoutBuilder;
 namespace rosidl_typesupport_xcdr_cpp
 {
 
-/// Callbacks for experimental message typesupport (zero-copy capable).
-struct message_type_support_callbacks_experimental_t
+// ============================================================================
+// Language-specific inner state (defined in message_type_support.cpp)
+// ============================================================================
+
+/// C++ XCDR message type support inner state.
+/**
+ * Carries the layout cache and per-type callbacks needed by the
+ * C-linkage functions installed on the outer rosidl_message_xcdr_type_support_t.
+ * Statically generated per message type by the code generator.
+ * Dynamically allocated for constrained handles.
+ */
+struct rosidl_message_xcdr_cpp_type_support_t
 {
-  /// Message namespace.
-  const char * message_namespace;
+  /// Cached layout (nullptr for unconstrained or non-experimental messages).
+  std::shared_ptr<xcdr_buffers::XCdrStructLayout> cached_layout{nullptr};
 
-  /// Message name.
-  const char * message_name;
+  /// Whether this inner struct was dynamically allocated.
+  bool is_dynamically_allocated{false};
 
-  /// Cached layout (nullptr if unconstrained).
-  std::shared_ptr<xcdr_buffers::XCdrStructLayout> cached_layout;
-
-  /// Build layout from constraints (for unconstrained typesupports).
-  /// Returns nullptr on failure.
-  std::shared_ptr<xcdr_buffers::XCdrStructLayout>(*build_constrained_layout)(
-    const void * constraints);
-
-  /// Indicates if this typesupport was dynamically allocated.
-  bool is_dynamically_allocated;
-
-  /// Computes expected message size given layout (in callbacks).
-  /// Fails if cached_layout is nullptr.
-  rcutils_ret_t (*get_expected_message_size)(
-    const message_type_support_callbacks_experimental_t * callbacks,
-    size_t * size);
-
-  /// Computes actual message size.
-  rcutils_ret_t (*get_message_size)(
-    const void * message,
-    size_t * size);
-
-  /// Constructs message at storage using layout (zero-copy).
-  /// Requires cached_layout to be non-null.
-  rcutils_ret_t (*construct_message_at)(
-    const message_type_support_callbacks_experimental_t * callbacks,
-    rosidl_runtime_cpp::MemoryRegion<void> & storage,
-    void ** message);
-
-  /// Casts buffer at storage into message (zero-copy deserialization).
-  /// Parses layout from buffer.
-  rcutils_ret_t (*cast_message_at)(
-    rosidl_runtime_cpp::MemoryRegion<void> storage,
-    void ** message);
-
-  /// Deserializes message from storage (traditional).
-  /// Writes into existing message instead of allocating.
-  rcutils_ret_t (*deserialize_message_from)(
-    rosidl_runtime_cpp::MemoryRegion<void> storage,
-    void * message);
-
-  /// Serializes message into storage (traditional).
-  rcutils_ret_t (*serialize_message_into)(
-    const void * message,
-    rosidl_runtime_cpp::MemoryRegion<void> storage);
-
-  /// Destroys message created by construct_at or cast_at.
-  /// Only needed for experimental messages with zero-copy support.
-  /// Can be nullptr for non-experimental messages.
-  void (*destroy_message)(void * message);
-
-  // ========== Private callbacks for recursion (internal use only) ==========
-
-  /// Private: Serialize message fields directly into existing XCdrWriter.
-  /// Does not write XCDR header - used for inline nested message serialization.
-  /// \param message Message pointer
-  /// \param writer Reference to XCdrWriter to write fields into
-  /// \return RCUTILS_RET_OK on success
-  rcutils_ret_t (*serialize_into_writer)(
-    const void * message,
-    xcdr_buffers::XCdrWriter & writer);
-
-  /// Private: Deserialize message fields directly from existing XCdrReader.
-  /// Does not expect XCDR header - used for inline nested message deserialization.
-  /// \param reader Reference to XCdrReader to read fields from
-  /// \param message Message pointer to write into
-  /// \return RCUTILS_RET_OK on success
-  rcutils_ret_t (*deserialize_from_reader)(
-    xcdr_buffers::XCdrReader & reader,
-    void * message);
-
-  /// Private: Build layout fields into existing LayoutBuilder.
-  /// Used for recursive constrained layout construction with nested messages.
-  /// \param builder Reference to XCdrLayoutBuilder to add fields to
-  /// \param constraints Type-specific constraints (can be nullptr for fully bounded)
-  /// \return RCUTILS_RET_OK on success
+  /// Per-type serialization callback.
+  rcutils_ret_t (*serialize_fields)(const void *, xcdr_buffers::XCdrWriter &){nullptr};
+  /// Per-type deserialization callback.
+  rcutils_ret_t (*deserialize_fields)(xcdr_buffers::XCdrReader &, void *){nullptr};
+  /// Per-type layout building callback.
   rcutils_ret_t (*build_layout_fields)(
-    xcdr_buffers::XCdrLayoutBuilder & builder,
-    const void * constraints);
+    xcdr_buffers::XCdrLayoutBuilder &, const void *){nullptr};
+  /// Construct message at storage using layout from this inner struct.
+  rcutils_ret_t (*construct_message)(
+    const rosidl_message_xcdr_cpp_type_support_t *,
+    rosidl_runtime_cpp::MemoryRegion<void> &, void **){nullptr};
+  /// Cast message at storage (parses layout from buffer).
+  rcutils_ret_t (*cast_message)(
+    rosidl_runtime_cpp::MemoryRegion<void>, void **){nullptr};
+  /// Compute serialized size without performing serialization.
+  /**
+   * For experimental messages with external storage, this callback
+   * can return the external storage block size directly.
+   * For non-experimental messages, it computes the XCDR-encoded
+   * size by summing field sizes with proper alignment.
+   * Returns RCUTILS_RET_OK on success, RCUTILS_RET_ERROR on failure.
+   */
+  rcutils_ret_t (*compute_serialized_size)(
+    const void * message, size_t * size){nullptr};
 
-  // ========== Storage management ==========
-
-  /// Release message and return its external storage.
-  /// Only valid for messages constructed via construct_message_at or cast_message_at.
-  /// Message pointer becomes invalid after this call.
-  /// \param message Message pointer to release
-  /// \return Storage region, or {nullptr, 0} if message has no external storage
-  rosidl_runtime_cpp::MemoryRegion<void>(*release_message)(
-    void * message);
+  /// Build constrained layout from constraints.
+  std::shared_ptr<xcdr_buffers::XCdrStructLayout>(*build_constrained)(
+    const void *){nullptr};
 };
 
-/// Create constrained typesupport handle with cached layout.
-///
-/// \param base_typesupport Base typesupport handle (must be XCDR experimental).
-/// \param constraints Message constraints (type-specific).
-/// \return New constrained typesupport handle, or nullptr on failure.
+// ============================================================================
+// Prototype outer table
+// ============================================================================
+
+/// Return a prototype outer rosidl_message_xcdr_type_support_t wired to the
+/// C-linkage C++ callback functions defined in message_type_support.cpp.
+/**
+ * The returned table has `inner` set to nullptr.  Callers copy it and
+ * override `inner` with their handle-specific inner struct pointer.
+ */
+ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC
+const rosidl_message_xcdr_type_support_t *
+get_xcdr_cpp_type_support_prototype();
+
+// ============================================================================
+// Constrained typesupport lifecycle
+// ============================================================================
+
 ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC
 rosidl_message_type_support_t *
 create_constrained_message_type_support(
   const rosidl_message_type_support_t * base_typesupport,
   const void * constraints);
 
-/// Destroy constrained typesupport handle.
-/// Safe to call with nullptr or singleton handles.
-///
-/// \param typesupport Typesupport handle to destroy.
 ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC
 void
 destroy_constrained_message_type_support(
   rosidl_message_type_support_t * typesupport);
 
-/// Generic trampoline for get_expected_message_size.
-/// Verifies typesupport identifier and delegates to callback.
+// ============================================================================
+// Generic trampolines (C++ convenience API)
+//
+// These are the middleware-facing entry points.  Each checks the C++
+// identifier, casts ts->data to the outer rosidl_message_xcdr_type_support_t,
+// and dispatches through its function pointers.
+// ============================================================================
+
 ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC
 rcutils_ret_t
 get_expected_message_size(
   const rosidl_message_type_support_t * typesupport,
   size_t * size);
 
-/// Generic trampoline for get_message_size.
 ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC
 rcutils_ret_t
 get_message_size(
@@ -171,7 +138,6 @@ get_message_size(
   const void * message,
   size_t * size);
 
-/// Generic trampoline for construct_message_at.
 ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC
 rcutils_ret_t
 construct_message_at(
@@ -179,7 +145,6 @@ construct_message_at(
   rosidl_runtime_cpp::MemoryRegion<void> & storage,
   void ** message);
 
-/// Generic trampoline for cast_message_at.
 ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC
 rcutils_ret_t
 cast_message_at(
@@ -187,8 +152,6 @@ cast_message_at(
   rosidl_runtime_cpp::MemoryRegion<void> storage,
   void ** message);
 
-/// Generic trampoline for deserialize_message_from.
-/// Deserializes into existing message (void*) instead of allocating.
 ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC
 rcutils_ret_t
 deserialize_message_from(
@@ -196,7 +159,6 @@ deserialize_message_from(
   rosidl_runtime_cpp::MemoryRegion<void> storage,
   void * message);
 
-/// Generic trampoline for serialize_message_into.
 ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC
 rcutils_ret_t
 serialize_message_into(
@@ -204,18 +166,12 @@ serialize_message_into(
   const void * message,
   rosidl_runtime_cpp::MemoryRegion<void> storage);
 
-/// Destroy message created by construct_at or cast_at.
-/// Safe to call with nullptr.
 ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC
 void
 destroy_message(
   const rosidl_message_type_support_t * typesupport,
   void * message);
 
-/// Release message and return its external storage.
-/// Only valid for messages constructed via construct_message_at or cast_message_at.
-/// Message pointer becomes invalid after this call.
-/// Returns storage region, or {nullptr, 0} if message has no external storage.
 ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC
 rosidl_runtime_cpp::MemoryRegion<void>
 release_message(
@@ -223,10 +179,55 @@ release_message(
   void * message);
 
 /// Template to get message type support handle for specific message type.
-/// Specialized for each generated message type.
 template<typename MessageT>
 const rosidl_message_type_support_t *
 get_message_type_support_handle();
+
+// ============================================================================
+// Constraint comparison
+//
+// Single canonical implementation in the C package.
+// The C++ trampoline is a thin inline wrapper.
+// ============================================================================
+
+/// Compare constraints (blanket + type-specific) with incompatible-field reporting.
+/**
+ * Delegates to the canonical C function rosidl_typesupport_xcdr_c_compare_constraints
+ * which handles blanket limits and dispatches type-specific comparison through
+ * the outer struct callback.
+ *
+ * \param typesupport  XCDR typesupport handle (may be NULL).
+ * \param candidate    Candidate constraints.
+ * \param baseline     Reference constraints.
+ * \param report_cb    Callback invoked for each incompatible field (may be NULL).
+ * \param user_data    Opaque pointer forwarded to the callback.
+ * \return true if candidate is compatible with baseline, false otherwise.
+ */
+inline bool
+compare_constraints(
+  const rosidl_message_type_support_t * typesupport,
+  const rosidl_message_type_constraints_t * candidate,
+  const rosidl_message_type_constraints_t * baseline,
+  rosidl_runtime_cpp::ConstraintReportCallback report_cb = nullptr,
+  void * user_data = nullptr)
+{
+  return rosidl_typesupport_xcdr_c_compare_constraints(
+    typesupport, candidate, baseline,
+    reinterpret_cast<rosidl_typesupport_xcdr_c_constraint_report_callback_t>(report_cb),
+    user_data);
+}
+
+/// Validate constraints (convenience equivalent to compare_constraints).
+inline bool
+validate_constraints(
+  const rosidl_message_type_support_t * typesupport,
+  const rosidl_message_type_constraints_t * candidate,
+  const rosidl_message_type_constraints_t * baseline,
+  rosidl_runtime_cpp::ConstraintReportCallback report_cb = nullptr,
+  void * user_data = nullptr)
+{
+  return compare_constraints(typesupport, candidate, baseline, report_cb, user_data);
+}
 
 }  // namespace rosidl_typesupport_xcdr_cpp
 

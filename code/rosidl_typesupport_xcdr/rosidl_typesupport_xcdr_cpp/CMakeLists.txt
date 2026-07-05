@@ -16,6 +16,7 @@ find_package(rosidl_cmake REQUIRED)
 find_package(rosidl_runtime_c REQUIRED)
 find_package(rosidl_runtime_cpp REQUIRED)
 find_package(rosidl_typesupport_interface REQUIRED)
+find_package(rosidl_typesupport_xcdr_c REQUIRED)
 find_package(xcdr_buffers REQUIRED)
 
 # Build the base library
@@ -40,6 +41,7 @@ target_link_libraries(${PROJECT_NAME}
     rosidl_runtime_c::rosidl_runtime_c
     rosidl_runtime_cpp::rosidl_runtime_cpp
     rosidl_typesupport_interface::rosidl_typesupport_interface
+    rosidl_typesupport_xcdr_c::rosidl_typesupport_xcdr_c
     xcdr_buffers::xcdr_buffers
 )
 
@@ -92,6 +94,7 @@ ament_export_dependencies(
   rosidl_runtime_c
   rosidl_runtime_cpp
   rosidl_typesupport_interface
+  rosidl_typesupport_xcdr_c
   xcdr_buffers
 )
 

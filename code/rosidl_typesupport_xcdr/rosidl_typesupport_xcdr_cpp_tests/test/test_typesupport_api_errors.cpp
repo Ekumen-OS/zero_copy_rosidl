@@ -25,8 +25,6 @@
 
 #include <vector>
 
-using CallbacksT = rosidl_typesupport_xcdr_cpp::message_type_support_callbacks_experimental_t;
-
 // =============================================================================
 // Trampolines with nullptr typesupport handle
 // =============================================================================

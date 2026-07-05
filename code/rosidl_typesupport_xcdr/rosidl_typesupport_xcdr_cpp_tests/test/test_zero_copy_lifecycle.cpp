@@ -39,7 +39,7 @@
 
 using BoundedMessage = rosidl_typesupport_xcdr_cpp_tests::msg::experimental::BoundedMessage;
 using UnboundedMessage = rosidl_typesupport_xcdr_cpp_tests::msg::experimental::UnboundedMessage;
-using CallbacksT = rosidl_typesupport_xcdr_cpp::message_type_support_callbacks_experimental_t;
+using OuterT = rosidl_message_xcdr_type_support_t;
 
 // =============================================================================
 // deserialize_message_from — pre-allocated message
@@ -152,10 +152,10 @@ TEST(TestZeroCopyLifecycle, BoundedMessage_ConstructDestroy)
   auto ts = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<BoundedMessage>();
   ASSERT_NE(nullptr, ts);
 
-  auto * callbacks = static_cast<const CallbacksT *>(ts->data);
-  ASSERT_NE(nullptr, callbacks);
-  ASSERT_NE(nullptr, callbacks->construct_message_at);
-  ASSERT_NE(nullptr, callbacks->destroy_message);
+  auto * outer = static_cast<const OuterT *>(ts->data);
+  ASSERT_NE(nullptr, outer);
+  ASSERT_NE(nullptr, outer->construct_message_at);
+  ASSERT_NE(nullptr, outer->destroy_message);
 
   std::vector<uint8_t> buffer(4096);
   rosidl_runtime_cpp::MemoryRegion<void> storage{buffer.data(), buffer.size()};
@@ -177,9 +177,9 @@ TEST(TestZeroCopyLifecycle, BoundedMessage_ReleaseMessage)
   auto ts = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<BoundedMessage>();
   ASSERT_NE(nullptr, ts);
 
-  auto * callbacks = static_cast<const CallbacksT *>(ts->data);
-  ASSERT_NE(nullptr, callbacks);
-  ASSERT_NE(nullptr, callbacks->release_message);
+  auto * outer = static_cast<const OuterT *>(ts->data);
+  ASSERT_NE(nullptr, outer);
+  ASSERT_NE(nullptr, outer->release_message);
 
   // release_message on a normal stack message is undefined behaviour, so we
   // only verify the function pointer is present and callable.

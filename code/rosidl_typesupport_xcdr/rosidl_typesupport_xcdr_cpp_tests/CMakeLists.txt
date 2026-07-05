@@ -13,6 +13,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(rosidl_typesupport_xcdr_cpp REQUIRED)
+find_package(rosidl_typesupport_xcdr_c REQUIRED)
 
 # Generate interfaces
 rosidl_generate_interfaces(${PROJECT_NAME}
@@ -36,6 +37,7 @@ if(BUILD_TESTING)
     if(TARGET ${target_name})
       target_link_libraries(${target_name}
         rosidl_typesupport_xcdr_cpp::rosidl_typesupport_xcdr_cpp
+        rosidl_typesupport_xcdr_c::rosidl_typesupport_xcdr_c
         xcdr_buffers::xcdr_buffers
       )
       rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME}
@@ -72,6 +74,11 @@ if(BUILD_TESTING)
   # --- Constrained typesupport lifecycle ---
   add_xcdr_test(test_constrained_typesupport
     test/test_constrained_typesupport.cpp
+  )
+
+  # --- Outer callback integration (new-style wrapper, dual-path dispatch) ---
+  add_xcdr_test(test_outer_callback_integration
+    test/test_outer_callback_integration.cpp
   )
 
   # --- API error contracts ---
