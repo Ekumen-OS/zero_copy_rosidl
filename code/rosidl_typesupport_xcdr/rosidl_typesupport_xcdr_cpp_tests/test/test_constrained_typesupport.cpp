@@ -292,6 +292,87 @@ TEST(TestConstrainedTypesupport, CastMessageAt)
     constrained);
 }
 
+// =============================================================================
+// Ownership and lifecycle edge cases
+// =============================================================================
+
+TEST(TestConstrainedTypesupport, MultipleConstrainedHandles)
+{
+  auto base = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<
+    ExperimentalUnbounded>();
+  ASSERT_NE(nullptr, base);
+
+  // Create two independent constrained handles from the same base
+  ExperimentalUnbounded::Constraints constraints_a;
+  constraints_a.name.size = 128;
+  constraints_a.data.size = 50;
+
+  auto constrained_a =
+    rosidl_typesupport_xcdr_cpp::create_constrained_message_type_support(
+      base, &constraints_a);
+  ASSERT_NE(nullptr, constrained_a);
+
+  ExperimentalUnbounded::Constraints constraints_b;
+  constraints_b.name.size = 256;
+  constraints_b.data.size = 100;
+
+  auto constrained_b =
+    rosidl_typesupport_xcdr_cpp::create_constrained_message_type_support(
+      base, &constraints_b);
+  ASSERT_NE(nullptr, constrained_b);
+
+  // Both should have different sizes reflecting their constraints
+  size_t size_a = 0, size_b = 0;
+  EXPECT_EQ(RCUTILS_RET_OK,
+    rosidl_typesupport_xcdr_cpp::get_expected_message_size(constrained_a, &size_a));
+  EXPECT_EQ(RCUTILS_RET_OK,
+    rosidl_typesupport_xcdr_cpp::get_expected_message_size(constrained_b, &size_b));
+  EXPECT_GT(size_b, size_a);  // B has larger bounds
+
+  rosidl_typesupport_xcdr_cpp::destroy_constrained_message_type_support(constrained_a);
+  rosidl_typesupport_xcdr_cpp::destroy_constrained_message_type_support(constrained_b);
+}
+
+TEST(TestConstrainedTypesupport, ConstrainedHandleSerializeRoundtrip)
+{
+  auto base = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<
+    ExperimentalUnbounded>();
+  ASSERT_NE(nullptr, base);
+
+  ExperimentalUnbounded::Constraints constraints;
+  constraints.data.size = 100;  // only constrain data, keep name at 0 (unlimited)
+
+  auto constrained =
+    rosidl_typesupport_xcdr_cpp::create_constrained_message_type_support(
+      base, &constraints);
+  ASSERT_NE(nullptr, constrained);
+
+  size_t expected_size = 0;
+  auto ret = rosidl_typesupport_xcdr_cpp::get_expected_message_size(
+    constrained, &expected_size);
+  ASSERT_EQ(RCUTILS_RET_OK, ret);
+  ASSERT_GT(expected_size, 0u);
+
+  ExperimentalUnbounded msg;
+  fill_unbounded_message(msg);
+
+  std::vector<uint8_t> buffer(expected_size);
+  rosidl_runtime_cpp::MemoryRegion<void> storage{buffer.data(), buffer.size()};
+
+  ret = rosidl_typesupport_xcdr_cpp::serialize_message_into(
+    constrained, &msg, storage);
+  ASSERT_EQ(RCUTILS_RET_OK, ret);
+
+  ExperimentalUnbounded deserialized;
+  ret = rosidl_typesupport_xcdr_cpp::deserialize_message_from(
+    constrained, storage, &deserialized);
+  ASSERT_EQ(RCUTILS_RET_OK, ret);
+  EXPECT_EQ(999u, deserialized.id.get());
+  EXPECT_EQ(5u, deserialized.data.size());
+
+  rosidl_typesupport_xcdr_cpp::destroy_constrained_message_type_support(constrained);
+}
+
 int main(int argc, char ** argv)
 {
   ::testing::InitGoogleTest(&argc, argv);

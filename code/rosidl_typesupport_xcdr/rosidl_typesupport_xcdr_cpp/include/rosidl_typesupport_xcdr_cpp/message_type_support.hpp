@@ -217,17 +217,7 @@ compare_constraints(
     user_data);
 }
 
-/// Validate constraints (convenience equivalent to compare_constraints).
-inline bool
-validate_constraints(
-  const rosidl_message_type_support_t * typesupport,
-  const rosidl_message_type_constraints_t * candidate,
-  const rosidl_message_type_constraints_t * baseline,
-  rosidl_runtime_cpp::ConstraintReportCallback report_cb = nullptr,
-  void * user_data = nullptr)
-{
-  return compare_constraints(typesupport, candidate, baseline, report_cb, user_data);
-}
+
 
 }  // namespace rosidl_typesupport_xcdr_cpp
 

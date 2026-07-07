@@ -39,7 +39,6 @@
 
 using BoundedMessage = rosidl_typesupport_xcdr_cpp_tests::msg::experimental::BoundedMessage;
 using UnboundedMessage = rosidl_typesupport_xcdr_cpp_tests::msg::experimental::UnboundedMessage;
-using OuterT = rosidl_message_xcdr_type_support_t;
 
 // =============================================================================
 // deserialize_message_from — pre-allocated message
@@ -152,11 +151,6 @@ TEST(TestZeroCopyLifecycle, BoundedMessage_ConstructDestroy)
   auto ts = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<BoundedMessage>();
   ASSERT_NE(nullptr, ts);
 
-  auto * outer = static_cast<const OuterT *>(ts->data);
-  ASSERT_NE(nullptr, outer);
-  ASSERT_NE(nullptr, outer->construct_message_at);
-  ASSERT_NE(nullptr, outer->destroy_message);
-
   std::vector<uint8_t> buffer(4096);
   rosidl_runtime_cpp::MemoryRegion<void> storage{buffer.data(), buffer.size()};
 
@@ -177,15 +171,10 @@ TEST(TestZeroCopyLifecycle, BoundedMessage_ReleaseMessage)
   auto ts = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<BoundedMessage>();
   ASSERT_NE(nullptr, ts);
 
-  auto * outer = static_cast<const OuterT *>(ts->data);
-  ASSERT_NE(nullptr, outer);
-  ASSERT_NE(nullptr, outer->release_message);
-
-  // release_message on a normal stack message is undefined behaviour, so we
-  // only verify the function pointer is present and callable.
-  // A proper test requires a message constructed via construct_message_at
-  // which is gated on the known crash being fixed.
-  SUCCEED() << "release_message function pointer is available";
+  // release_message on a nullptr should return an empty region.
+  auto region = rosidl_typesupport_xcdr_cpp::release_message(ts, nullptr);
+  EXPECT_EQ(nullptr, region.data());
+  EXPECT_EQ(0u, region.size());
 }
 
 TEST(TestZeroCopyLifecycle, DestroyMessage_Nullptr)
