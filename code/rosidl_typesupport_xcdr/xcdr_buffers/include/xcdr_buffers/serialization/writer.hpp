@@ -66,11 +66,42 @@ public:
     XCdrEndianness endianness = XCdrEndianness::kLittleEndian);
 
   /**
+   * @brief Construct a writer in fixed-size mode starting at an absolute offset.
+   *
+   * Writes directly to the provided buffer starting at @p start_offset without
+   * writing an XCDR encapsulation header (the header is assumed to already
+   * exist at offset 0).  Ideal for in-place compaction where the header is
+   * already present and only the data payload needs to be rewritten.
+   *
+   * If data doesn't fit in the remaining space, the writer enters an error state.
+   *
+   * @param fixed_buffer Fixed-size buffer to write into
+   * @param start_offset Absolute offset where data writes begin (e.g. 4 to skip header)
+   * @param endianness Endianness for output data
+   */
+  explicit XCdrWriter(
+    tcb::span<uint8_t> fixed_buffer,
+    size_t start_offset,
+    XCdrEndianness endianness = XCdrEndianness::kLittleEndian);
+
+  /**
    * @brief Check if writer encountered an error (only meaningful in fixed-size mode).
    *
    * @return true if buffer overflow occurred in fixed-size mode
    */
   bool has_error() const { return overflow_error_; }
+
+  /**
+   * @brief Return the number of bytes written so far (absolute position).
+   *
+   * In the default growing mode this is the buffer size.
+   * In fixed-size mode this is the absolute write cursor position.
+   * In offset mode the start offset is counted, so bytes_written() always
+   * reflects the total span consumed.
+   *
+   * @return Total bytes written from the start of the buffer.
+   */
+  size_t bytes_written() const { return write_position_; }
 
   /**
    * @brief Write a primitive value.

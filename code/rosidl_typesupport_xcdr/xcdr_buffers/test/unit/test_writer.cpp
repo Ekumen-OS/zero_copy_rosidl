@@ -239,6 +239,203 @@ TEST(XCdrWriter, WriteBigEndian) {
   EXPECT_EQ(buffer[7], 0x04);
 }
 
+// ============================================================================
+// Fixed-mode offset constructor tests
+// ============================================================================
+
+/// Helper: write a valid LE XCDR header at [0..3].
+static void write_header(std::vector<uint8_t> & buf)
+{
+  ASSERT_GE(buf.size(), 4);
+  buf[0] = 0x00;
+  buf[1] = 0x01;  // little endian
+  buf[2] = 0x00;
+  buf[3] = 0x00;
+}
+
+TEST(XCdrWriter, FixedMode_Offset_NoHeader_Primitives)
+{
+  // Pre-populate buffer — some fixed-size data plus a pre-written header.
+  std::vector<uint8_t> buf(64, 0);
+  write_header(buf);
+
+  // Create writer that starts at offset 4 (right after header).
+  tcb::span<uint8_t> span(buf.data(), buf.size());
+  XCdrWriter writer(span, 4);
+
+  EXPECT_FALSE(writer.has_error());
+
+  writer.write<uint32_t>(0xDEADBEEF);
+  writer.write<uint16_t>(1234);
+
+  EXPECT_FALSE(writer.has_error());
+
+  // data() should span from buffer start to current write position.
+  auto result = writer.data();
+  EXPECT_GE(result.size(), 10);
+
+  // Header at [0..3] must be untouched.
+  EXPECT_EQ(result[0], 0x00);
+  EXPECT_EQ(result[1], 0x01);
+  EXPECT_EQ(result[2], 0x00);
+  EXPECT_EQ(result[3], 0x00);
+
+  // uint32_t at offset 4 (aligned to 4, no padding).
+  uint32_t val32;
+  read_from_bytes(&val32, result.subspan(4, 4), XCdrEndianness::kLittleEndian);
+  EXPECT_EQ(val32, 0xDEADBEEF);
+
+  // uint16_t at offset 8 (aligned to 2, no padding).
+  uint16_t val16;
+  read_from_bytes(&val16, result.subspan(8, 2), XCdrEndianness::kLittleEndian);
+  EXPECT_EQ(val16, 1234);
+}
+
+TEST(XCdrWriter, FixedMode_Offset_OutOfRange)
+{
+  std::vector<uint8_t> buf(8, 0);
+  tcb::span<uint8_t> span(buf.data(), buf.size());
+
+  // Start offset past the end.
+  XCdrWriter writer(span, 16);
+  EXPECT_TRUE(writer.has_error());
+  EXPECT_EQ(writer.bytes_written(), 0);
+}
+
+TEST(XCdrWriter, FixedMode_Offset_BytesWritten)
+{
+  std::vector<uint8_t> buf(64, 0);
+  write_header(buf);
+  tcb::span<uint8_t> span(buf.data(), buf.size());
+
+  XCdrWriter writer(span, 4);
+  EXPECT_EQ(writer.bytes_written(), 4);
+
+  writer.write<uint32_t>(100);
+  // Header (4) + uint32 (4) = 8
+  EXPECT_EQ(writer.bytes_written(), 8);
+
+  writer.write<uint16_t>(200);
+  // + 2 bytes = 10
+  EXPECT_EQ(writer.bytes_written(), 10);
+}
+
+TEST(XCdrWriter, FixedMode_Offset_String)
+{
+  std::vector<uint8_t> buf(64, 0);
+  write_header(buf);
+  tcb::span<uint8_t> span(buf.data(), buf.size());
+
+  XCdrWriter writer(span, 4);
+  writer.write(std::string_view("ab"));
+
+  EXPECT_FALSE(writer.has_error());
+
+  auto result = writer.data();
+  // Header (4) + length prefix (4) + "ab" (2) + null (1) = 11
+  EXPECT_EQ(result.size(), 11);
+
+  // Length prefix at offset 4 (value = 2 + 1 = 3).
+  uint32_t length;
+  read_from_bytes(&length, result.subspan(4, 4), XCdrEndianness::kLittleEndian);
+  EXPECT_EQ(length, 3);
+
+  // String data at offset 8.
+  std::string_view str(reinterpret_cast<const char *>(result.data() + 8), 2);
+  EXPECT_EQ(str, "ab");
+}
+
+TEST(XCdrWriter, FixedMode_Offset_WString)
+{
+  std::vector<uint8_t> buf(64, 0);
+  write_header(buf);
+  tcb::span<uint8_t> span(buf.data(), buf.size());
+
+  XCdrWriter writer(span, 4);
+  writer.write(std::u16string_view(u"hi"));
+
+  EXPECT_FALSE(writer.has_error());
+
+  auto result = writer.data();
+  // Header (4) + length prefix (4) + 2*wchar (4) + null (2) = 14
+  EXPECT_EQ(result.size(), 14);
+
+  // Length prefix at offset 4 (value = 4 + 2 = 6 bytes).
+  uint32_t length;
+  read_from_bytes(&length, result.subspan(4, 4), XCdrEndianness::kLittleEndian);
+  EXPECT_EQ(length, 6);
+
+  // char16_t at offset 8.
+  char16_t ch;
+  read_from_bytes(&ch, result.subspan(8, 2), XCdrEndianness::kLittleEndian);
+  EXPECT_EQ(ch, u'h');
+
+  read_from_bytes(&ch, result.subspan(10, 2), XCdrEndianness::kLittleEndian);
+  EXPECT_EQ(ch, u'i');
+
+  // Null terminator at offset 12.
+  read_from_bytes(&ch, result.subspan(12, 2), XCdrEndianness::kLittleEndian);
+  EXPECT_EQ(ch, u'\0');
+}
+
+TEST(XCdrWriter, FixedMode_Offset_Sequence)
+{
+  std::vector<uint8_t> buf(64, 0);
+  write_header(buf);
+  tcb::span<uint8_t> span(buf.data(), buf.size());
+
+  XCdrWriter writer(span, 4);
+  std::vector<uint32_t> vals = {10, 20, 30};
+  writer.write_sequence(tcb::span<const uint32_t>(vals.data(), vals.size()));
+
+  EXPECT_FALSE(writer.has_error());
+
+  auto result = writer.data();
+  // Header (4) + seq length (4) + 3*uint32 (12) = 20
+  EXPECT_EQ(result.size(), 20);
+
+  uint32_t count;
+  read_from_bytes(&count, result.subspan(4, 4), XCdrEndianness::kLittleEndian);
+  EXPECT_EQ(count, 3);
+}
+
+TEST(XCdrWriter, FixedMode_Offset_Overflow)
+{
+  std::vector<uint8_t> buf(8, 0);
+  write_header(buf);
+  tcb::span<uint8_t> span(buf.data(), buf.size());
+
+  // Buffer is 8 bytes total, offset 4 → 4 bytes available.
+  XCdrWriter writer(span, 4);
+  writer.write<uint32_t>(42);   // uses 4 bytes, fits exactly
+  EXPECT_FALSE(writer.has_error());
+
+  writer.write<uint8_t>(1);     // 1 byte, overflows
+  EXPECT_TRUE(writer.has_error());
+}
+
+TEST(XCdrWriter, FixedMode_Offset_DataIncludesHeader)
+{
+  std::vector<uint8_t> buf(16, 0);
+  write_header(buf);
+  tcb::span<uint8_t> span(buf.data(), buf.size());
+
+  XCdrWriter writer(span, 4);
+  writer.write<uint32_t>(0xAABB);
+
+  auto result = writer.data();
+  // data() must cover from buffer start (including header) to write position.
+  EXPECT_EQ(result.size(), 8);
+  // Header visible.
+  EXPECT_EQ(result[0], 0x00);
+  EXPECT_EQ(result[1], 0x01);
+
+  // bytes_written() also returns absolute position.
+  EXPECT_EQ(writer.bytes_written(), 8);
+}
+
+
+
 int main(int argc, char ** argv)
 {
   ::testing::InitGoogleTest(&argc, argv);

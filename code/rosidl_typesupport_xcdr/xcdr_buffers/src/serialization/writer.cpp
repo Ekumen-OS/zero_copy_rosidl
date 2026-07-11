@@ -47,6 +47,26 @@ XCdrWriter::XCdrWriter(
   // No pre-allocation needed - writing directly to fixed_span_
 }
 
+XCdrWriter::XCdrWriter(
+  tcb::span<uint8_t> fixed_buffer,
+  size_t start_offset,
+  XCdrEndianness endianness)
+: buffer_(),
+  fixed_span_(fixed_buffer),
+  is_fixed_mode_(true),
+  overflow_error_(false),
+  write_position_(0),
+  endianness_(endianness),
+  header_written_(true),   // header already present — skip writing
+  context_stack_()
+{
+  if (start_offset > fixed_span_.size()) {
+    overflow_error_ = true;
+  } else {
+    write_position_ = start_offset;
+  }
+}
+
 void XCdrWriter::ensure_header_written()
 {
   if (overflow_error_) {
@@ -154,30 +174,62 @@ void XCdrWriter::write(std::u16string_view str)
 {
   ensure_header_written();
 
+  if (overflow_error_) {
+    return;
+  }
+
   // Align to prefix size
   align_and_reserve(kStringLengthPrefixSize, kStringLengthPrefixSize);
+
+  if (overflow_error_) {
+    return;
+  }
 
   // Write length prefix (in bytes, includes null terminator)
   uint32_t length_bytes = static_cast<uint32_t>((str.size() * sizeof(char16_t)) +
     kWStringNullTerminatorSize);
-  size_t length_pos = buffer_.size() - kStringLengthPrefixSize;
-  tcb::span<uint8_t> length_dst(buffer_.data() + length_pos, kStringLengthPrefixSize);
-  write_to_bytes(length_dst, length_bytes, endianness_);
 
-  // Write wstring data (handling endianness for each char16_t)
-  for (char16_t ch : str) {
+  if (is_fixed_mode_) {
+    size_t length_pos = write_position_ - kStringLengthPrefixSize;
+    tcb::span<uint8_t> length_dst(fixed_span_.data() + length_pos, kStringLengthPrefixSize);
+    write_to_bytes(length_dst, length_bytes, endianness_);
+
+    // Write each char16_t with alignment
+    for (char16_t ch : str) {
+      align_and_reserve(sizeof(char16_t), sizeof(char16_t));
+      if (overflow_error_) { return; }
+      size_t ch_pos = write_position_ - sizeof(char16_t);
+      tcb::span<uint8_t> ch_dst(fixed_span_.data() + ch_pos, sizeof(char16_t));
+      write_to_bytes(ch_dst, ch, endianness_);
+    }
+
+    // Write null terminator
     align_and_reserve(sizeof(char16_t), sizeof(char16_t));
-    size_t ch_pos = buffer_.size() - sizeof(char16_t);
-    tcb::span<uint8_t> ch_dst(buffer_.data() + ch_pos, sizeof(char16_t));
-    write_to_bytes(ch_dst, ch, endianness_);
-  }
+    if (overflow_error_) { return; }
+    size_t term_pos = write_position_ - sizeof(char16_t);
+    tcb::span<uint8_t> term_dst(fixed_span_.data() + term_pos, sizeof(char16_t));
+    char16_t null_term = u'\0';
+    write_to_bytes(term_dst, null_term, endianness_);
+  } else {
+    size_t length_pos = buffer_.size() - kStringLengthPrefixSize;
+    tcb::span<uint8_t> length_dst(buffer_.data() + length_pos, kStringLengthPrefixSize);
+    write_to_bytes(length_dst, length_bytes, endianness_);
 
-  // Write null terminator
-  align_and_reserve(sizeof(char16_t), sizeof(char16_t));
-  size_t term_pos = buffer_.size() - sizeof(char16_t);
-  tcb::span<uint8_t> term_dst(buffer_.data() + term_pos, sizeof(char16_t));
-  char16_t null_term = u'\0';
-  write_to_bytes(term_dst, null_term, endianness_);
+    // Write wstring data (handling endianness for each char16_t)
+    for (char16_t ch : str) {
+      align_and_reserve(sizeof(char16_t), sizeof(char16_t));
+      size_t ch_pos = buffer_.size() - sizeof(char16_t);
+      tcb::span<uint8_t> ch_dst(buffer_.data() + ch_pos, sizeof(char16_t));
+      write_to_bytes(ch_dst, ch, endianness_);
+    }
+
+    // Write null terminator
+    align_and_reserve(sizeof(char16_t), sizeof(char16_t));
+    size_t term_pos = buffer_.size() - sizeof(char16_t);
+    tcb::span<uint8_t> term_dst(buffer_.data() + term_pos, sizeof(char16_t));
+    char16_t null_term = u'\0';
+    write_to_bytes(term_dst, null_term, endianness_);
+  }
 }
 
 void XCdrWriter::begin_write_array(size_t count)
@@ -258,6 +310,9 @@ void XCdrWriter::end_write_struct()
 
 tcb::span<const uint8_t> XCdrWriter::data() const
 {
+  if (is_fixed_mode_) {
+    return tcb::span<const uint8_t>(fixed_span_.data(), write_position_);
+  }
   return tcb::span<const uint8_t>(buffer_.data(), buffer_.size());
 }
 
@@ -273,6 +328,8 @@ void XCdrWriter::reset(XCdrEndianness endianness)
   buffer_.clear();
   endianness_ = endianness;
   header_written_ = false;
+  overflow_error_ = false;
+  write_position_ = 0;
   context_stack_.clear();
 }
 
