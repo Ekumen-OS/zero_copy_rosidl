@@ -55,6 +55,12 @@ struct rosidl_message_xcdr_cpp_type_support_t
   /// Cached layout (nullptr for unconstrained or non-experimental messages).
   std::shared_ptr<xcdr_buffers::XCdrStructLayout> cached_layout{nullptr};
 
+  /// Owned copy of the baseline constraints (nullptr for statically generated
+  /// or unconstrained instances).  Populated at constrained handle creation
+  /// time via the clone_constraints callback.  The custom deleter frees both
+  /// the type_specific clone and the constraints struct itself.
+  std::shared_ptr<rosidl_message_type_constraints_t> owned_constraints{nullptr};
+
   /// Whether this inner struct was dynamically allocated.
   bool is_dynamically_allocated{false};
 
@@ -86,6 +92,34 @@ struct rosidl_message_xcdr_cpp_type_support_t
   /// Build constrained layout from constraints.
   std::shared_ptr<xcdr_buffers::XCdrStructLayout>(*build_constrained)(
     const void *){nullptr};
+
+  /// Clone constraints into handle-owned storage.
+  /**
+   * Returns a shared_ptr containing a deep copy of the full constraints struct
+   * (blanket fields + type-specific).  The custom deleter frees the
+   * type_specific clone before releasing the constraints struct itself.
+   * Only set on generated inner structs for constrained experimental messages.
+   */
+  std::shared_ptr<rosidl_message_type_constraints_t> (*clone_constraints)(
+    const rosidl_message_type_constraints_t * src){nullptr};
+
+  /// Per-type message validation callback.
+  /**
+   * Walks the message fields and compares each against its constraint
+   * bound (from type_specific).  Reports violating fields through the
+   * report callback with dot-separated field paths.
+   * \param[in]  type_specific  Per-message constraint values.
+   * \param[in]  message        Message instance to validate.
+   * \param[in]  report_cb      Callback for each violating field (may be NULL).
+   * \param[in]  user_data      Opaque pointer forwarded to report_cb.
+   * \return RCUTILS_RET_OK if the message satisfies all constraints,
+   *         RCUTILS_RET_ERROR if a constraint is violated.
+   */
+  rcutils_ret_t (*validate_fields)(
+    const void * type_specific,
+    const void * message,
+    rosidl_typesupport_xcdr_c_constraint_report_callback_t report_cb,
+    void * user_data){nullptr};
 };
 
 // ============================================================================
@@ -106,12 +140,33 @@ get_xcdr_cpp_type_support_prototype();
 // Constrained typesupport lifecycle
 // ============================================================================
 
+/// Create a constrained typesupport handle, returning a shared_ptr with
+/// automatic destruction.
+/**
+ * The returned shared_ptr owns the handle and all its associated state
+ * (outer + inner callbacks, owned constraints).  When the last shared_ptr
+ * goes out of scope, the handle is automatically destroyed via the
+ * equivalent of destroy_constrained_message_type_support.
+ *
+ * The raw destroy function is still available for C interop and internal
+ * use, but C++ callers should prefer the shared_ptr API.
+ *
+ * \param[in] base_typesupport  Base XCDR typesupport handle.
+ * \param[in] constraints       Full constraints struct (blanket + type-specific).
+ * \return A shared_ptr to the new constrained handle, or nullptr on error.
+ */
 ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC
-rosidl_message_type_support_t *
+std::shared_ptr<rosidl_message_type_support_t>
 create_constrained_message_type_support(
   const rosidl_message_type_support_t * base_typesupport,
-  const void * constraints);
+  const rosidl_message_type_constraints_t * constraints);
 
+/// Destroy a constrained typesupport handle.
+/**
+ * Only needed for C interop or explicit lifecycle management.
+ * C++ callers should use the shared_ptr returned by
+ * create_constrained_message_type_support instead.
+ */
 ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC
 void
 destroy_constrained_message_type_support(
@@ -178,6 +233,29 @@ release_message(
   const rosidl_message_type_support_t * typesupport,
   void * message);
 
+/// Validate a message instance against the type's constraints.
+/**
+ * Dispatches through the C trampoline to the per-message generated
+ * validation callback.  The trampoline encapsulates strict / non-strict
+ * policy based on constraints->strict.
+ *
+ * Implementation in message_type_support.cpp.
+ *
+ * \param typesupport   XCDR typesupport handle.
+ * \param constraints   Constraints (type_specific + strict policy).
+ * \param message       Message instance to validate.
+ * \param report_cb     Callback for each violating field (may be NULL).
+ * \return RCUTILS_RET_OK if the message satisfies all constraints,
+ *         RCUTILS_RET_ERROR if a constraint is violated or on error.
+ */
+ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC
+rcutils_ret_t
+validate_message(
+  const rosidl_message_type_support_t * typesupport,
+  const rosidl_message_type_constraints_t * constraints,
+  const void * message,
+  rosidl_runtime_cpp::ConstraintReportCallback report_cb = nullptr);
+
 /// Template to get message type support handle for specific message type.
 template<typename MessageT>
 const rosidl_message_type_support_t *
@@ -196,29 +274,21 @@ get_message_type_support_handle();
  * which handles blanket limits and dispatches type-specific comparison through
  * the outer struct callback.
  *
+ * Implementation in message_type_support.cpp.
+ *
  * \param typesupport  XCDR typesupport handle (may be NULL).
  * \param candidate    Candidate constraints.
  * \param baseline     Reference constraints.
  * \param report_cb    Callback invoked for each incompatible field (may be NULL).
- * \param user_data    Opaque pointer forwarded to the callback.
  * \return true if candidate is compatible with baseline, false otherwise.
  */
-inline bool
+ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC
+bool
 compare_constraints(
   const rosidl_message_type_support_t * typesupport,
   const rosidl_message_type_constraints_t * candidate,
   const rosidl_message_type_constraints_t * baseline,
-  rosidl_runtime_cpp::ConstraintReportCallback report_cb = nullptr,
-  void * user_data = nullptr)
-{
-  return rosidl_typesupport_xcdr_c_compare_constraints(
-    typesupport, candidate, baseline,
-    reinterpret_cast<rosidl_typesupport_xcdr_c_constraint_report_callback_t>(report_cb),
-    user_data);
-}
-
-
+  rosidl_runtime_cpp::ConstraintReportCallback report_cb = nullptr);
 
 }  // namespace rosidl_typesupport_xcdr_cpp
-
 #endif  // ROSIDL_TYPESUPPORT_XCDR_CPP__MESSAGE_TYPE_SUPPORT_HPP_

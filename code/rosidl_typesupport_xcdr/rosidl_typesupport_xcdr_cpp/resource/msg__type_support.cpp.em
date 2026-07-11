@@ -903,7 +903,59 @@ compare_type_specific_constraints_@(msg_typename)(
   auto & candidate = *static_cast<const @(full_msg_typename)::Constraints *>(lhs);
   auto & baseline = *static_cast<const @(full_msg_typename)::Constraints *>(rhs);
 
-  return candidate.CheckCompatible(baseline, nullptr, nullptr, nullptr);
+  return candidate.CheckCompatible(baseline);
+}
+
+// Validate a message instance against type-specific constraints.
+extern "C" rcutils_ret_t
+validate_message_@(msg_typename)(
+  const void * type_specific,
+  const void * message_ptr,
+  rosidl_typesupport_xcdr_c_constraint_report_callback_t report_cb,
+  void * user_data)
+{
+  if (nullptr == type_specific || nullptr == message_ptr) {
+    return RCUTILS_RET_ERROR;
+  }
+  auto & constraints = *static_cast<const @(full_msg_typename)::Constraints *>(type_specific);
+  auto & msg = *static_cast<const @(full_msg_typename) *>(message_ptr);
+
+  // Bridge C callback + user_data into a std::function for CheckCompatible.
+  rosidl_runtime_cpp::ConstraintReportCallback cb = nullptr;
+  if (report_cb) {
+    // The path views produced by CheckCompatible always originate from
+    // std::string data, so they are guaranteed null-terminated.  Passing
+    // .data() directly is safe.
+    cb = [report_cb, user_data](std::string_view path, int reason_code) -> void {
+      report_cb(user_data, path.data(), reason_code);
+    };
+  }
+  return constraints.CheckCompatible(msg, cb)
+    ? RCUTILS_RET_OK : RCUTILS_RET_ERROR;
+}
+
+// Clone full constraints (blanket + type-specific) into handle-owned storage.
+extern "C" std::shared_ptr<rosidl_message_type_constraints_t>
+clone_constraints_@(msg_typename)(
+  const rosidl_message_type_constraints_t * src)
+{
+  if (nullptr == src) {
+    return nullptr;
+  }
+  // Deep-copy type_specific into a typed clone.
+  auto * ts = new @(full_msg_typename)::Constraints(
+    *static_cast<const @(full_msg_typename)::Constraints *>(src->type_specific));
+  auto * clone = new rosidl_message_type_constraints_t();
+  clone->type_specific = ts;
+  clone->max_string_length = src->max_string_length;
+  clone->max_total_size = src->max_total_size;
+  clone->strict = src->strict;
+  return std::shared_ptr<rosidl_message_type_constraints_t>(
+    clone,
+    [](rosidl_message_type_constraints_t * p) {
+      delete static_cast<@(full_msg_typename)::Constraints *>(p->type_specific);
+      delete p;
+    });
 }
 @[  end if]@
 
@@ -993,6 +1045,7 @@ inline const rosidl_message_xcdr_cpp_type_support_t & get_inner_@(msg_typename)(
   static const auto inner = []() {
     auto tmp = rosidl_message_xcdr_cpp_type_support_t{};
     tmp.build_constrained = &@(msg_namespace)::build_layout_@(msg_typename);
+    tmp.clone_constraints = &@(msg_namespace)::clone_constraints_@(msg_typename);
     tmp.build_layout_fields = &@(msg_namespace)::build_layout_fields_@(msg_typename);
     tmp.serialize_fields = &@(msg_namespace)::serialize_fields_into_writer_@(msg_typename);
     tmp.deserialize_fields = &@(msg_namespace)::deserialize_fields_from_reader_@(msg_typename);
@@ -1002,6 +1055,7 @@ inline const rosidl_message_xcdr_cpp_type_support_t & get_inner_@(msg_typename)(
     };
     tmp.cast_message = &@(msg_namespace)::cast_message_at_@(msg_typename);
     tmp.compute_serialized_size = &@(msg_namespace)::compute_serialized_size_@(msg_typename);
+    tmp.validate_fields = &@(msg_namespace)::validate_message_@(msg_typename);
     return tmp;
   }();
   return inner;

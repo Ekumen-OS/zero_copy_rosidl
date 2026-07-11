@@ -30,6 +30,17 @@ extern "C"
 {
 #endif
 
+/// Callback for reporting constraint incompatibilities (C-compatible).
+/**
+ * \param[in] user_data   Opaque pointer from the caller.
+ * \param[in] field_path  Dot-separated path to the field that fails (e.g. "payload.size").
+ * \param[in] reason_code Reason code (0 = looser bound, 1 = type-specific mismatch).
+ */
+typedef void (*rosidl_typesupport_xcdr_c_constraint_report_callback_t)(
+  void * user_data,
+  const char * field_path,
+  int reason_code);
+
 /// XCDR message type support (outer, language-agnostic).
 /**
  * Each language-specific XCDR typesupport (C, C++, Python) populates
@@ -63,67 +74,67 @@ typedef struct rosidl_message_xcdr_type_support_s
   // -------------------------------------------------------------------
 
   /// Compute the expected message size from the (possibly constrained) layout.
-  /** \param[in]  inner  Language-specific state.
-   *  \param[out] size   Expected size in bytes.
+  /** \param[in]  type_support  XCDR type support for the message type.
+   *  \param[out] size  Expected size in bytes.
    *  \return RCUTILS_RET_OK on success, or RCUTILS_RET_ERROR. */
   rcutils_ret_t (*get_expected_size)(
-    const void * inner,
+    const struct rosidl_message_xcdr_type_support_s * type_support,
     size_t * size);
 
   /// Compute the actual serialized size of a given message.
-  /** \param[in]  inner   Language-specific state.
+  /** \param[in]  type_support  XCDR type support for the message type.
    *  \param[in]  message Fully constructed message.
    *  \param[out] size    Serialized size in bytes.
    *  \return RCUTILS_RET_OK on success, or RCUTILS_RET_ERROR. */
   rcutils_ret_t (*get_message_size)(
-    const void * inner,
+    const struct rosidl_message_xcdr_type_support_s * type_support,
     const void * message,
     size_t * size);
 
   /// Construct a message in-place at a given storage region.
   /** The storage region must be at least as large as the expected size.
    *  The output `*message` points into the storage region.
-   *  \param[in]  inner   Language-specific state.
+   *  \param[in]  type_support  XCDR type support for the message type.
    *  \param[in]  storage Pre-allocated memory region.
    *  \param[out] message Pointer to the constructed message (borrows from storage).
    *  \return RCUTILS_RET_OK on success, or RCUTILS_RET_ERROR. */
   rcutils_ret_t (*construct_message_at)(
-    const void * inner,
+    const struct rosidl_message_xcdr_type_support_s * type_support,
     rosidl_memory_region_t storage,
     void ** message);
 
   /// Cast an XCDR buffer into a message (zero-copy deserialization).
   /** Parses the layout from the buffer.  The resulting message borrows from
    *  the buffer and must not outlive it.
-   *  \param[in]  inner   Language-specific state.
+   *  \param[in]  type_support  XCDR type support for the message type.
    *  \param[in]  storage Buffer containing a serialized XCDR message.
    *  \param[out] message Pointer to the deserialized message.
    *  \return RCUTILS_RET_OK on success, or RCUTILS_RET_ERROR. */
   rcutils_ret_t (*cast_message_at)(
-    const void * inner,
+    const struct rosidl_message_xcdr_type_support_s * type_support,
     rosidl_memory_region_t storage,
     void ** message);
 
   /// Serialize a message into a storage region.
   /** The storage region must have at least the capacity returned by
    *  `get_expected_size` or `get_message_size`.
-   *  \param[in]  inner   Language-specific state.
+   *  \param[in]  type_support  XCDR type support for the message type.
    *  \param[in]  message Message to serialize.
    *  \param[in]  storage Destination memory region.
    *  \return RCUTILS_RET_OK on success, or RCUTILS_RET_ERROR. */
   rcutils_ret_t (*serialize_message_into)(
-    const void * inner,
+    const struct rosidl_message_xcdr_type_support_s * type_support,
     const void * message,
     rosidl_memory_region_t storage);
 
   /// Deserialize a message from a storage region into an existing message.
   /** The message is allocated by the caller and must match the type.
-   *  \param[in]  inner   Language-specific state.
+   *  \param[in]  type_support  XCDR type support for the message type.
    *  \param[in]  storage Source buffer.
    *  \param[out] message Destination message (already allocated).
    *  \return RCUTILS_RET_OK on success, or RCUTILS_RET_ERROR. */
   rcutils_ret_t (*deserialize_message_from)(
-    const void * inner,
+    const struct rosidl_message_xcdr_type_support_s * type_support,
     rosidl_memory_region_t storage,
     void * message);
 
@@ -149,13 +160,16 @@ typedef struct rosidl_message_xcdr_type_support_s
   /** Allocates a new `rosidl_message_type_support_t` and its associated
    *  outer + inner callback instances.  The caller owns the returned handle
    *  and must eventually pass it to `destroy_constrained`.
-   *  \param[in]  outer                      Outer callback table to base the new handle on.
-   *  \param[in]  type_specific_constraints  Per-message constraints (language-specific).
+   *  The caller must ensure the constraints outlive the returned handle
+   *  (the handle clones the constraints into owned storage via
+   *  `clone_constraints` for C++ inner typesupports).
+   *  \param[in]  outer       Outer callback table to base the new handle on.
+   *  \param[in]  constraints Full constraints struct (blanket + type-specific).
    *  \return A new typesupport handle, or NULL on failure.
    */
   rosidl_message_type_support_t * (*create_constrained)(
     const struct rosidl_message_xcdr_type_support_s * outer,
-    const void * type_specific_constraints);
+    const rosidl_message_type_constraints_t * constraints);
 
   /// Destroy a constrained typesupport handle previously returned by `create_constrained`.
   /** Releases the outer callback instance, its inner state, and the handle itself.
@@ -174,10 +188,43 @@ typedef struct rosidl_message_xcdr_type_support_s
     const void * lhs,
     const void * rhs);
 
+  /// Validate a message instance against the type's constraints.
+  /** Walks the message fields and compares each against its constraint
+   *  bounds (from constraints->type_specific).  Reports violating fields
+   *  through the optional report callback with dot-separated field paths.
+   *  Encapsulates strict vs non-strict policy: when constraints->strict is
+   *  false, a cheap payload-size check is attempted first; full per-field
+   *  validation is only run on payload-size failure.  When constraints->strict
+   *  is true, full per-field validation always runs.
+   *  \param[in]  type_support  XCDR type support for the message type.
+   *  \param[in]  constraints  Constraints (type_specific + strict policy).
+   *  \param[in]  message      Message instance to validate.
+   *  \param[in]  report_cb    Callback for each violating field (may be NULL).
+   *  \param[in]  user_data    Opaque pointer forwarded to report_cb.
+   *  \return RCUTILS_RET_OK if the message satisfies all constraints,
+   *          RCUTILS_RET_ERROR if a constraint is violated. */
+  rcutils_ret_t (*validate_message)(
+    const struct rosidl_message_xcdr_type_support_s * type_support,
+    const rosidl_message_type_constraints_t * constraints,
+    const void * message,
+    rosidl_typesupport_xcdr_c_constraint_report_callback_t report_cb,
+    void * user_data);
+
+  /// Return the owned constraints for this typesupport handle.
+  /** For dynamically created constrained handles, returns a pointer to the
+   *  cloned constraints whose lifetime is tied to the handle.  For statically
+   *  created (unconstrained) handles, returns NULL.
+   *  \param[in] type_support  XCDR type support to query.
+   *  \return Pointer to the baseline constraints, or NULL if unconstrained.
+   */
+  const rosidl_message_type_constraints_t * (*get_constraints)(
+    const struct rosidl_message_xcdr_type_support_s * type_support);
+
   /// Destroy the language-specific inner state (only set for dynamically allocated instances).
-  /** May be NULL for statically generated instances. */
+  /** May be NULL for statically generated instances.
+   *  \param[in] type_support  XCDR type support (derives inner state from inner field). */
   void (*destroy_inner)(
-    void * inner);
+    const struct rosidl_message_xcdr_type_support_s * type_support);
 } rosidl_message_xcdr_type_support_t;
 
 // ============================================================================
@@ -280,32 +327,84 @@ rosidl_typesupport_xcdr_c_release_message(
 /// \name Constrained-handle lifecycle
 /// \{
 
+/// Create a constrained typesupport handle that clones and owns the constraints.
+/**
+ * The returned handle owns a deep copy of `constraints` (blanket fields +
+ * type-specific).  Its lifetime is independent of the original constraints
+ * pointer.  Retrieve the owned baseline via `rosidl_typesupport_xcdr_c_get_constraints`.
+ *
+ * \param[in] base_typesupport  Base XCDR typesupport handle.
+ * \param[in] constraints       Full constraints struct (blanket + type-specific).
+ * \return A new typesupport handle, or NULL on error.
+ */
 ROSIDL_TYPESUPPORT_XCDR_C_PUBLIC
 rosidl_message_type_support_t *
 rosidl_typesupport_xcdr_c_create_constrained_message_type_support(
   const rosidl_message_type_support_t * base_typesupport,
-  const void * constraints);
+  const rosidl_message_type_constraints_t * constraints);
 
 ROSIDL_TYPESUPPORT_XCDR_C_PUBLIC
 void
 rosidl_typesupport_xcdr_c_destroy_constrained_message_type_support(
   rosidl_message_type_support_t * type_support);
 
+/// Return the owned baseline constraints for a constrained XCDR handle.
+/**
+ * Returns a pointer to the constraints stored inside the typesupport handle
+ * (owned storage, lives for the handle's lifetime).  Returns NULL for
+ * unconstrained (statically generated) handles.
+ *
+ * \param[in] type_support  XCDR typesupport handle.
+ * \return Pointer to the baseline constraints, or NULL if not constrained.
+ */
+ROSIDL_TYPESUPPORT_XCDR_C_PUBLIC
+const rosidl_message_type_constraints_t *
+rosidl_typesupport_xcdr_c_get_constraints(
+  const rosidl_message_type_support_t * type_support);
+
+/// \}
+
+/// \name Message instance validation
+/// \{
+
+/// Validate a message instance against the type's constraints.
+/**
+ * Walks the message fields and compares each against its constraint
+ * bounds (from constraints->type_specific).  Reports violating fields
+ * through the optional callback.
+ *
+ * Encapsulates strict / non-strict validation policy:
+ *   - When constraints->strict is false (default), a cheap payload-size
+ *     check is attempted first.  If the payload fits within the expected
+ *     bound, OK is returned without per-field walking.
+ *   - When constraints->strict is true, full per-field validation always
+ *     runs (for diagnostics and tighter enforcement).
+ *   - When constraints->strict is false but the payload-size check fails,
+ *     full validation is triggered automatically to report the culprit field path.
+ *
+ * The type_support must have an identifier containing "xcdr".
+ *
+ * \param[in]  type_support  XCDR typesupport handle.
+ * \param[in]  constraints   Constraints (type_specific + strict policy).
+ * \param[in]  message       Message instance to validate.
+ * \param[in]  report_cb     Callback for each violating field (may be NULL).
+ * \param[in]  user_data     Opaque pointer forwarded to the callback.
+ * \return RCUTILS_RET_OK if the message satisfies all constraints,
+ *         RCUTILS_RET_ERROR if a constraint is violated or on error.
+ */
+ROSIDL_TYPESUPPORT_XCDR_C_PUBLIC
+rcutils_ret_t
+rosidl_typesupport_xcdr_c_validate_message(
+  const rosidl_message_type_support_t * type_support,
+  const rosidl_message_type_constraints_t * constraints,
+  const void * message,
+  rosidl_typesupport_xcdr_c_constraint_report_callback_t report_cb,
+  void * user_data);
+
 /// \}
 
 /// \name Constraint comparison
 /// \{
-
-/// Callback for reporting constraint incompatibilities (C-compatible).
-/**
- * \param[in] user_data   Opaque pointer from the caller.
- * \param[in] field_path  Dot-separated path to the field that fails (e.g. "payload.size").
- * \param[in] reason_code Reason code (0 = looser bound, 1 = type-specific mismatch).
- */
-typedef void (*rosidl_typesupport_xcdr_c_constraint_report_callback_t)(
-  void * user_data,
-  const char * field_path,
-  int reason_code);
 
 /// Compare constraints (blanket + type-specific) with incompatible-field reporting.
 /**

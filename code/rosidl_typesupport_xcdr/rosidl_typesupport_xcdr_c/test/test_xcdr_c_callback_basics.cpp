@@ -43,18 +43,21 @@
 static int last_called = -1;  // 0=get_expected_size, 1=get_message_size, ...
 
 static rcutils_ret_t
-mock_get_expected_size(const void * inner, size_t * size)
+mock_get_expected_size(
+  const rosidl_message_xcdr_type_support_t * outer, size_t * size)
 {
-  (void)inner;
+  (void)outer;
   last_called = 0;
   *size = 42;
   return RCUTILS_RET_OK;
 }
 
 static rcutils_ret_t
-mock_get_message_size(const void * inner, const void * msg, size_t * size)
+mock_get_message_size(
+  const rosidl_message_xcdr_type_support_t * outer,
+  const void * msg, size_t * size)
 {
-  (void)inner;
+  (void)outer;
   (void)msg;
   last_called = 1;
   *size = 42;
@@ -62,9 +65,11 @@ mock_get_message_size(const void * inner, const void * msg, size_t * size)
 }
 
 static rcutils_ret_t
-mock_construct_at(const void * inner, rosidl_memory_region_t storage, void ** msg)
+mock_construct_at(
+  const rosidl_message_xcdr_type_support_t * outer,
+  rosidl_memory_region_t storage, void ** msg)
 {
-  (void)inner;
+  (void)outer;
   (void)storage;
   last_called = 2;
   *msg = reinterpret_cast<void *>(0xDEAD);
@@ -72,9 +77,11 @@ mock_construct_at(const void * inner, rosidl_memory_region_t storage, void ** ms
 }
 
 static rcutils_ret_t
-mock_cast_at(const void * inner, rosidl_memory_region_t storage, void ** msg)
+mock_cast_at(
+  const rosidl_message_xcdr_type_support_t * outer,
+  rosidl_memory_region_t storage, void ** msg)
 {
-  (void)inner;
+  (void)outer;
   (void)storage;
   last_called = 3;
   *msg = reinterpret_cast<void *>(0xDEAD);
@@ -82,9 +89,11 @@ mock_cast_at(const void * inner, rosidl_memory_region_t storage, void ** msg)
 }
 
 static rcutils_ret_t
-mock_serialize(const void * inner, const void * msg, rosidl_memory_region_t storage)
+mock_serialize(
+  const rosidl_message_xcdr_type_support_t * outer,
+  const void * msg, rosidl_memory_region_t storage)
 {
-  (void)inner;
+  (void)outer;
   (void)msg;
   (void)storage;
   last_called = 4;
@@ -92,9 +101,11 @@ mock_serialize(const void * inner, const void * msg, rosidl_memory_region_t stor
 }
 
 static rcutils_ret_t
-mock_deserialize(const void * inner, rosidl_memory_region_t storage, void * msg)
+mock_deserialize(
+  const rosidl_message_xcdr_type_support_t * outer,
+  rosidl_memory_region_t storage, void * msg)
 {
-  (void)inner;
+  (void)outer;
   (void)storage;
   (void)msg;
   last_called = 5;
@@ -119,8 +130,9 @@ mock_release_message(void * msg)
 static rosidl_message_type_support_t *
 mock_create_constrained(
   const rosidl_message_xcdr_type_support_t * outer,
-  const void * constraints)
+  const rosidl_message_type_constraints_t * constraints)
 {
+  (void)outer;
   (void)constraints;
   last_called = 8;
   // Return a statically "allocated" handle whose data points back to the
@@ -147,11 +159,35 @@ mock_compare_ts(const void * lhs, const void * rhs)
   return true;  // compatible
 }
 
-static void
-mock_destroy_inner(void * inner)
+static rcutils_ret_t
+mock_validate_message(
+  const rosidl_message_xcdr_type_support_t * outer,
+  const rosidl_message_type_constraints_t * constraints,
+  const void * message,
+  rosidl_typesupport_xcdr_c_constraint_report_callback_t report_cb,
+  void * user_data)
 {
-  (void)inner;
+  (void)outer;
+  (void)constraints;
+  (void)message;
+  (void)report_cb;
+  (void)user_data;
   last_called = 11;
+  return RCUTILS_RET_OK;
+}
+
+static void
+mock_destroy_inner(const rosidl_message_xcdr_type_support_t * outer)
+{
+  (void)outer;
+  last_called = 12;
+}
+
+static const rosidl_message_type_constraints_t *
+mock_get_constraints(const rosidl_message_xcdr_type_support_t * outer)
+{
+  (void)outer;
+  return nullptr;  // statically generated, no owned constraints
 }
 
 /// Build a mock outer callback table wired to the mocks above.
@@ -168,6 +204,8 @@ static rosidl_message_xcdr_type_support_t mock_outer = {
   mock_create_constrained,
   mock_destroy_constrained,
   mock_compare_ts,
+  mock_validate_message,
+  mock_get_constraints,
   mock_destroy_inner,
 };
 
@@ -397,7 +435,7 @@ TEST_F(TestXcdrCMockDispatch, ReleaseMessage)
 TEST_F(TestXcdrCMockDispatch, CreateConstrained)
 {
   // constraints is opaque to the C layer — pass a non-null dummy value.
-  int dummy_constraint{};
+  rosidl_message_type_constraints_t dummy_constraint{};
   auto * constrained =
     rosidl_typesupport_xcdr_c_create_constrained_message_type_support(
       &handle_, &dummy_constraint);
@@ -412,7 +450,7 @@ TEST_F(TestXcdrCMockDispatch, DestroyConstrained)
   rosidl_typesupport_xcdr_c_destroy_constrained_message_type_support(nullptr);
   EXPECT_EQ(-1, last_called);  // destroy_constrained(nullptr) must be a no-op.
 
-  int dummy_constraint{};
+  rosidl_message_type_constraints_t dummy_constraint{};
   auto * constrained =
     rosidl_typesupport_xcdr_c_create_constrained_message_type_support(
       &handle_, &dummy_constraint);
@@ -500,10 +538,11 @@ TEST_F(TestXcdrCWrongIdentifier, DeserializeMessageFrom)
 
 TEST_F(TestXcdrCWrongIdentifier, CreateConstrained)
 {
-  int dummy{};
+  // Wrong identifier test — nullptr constraints is fine since the
+  // identifier check runs first.
   EXPECT_EQ(nullptr,
     rosidl_typesupport_xcdr_c_create_constrained_message_type_support(
-      &handle_, &dummy));
+      &handle_, nullptr));
 }
 
 TEST_F(TestXcdrCWrongIdentifier, CompareConstraints)
@@ -585,10 +624,10 @@ TEST(TestXcdrCNullCallbacks, CreateConstrained_NullCallback)
   ts.typesupport_identifier = rosidl_typesupport_xcdr_c__identifier;
   ts.data = &null_cb;
 
-  int dummy{};
+  rosidl_message_type_constraints_t constraints{};
   EXPECT_EQ(nullptr,
     rosidl_typesupport_xcdr_c_create_constrained_message_type_support(
-      &ts, &dummy));
+      &ts, &constraints));
 }
 
 // =============================================================================
