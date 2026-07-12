@@ -605,6 +605,7 @@ for member in message.structure.members:
 #include <string>
 #include <vector>
 
+#include "rcutils/error_handling.h"
 #include "rcutils/types/rcutils_ret.h"
 #include "rosidl_runtime_c/message_type_support_struct.h"
 #include "rosidl_runtime_cpp/experimental/memory.hpp"
@@ -714,6 +715,112 @@ build_layout_fields_@(msg_typename)(
 @[    end for]@
   
   return RCUTILS_RET_OK;
+}
+
+// Forward declarations (defined below in shared section).
+rcutils_ret_t
+serialize_fields_into_writer_@(msg_typename)(
+  const void * message_ptr,
+  xcdr_buffers::XCdrWriter & writer);
+
+extern "C" rosidl_memory_region_t
+release_message_@(msg_typename)(void * message_ptr);
+
+// ============================================================================
+// compact_fields — internal recursive workhorse (fully bounded, no constraints)
+// All fields are fixed-size, so emit never flips — all fields are skipped or
+// written based on parent's emit flag only.
+// ============================================================================
+
+rcutils_ret_t
+compact_fields_@(msg_typename)(
+  const void * untyped_msg,
+  const xcdr_buffers::XCdrStructLayout & layout,
+  xcdr_buffers::XCdrWriter & writer,
+  bool & emit)
+{
+  if (nullptr == untyped_msg) {
+    return RCUTILS_RET_ERROR;
+  }
+  auto & msg = *static_cast<const @(full_msg_typename) *>(untyped_msg);
+  (void)layout;
+@[  for member in message.structure.members]@
+@[    if isinstance(member.type, BasicType)]@
+  if (emit) {
+    writer.write<@(get_cpp_type(member.type))>(msg.@(member.name));
+  } else {
+    writer.skip<@(get_cpp_type(member.type))>();
+  }
+
+@[    elif isinstance(member.type, Array)]@
+@[      if isinstance(member.type.value_type, BasicType)]@
+  if (emit) {
+    writer.write_array(tcb::span<const @(get_cpp_type(member.type.value_type))>(msg.@(member.name).data(), @(member.type.size)));
+  } else {
+    writer.skip_array<@(get_cpp_type(member.type.value_type))>(@(member.type.size));
+  }
+
+@[      elif isinstance(member.type.value_type, NamespacedType)]@
+@{
+nested_fn_arr = get_message_type_name(member.type.value_type, experimental_context=is_experimental)
+}@
+  {
+    auto _nested_ts = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(nested_fn_arr)>();
+    auto _nested_outer = static_cast<const rosidl_message_xcdr_type_support_t *>(_nested_ts->data);
+    auto _nested_inner = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(_nested_outer->inner);
+    const auto & _arr_layout = std::get<xcdr_buffers::XCdrStructLayout>(
+      layout.get_member(@(i))->get().layout());
+    for (size_t _j = 0; _j < @(member.type.size); ++_j) {
+      const auto & _elem_layout = std::get<xcdr_buffers::XCdrStructLayout>(
+        _arr_layout.element_layout(_j)->get());
+      _nested_inner->compact_fields_recursive(
+        &msg.@(member.name)[_j], _elem_layout, writer, emit);
+    }
+  }
+
+@[      end if]@
+
+@[    elif isinstance(member.type, NamespacedType)]@
+@{
+nested_fn = get_message_type_name(member.type, experimental_context=is_experimental)
+}@
+  {
+    auto _nested_ts = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(nested_fn)>();
+    auto _nested_outer = static_cast<const rosidl_message_xcdr_type_support_t *>(_nested_ts->data);
+    auto _nested_inner = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(_nested_outer->inner);
+    const auto & _nested_layout = std::get<xcdr_buffers::XCdrStructLayout>(
+      layout.get_member(@(i))->get().layout());
+    if (emit) {
+      _nested_inner->serialize_fields(&msg.@(member.name), writer);
+    } else {
+      _nested_inner->compact_fields_recursive(
+        &msg.@(member.name), _nested_layout, writer, emit);
+    }
+  }
+
+@[    end if]@
+@[  end for]@
+  return RCUTILS_RET_OK;
+}
+
+// Consume message view by compacting in-place (fully bounded, no constraints).
+// All fields are fixed-size so compact == layout always — fast path via release.
+extern "C" rosidl_memory_region_t
+compact_message_@(msg_typename)(
+  void * message_ptr,
+  const xcdr_buffers::XCdrStructLayout * /* cached_layout */)
+{
+  rosidl_memory_region_t null_region = {{nullptr, 0}, 0};
+  if (nullptr == message_ptr) {
+    RCUTILS_SET_ERROR_MSG("message_ptr is nullptr");
+    return null_region;
+  }
+  auto & msg = *static_cast<@(full_msg_typename) *>(message_ptr);
+  if (!msg._external_storage.has_value()) {
+    RCUTILS_SET_ERROR_MSG("no external storage to release");
+    return null_region;
+  }
+  return release_message_@(msg_typename)(message_ptr);
 }
 @[  end if]@
 
@@ -864,6 +971,29 @@ release_message_@(msg_typename)(void * message_ptr)
   return region;
 }
 
+// Return backing storage without destroying the message (C-compatible return type)
+extern "C" rosidl_memory_region_t
+get_backing_storage_@(msg_typename)(const void * message_ptr)
+{
+  // Non-destructive read — we only extract the block pointer without mutating.
+  auto * msg = static_cast<const @(full_msg_typename) *>(message_ptr);
+  
+  rosidl_memory_region_t region{{nullptr, 0}, 0};
+  if (msg->_external_storage.has_value()) {
+    const auto & block = msg->_external_storage.value().block;
+    region.location.address = const_cast<void *>(block.data());
+    region.size = block.size();
+    region.location.attributes = block.attributes();
+  }
+  // For inline-only messages (no external storage), return message pointer
+  // with size 0 as a zero-length marker.
+  if (nullptr == region.location.address) {
+    region.location.address = const_cast<void *>(message_ptr);
+    region.size = 0;
+  }
+  return region;
+}
+
 // Compute serialized size (with external-storage fast path)
 rcutils_ret_t
 compute_serialized_size_@(msg_typename)(
@@ -905,6 +1035,12 @@ compare_type_specific_constraints_@(msg_typename)(
 
   return candidate.CheckCompatible(baseline);
 }
+
+// Forward declaration for serialize function defined below.
+rcutils_ret_t
+serialize_fields_into_writer_@(msg_typename)(
+  const void * message_ptr,
+  xcdr_buffers::XCdrWriter & writer);
 
 // Validate a message instance against type-specific constraints.
 extern "C" rcutils_ret_t
@@ -956,6 +1092,399 @@ clone_constraints_@(msg_typename)(
       delete static_cast<@(full_msg_typename)::Constraints *>(p->type_specific);
       delete p;
     });
+}
+
+// ============================================================================
+// compact_fields — internal recursive workhorse
+//
+// Single-pass traversal: while emit==false, skip fields that match their
+// constraint maximum and set emit=true on the first undersized field.
+// After emit==true, serialize all remaining fields through the writer.
+// Returns error if any field violates its constraint bound.
+// ============================================================================
+
+rcutils_ret_t
+compact_fields_@(msg_typename)(
+  const void * untyped_msg,
+  const xcdr_buffers::XCdrStructLayout & layout,
+  xcdr_buffers::XCdrWriter & writer,
+  bool & emit)
+{
+  if (nullptr == untyped_msg) {
+    return RCUTILS_RET_ERROR;
+  }
+  auto & msg = *static_cast<const @(full_msg_typename) *>(untyped_msg);
+@[for i, member in enumerate(message.structure.members)]@
+@[  if isinstance(member.type, BasicType)]@
+@# Primitive field: no constraint check needed
+  if (emit) {
+    writer.write<@(get_cpp_type(member.type))>(msg.@(member.name));
+  } else {
+    writer.skip<@(get_cpp_type(member.type))>();
+  }
+
+@[  elif isinstance(member.type, AbstractString)]@
+@[    if isinstance(member.type, BoundedString)]@
+@# Bounded string: always at max, just skip or write
+  if (emit) {
+    writer.write(std::string_view(msg.@(member.name)));
+  } else {
+    writer.skip_string(msg.@(member.name).size());
+  }
+
+@[    else]@
+@# Unbounded string: check bound from layout
+  {
+    auto _actual_sz = msg.@(member.name).size();
+    auto _bound = std::get<xcdr_buffers::XCdrStringLayout>(
+      layout.get_member(@(i))->get().layout()).actual_length();
+    if (_actual_sz > _bound) { return RCUTILS_RET_ERROR; }
+    if (!emit && _actual_sz < _bound) { emit = true; }
+    if (emit) {
+      writer.write(std::string_view(msg.@(member.name).data(), msg.@(member.name).size()));
+    } else {
+      writer.skip_string(_actual_sz);
+    }
+  }
+
+@[    end if]@
+@[  elif isinstance(member.type, AbstractWString)]@
+@[    if isinstance(member.type, BoundedWString)]@
+@# Bounded wstring: always at max
+  if (emit) {
+    writer.write(std::u16string_view(msg.@(member.name)));
+  } else {
+    writer.skip_wstring(msg.@(member.name).size());
+  }
+
+@[    else]@
+@# Unbounded wstring: check bound from layout
+  {
+    auto _actual_sz = msg.@(member.name).size();
+    auto _bound = std::get<xcdr_buffers::XCdrStringLayout>(
+      layout.get_member(@(i))->get().layout()).actual_length();
+    if (_actual_sz > _bound) { return RCUTILS_RET_ERROR; }
+    if (!emit && _actual_sz < _bound) { emit = true; }
+    if (emit) {
+      writer.write(std::u16string_view(msg.@(member.name).data(), msg.@(member.name).size()));
+    } else {
+      writer.skip_wstring(_actual_sz);
+    }
+  }
+
+@[    end if]@
+@[  elif isinstance(member.type, Array)]@
+@# Array: fixed size, no constraint check; skip or write elements
+@[    if isinstance(member.type.value_type, BasicType)]@
+@# Array of primitives
+  if (emit) {
+    writer.write_array(tcb::span<const @(get_cpp_type(member.type.value_type))>(msg.@(member.name).data(), @(member.type.size)));
+  } else {
+    writer.skip_array<@(get_cpp_type(member.type.value_type))>(@(member.type.size));
+  }
+
+@[    elif isinstance(member.type.value_type, AbstractString)]@
+@# Array of strings
+  if (emit) {
+    for (const auto & _elem : msg.@(member.name)) {
+      writer.write(std::string_view(_elem));
+    }
+  } else {
+    for (const auto & _elem : msg.@(member.name)) {
+      writer.skip_string(_elem.size());
+    }
+  }
+
+@[    elif isinstance(member.type.value_type, AbstractWString)]@
+@# Array of wstrings
+  if (emit) {
+    for (const auto & _elem : msg.@(member.name)) {
+      writer.write(std::u16string_view(_elem));
+    }
+  } else {
+    for (const auto & _elem : msg.@(member.name)) {
+      writer.skip_wstring(_elem.size());
+    }
+  }
+
+@[    elif isinstance(member.type.value_type, NamespacedType)]@
+@# Array of nested messages
+@[      if 'experimental' in member.type.value_type.namespaces]@
+@{
+nested_ns_arr = '::'.join(member.type.value_type.namespaces)
+nested_short_arr = member.type.value_type.name
+nested_ts_name_arr = get_message_type_name(member.type.value_type, experimental_context=is_experimental)
+}@
+  {
+    auto _nested_ts_arr = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(nested_ts_name_arr)>();
+    auto _nested_outer_arr = static_cast<const rosidl_message_xcdr_type_support_t *>(_nested_ts_arr->data);
+    auto _nested_inner_arr = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(_nested_outer_arr->inner);
+    const auto & _arr_layout = std::get<xcdr_buffers::XCdrStructLayout>(
+      layout.get_member(@(i))->get().layout());
+    for (size_t _j = 0; _j < @(member.type.size); ++_j) {
+      const auto & _elem_layout = std::get<xcdr_buffers::XCdrStructLayout>(
+        _arr_layout.element_layout(_j)->get());
+      if (emit) {
+        _nested_inner_arr->serialize_fields(&msg.@(member.name)[_j], writer);
+      } else {
+        auto _ret = _nested_inner_arr->compact_fields_recursive(
+          &msg.@(member.name)[_j], _elem_layout, writer, emit);
+        if (_ret != RCUTILS_RET_OK) { return _ret; }
+      }
+    }
+  }
+
+@[      else]@
+@# Non-experimental nested in array: no savings possible, just serialize
+  {
+    auto _nested_ts_arr2 = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental))>();
+    auto _nested_outer_arr2 = static_cast<const rosidl_message_xcdr_type_support_t *>(_nested_ts_arr2->data);
+    auto _nested_inner_arr2 = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(_nested_outer_arr2->inner);
+    for (const auto & _elem : msg.@(member.name)) {
+      _nested_inner_arr2->serialize_fields(&_elem, writer);
+    }
+  }
+
+@[      end if]@
+@[    end if]@
+
+@[  elif isinstance(member.type, AbstractSequence)]@
+@# Sequence: may have constraint check on count
+@[    if isinstance(member.type, BoundedSequence)]@
+@# Bounded sequence: count is always at max, no constraint check
+@[    else]@
+@# Unbounded sequence: check count from layout
+@[    if isinstance(member.type.value_type, BasicType)]@
+  {
+    size_t _actual_cnt = msg.@(member.name).size();
+    size_t _bound = std::get<xcdr_buffers::XCdrPrimitiveSequenceLayout>(
+      layout.get_member(@(i))->get().layout()).actual_count();
+    if (_actual_cnt > _bound) { return RCUTILS_RET_ERROR; }
+    if (!emit && _actual_cnt < _bound) { emit = true; }
+  }
+@[    else]@
+  {
+    size_t _actual_cnt = msg.@(member.name).size();
+    size_t _bound = std::get<xcdr_buffers::XCdrSequenceLayout>(
+      layout.get_member(@(i))->get().layout()).actual_count();
+    if (_actual_cnt > _bound) { return RCUTILS_RET_ERROR; }
+    if (!emit && _actual_cnt < _bound) { emit = true; }
+  }
+@[    end if]@
+@[    end if]@
+@[    if isinstance(member.type.value_type, BasicType)]@
+@# Primitive sequence
+  if (emit) {
+@[      if get_cpp_type(member.type.value_type) == 'bool']@
+    writer.begin_write_sequence(msg.@(member.name).size());
+    for (const auto & _elem : msg.@(member.name)) {
+      writer.write(static_cast<uint8_t>(_elem));
+    }
+    writer.end_write_sequence();
+@[      else]@
+    writer.write_sequence(tcb::span<const @(get_cpp_type(member.type.value_type))>(
+      msg.@(member.name).data(), msg.@(member.name).size()));
+@[      end if]@
+  } else {
+    writer.skip_sequence<@(get_cpp_type(member.type.value_type))>(msg.@(member.name).size());
+  }
+
+@[    elif isinstance(member.type.value_type, AbstractString)]@
+@# Sequence of strings
+  if (emit) {
+    writer.begin_write_sequence(msg.@(member.name).size());
+    for (const auto & _elem : msg.@(member.name)) {
+      writer.write(std::string_view(_elem));
+    }
+    writer.end_write_sequence();
+  } else {
+    writer.begin_skip_sequence(msg.@(member.name).size());
+    for (const auto & _elem : msg.@(member.name)) {
+      writer.skip_string(_elem.size());
+    }
+    writer.end_write_sequence();
+  }
+
+@[    elif isinstance(member.type.value_type, AbstractWString)]@
+@# Sequence of wstrings
+  if (emit) {
+    writer.begin_write_sequence(msg.@(member.name).size());
+    for (const auto & _elem : msg.@(member.name)) {
+      writer.write(std::u16string_view(_elem));
+    }
+    writer.end_write_sequence();
+  } else {
+    writer.begin_skip_sequence(msg.@(member.name).size());
+    for (const auto & _elem : msg.@(member.name)) {
+      writer.skip_wstring(_elem.size());
+    }
+    writer.end_write_sequence();
+  }
+
+@[    elif isinstance(member.type.value_type, NamespacedType)]@
+@# Sequence of nested messages
+@[      if 'experimental' in member.type.value_type.namespaces]@
+@{
+nested_ns_seq = '::'.join(member.type.value_type.namespaces)
+nested_short_seq = member.type.value_type.name
+nested_ts_name_seq = get_message_type_name(member.type.value_type, experimental_context=is_experimental)
+}@
+  {
+    auto _nested_ts_seq = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(nested_ts_name_seq)>();
+    auto _nested_outer_seq = static_cast<const rosidl_message_xcdr_type_support_t *>(_nested_ts_seq->data);
+    auto _nested_inner_seq = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(_nested_outer_seq->inner);
+    const auto & _seq_layout = std::get<xcdr_buffers::XCdrSequenceLayout>(
+      layout.get_member(@(i))->get().layout());
+    if (emit) {
+      writer.begin_write_sequence(msg.@(member.name).size());
+      for (const auto & _elem : msg.@(member.name)) {
+        _nested_inner_seq->serialize_fields(&_elem, writer);
+      }
+      writer.end_write_sequence();
+    } else {
+      writer.begin_skip_sequence(msg.@(member.name).size());
+      for (size_t _sj = 0; _sj < msg.@(member.name).size(); ++_sj) {
+        const auto & _elem_layout = std::get<xcdr_buffers::XCdrStructLayout>(
+          _seq_layout.element_layout(_sj)->get());
+        auto _ret = _nested_inner_seq->compact_fields_recursive(
+          &msg.@(member.name)[_sj], _elem_layout, writer, emit);
+        if (_ret != RCUTILS_RET_OK) { return _ret; }
+      }
+      writer.end_write_sequence();
+    }
+  }
+
+@[      else]@
+@# Non-experimental nested in sequence: no savings possible, always serialize
+  {
+    auto _nested_ts_seq2 = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental))>();
+    auto _nested_outer_seq2 = static_cast<const rosidl_message_xcdr_type_support_t *>(_nested_ts_seq2->data);
+    auto _nested_inner_seq2 = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(_nested_outer_seq2->inner);
+    writer.begin_write_sequence(msg.@(member.name).size());
+    for (const auto & _elem : msg.@(member.name)) {
+      _nested_inner_seq2->serialize_fields(&_elem, writer);
+    }
+    writer.end_write_sequence();
+  }
+
+@[      end if]@
+@[    end if]@
+
+@[  elif isinstance(member.type, NamespacedType)]@
+@# Nested message member
+@[    if 'experimental' in member.type.namespaces]@
+@{
+nested_ns = '::'.join(member.type.namespaces)
+nested_short = member.type.name
+nested_ts_name = get_message_type_name(member.type, experimental_context=is_experimental)
+}@
+  {
+    const auto & _nested_layout = std::get<xcdr_buffers::XCdrStructLayout>(
+      layout.get_member(@(i))->get().layout());
+    auto _nested_ts = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(nested_ts_name)>();
+    auto _nested_outer = static_cast<const rosidl_message_xcdr_type_support_t *>(_nested_ts->data);
+    auto _nested_inner = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(_nested_outer->inner);
+    if (emit) {
+      _nested_inner->serialize_fields(&msg.@(member.name), writer);
+    } else {
+      auto _ret = _nested_inner->compact_fields_recursive(
+        &msg.@(member.name), _nested_layout, writer, emit);
+      if (_ret != RCUTILS_RET_OK) { return _ret; }
+    }
+  }
+
+@[    else]@
+@# Non-experimental nested: no savings possible (all fixed-size)
+  {
+    auto _nested_ts3 = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type, experimental_context=is_experimental))>();
+    auto _nested_outer3 = static_cast<const rosidl_message_xcdr_type_support_t *>(_nested_ts3->data);
+    auto _nested_inner3 = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(_nested_outer3->inner);
+    if (emit) {
+      _nested_inner3->serialize_fields(&msg.@(member.name), writer);
+    } else {
+      // Fixed-size nested — no compaction possible; skip the whole struct
+      _nested_inner3->serialize_fields(&msg.@(member.name), writer);
+    }
+  }
+
+@[    end if]@
+@[  end if]@
+
+@[end for]@
+  return RCUTILS_RET_OK;
+}
+
+// ============================================================================
+// compact_message — top-level consume-and-compact callback (layout-driven)
+//
+// Uses cached layout from the constrained handle for per-field maximum bounds.
+// Creates a writer at the header offset, runs compact_fields with emit=false,
+// then either release_message (if emit stays false) or consumes the message
+// and returns the compacted region.
+// ============================================================================
+
+extern "C" rosidl_memory_region_t
+compact_message_@(msg_typename)(
+  void * message_ptr,
+  const xcdr_buffers::XCdrStructLayout * cached_layout)
+{
+  rosidl_memory_region_t null_region = {{nullptr, 0}, 0};
+
+  if (nullptr == message_ptr) {
+    RCUTILS_SET_ERROR_MSG("message_ptr is nullptr");
+    return null_region;
+  }
+
+  auto & msg = *static_cast<@(full_msg_typename) *>(message_ptr);
+
+  // Get backing buffer from external storage.
+  if (!msg._external_storage.has_value()) {
+    RCUTILS_SET_ERROR_MSG("message has no external storage to compact");
+    return null_region;
+  }
+  auto & block = msg._external_storage.value().block;
+
+  auto buffer_span = tcb::span<uint8_t>(
+    static_cast<uint8_t *>(const_cast<void *>(block.data())), block.size());
+  constexpr size_t kHeaderSize = xcdr_buffers::kXCdrHeaderSize;
+  if (buffer_span.size() <= kHeaderSize) {
+    RCUTILS_SET_ERROR_MSG("backing buffer too small for CDR header");
+    return null_region;
+  }
+
+  // The constrained handle must carry a cached layout.
+  if (nullptr == cached_layout) {
+    RCUTILS_SET_ERROR_MSG("cached_layout not available for compaction");
+    return null_region;
+  }
+
+  // Single-pass traversal: start with emit=false, one writer.
+  xcdr_buffers::XCdrWriter writer(buffer_span, kHeaderSize);
+  bool emit = false;
+
+  auto ret = compact_fields_@(msg_typename)(&msg, *cached_layout, writer, emit);
+  if (ret != RCUTILS_RET_OK) {
+    // Layout-bound violation — message is NOT consumed.
+    return null_region;
+  }
+
+  if (!emit) {
+    // All fields at constraint maximum — fast path: release existing blob.
+    return release_message_@(msg_typename)(message_ptr);
+  }
+
+  // Rewrite path: compacted data was written into the buffer.
+  if (writer.has_error()) {
+    RCUTILS_SET_ERROR_MSG("XCdrWriter overflow during compaction rewrite");
+    return null_region;
+  }
+
+  void * blob = const_cast<void *>(block.data());
+  size_t compacted_size = writer.bytes_written();
+  delete &msg;
+
+  rosidl_memory_region_t result = {{blob, 0}, compacted_size};
+  return result;
 }
 @[  end if]@
 
@@ -1056,6 +1585,8 @@ inline const rosidl_message_xcdr_cpp_type_support_t & get_inner_@(msg_typename)(
     tmp.cast_message = &@(msg_namespace)::cast_message_at_@(msg_typename);
     tmp.compute_serialized_size = &@(msg_namespace)::compute_serialized_size_@(msg_typename);
     tmp.validate_fields = &@(msg_namespace)::validate_message_@(msg_typename);
+    tmp.compact_fields = &@(msg_namespace)::compact_message_@(msg_typename);
+    tmp.compact_fields_recursive = &@(msg_namespace)::compact_fields_@(msg_typename);
     return tmp;
   }();
   return inner;
@@ -1076,6 +1607,8 @@ inline const rosidl_message_xcdr_cpp_type_support_t & get_inner_@(msg_typename)(
     };
     tmp.cast_message = &@(msg_namespace)::cast_message_at_@(msg_typename);
     tmp.compute_serialized_size = &@(msg_namespace)::compute_serialized_size_@(msg_typename);
+    tmp.compact_fields = &@(msg_namespace)::compact_message_@(msg_typename);
+    tmp.compact_fields_recursive = &@(msg_namespace)::compact_fields_@(msg_typename);
     return tmp;
   }();
   return inner;
@@ -1112,6 +1645,7 @@ get_message_type_support_handle<@(full_msg_typename)>()
 @[if is_experimental]@
     tmp.destroy_message = &@(msg_namespace)::destroy_message_@(msg_typename);
     tmp.release_message = &@(msg_namespace)::release_message_@(msg_typename);
+    tmp.get_backing_storage = &@(msg_namespace)::get_backing_storage_@(msg_typename);
 @[  if has_constraints]@
     tmp.compare_type_specific_constraints = &@(msg_namespace)::compare_type_specific_constraints_@(msg_typename);
 @[  end if]@

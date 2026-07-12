@@ -195,6 +195,15 @@ cpp_release_message(void * message)
   return rosidl_memory_region_t{{nullptr, 0}, 0};
 }
 
+extern "C" rosidl_memory_region_t
+cpp_get_backing_storage(const void * message)
+{
+  // Default no-op (returns empty region).  Overridden by codegen for
+  // experimental messages that support external storage.
+  (void)message;
+  return rosidl_memory_region_t{{nullptr, 0}, 0};
+}
+
 extern "C" rosidl_message_type_support_t *
 cpp_create_constrained(
   const rosidl_message_xcdr_type_support_t * xcdr,
@@ -238,9 +247,11 @@ cpp_create_constrained(
   new_inner->owned_constraints = owned;
   new_inner->is_dynamically_allocated = true;
 
-  // Create new xcdr struct (copy prototype, set inner).
-  auto * new_xcdr = new rosidl_message_xcdr_type_support_t();
-  *new_xcdr = *get_xcdr_cpp_type_support_prototype();
+  // Create new xcdr struct (copy base handle's outer table, set inner).
+  // Copying from xcdr preserves all per-message function pointers (including
+  // destroy_message, release_message, get_backing_storage, etc.) that the
+  // prototype doesn't carry.  Only inner is replaced.
+  auto * new_xcdr = new rosidl_message_xcdr_type_support_t(*xcdr);
   new_xcdr->inner = new_inner;
 
   // Create new handle.
@@ -308,6 +319,28 @@ cpp_validate_message(
     constraints->type_specific, message, report_cb, user_data);
 }
 
+extern "C" rosidl_memory_region_t
+cpp_compact_message_in_place(
+  const rosidl_message_xcdr_type_support_t * xcdr,
+  void * message)
+{
+  rosidl_memory_region_t null_region = {{nullptr, 0}, 0};
+
+  if (nullptr == xcdr || nullptr == message) {
+    RCUTILS_SET_ERROR_MSG("xcdr or message is nullptr");
+    return null_region;
+  }
+  auto * impl = static_cast<const rosidl_message_xcdr_cpp_type_support_t *>(xcdr->inner);
+  if (nullptr == impl->compact_fields) {
+    RCUTILS_SET_ERROR_MSG("compact_fields callback not available");
+    return null_region;
+  }
+
+  return impl->compact_fields(
+    message,
+    impl->cached_layout.get());
+}
+
 extern "C" void
 cpp_destroy_inner(const rosidl_message_xcdr_type_support_t * xcdr)
 {
@@ -352,12 +385,14 @@ get_xcdr_cpp_type_support_prototype()
     cpp_deserialize_message_from,
     cpp_destroy_message,          // overridden by codegen for experimental
     cpp_release_message,          // overridden by codegen for experimental
+    cpp_get_backing_storage,      // overridden by codegen for experimental
     cpp_create_constrained,
     cpp_destroy_constrained,
     cpp_compare_type_specific_constraints,
     cpp_validate_message,
     cpp_get_constraints,
     cpp_destroy_inner,
+    cpp_compact_message_in_place,
   };
   return &prototype;
 }
@@ -487,6 +522,15 @@ deserialize_message_from(
     typesupport, storage.c_region(), message);
 }
 
+  rosidl_memory_region_t
+  compact_message_in_place(
+    const rosidl_message_type_support_t * typesupport,
+    void * message)
+  {
+    return rosidl_typesupport_xcdr_c_compact_message_in_place(
+      typesupport, message);
+  }
+
 void
 destroy_message(
   const rosidl_message_type_support_t * typesupport,
@@ -502,6 +546,15 @@ release_message(
 {
   return rosidl_runtime_cpp::MemoryRegion<void>(
     rosidl_typesupport_xcdr_c_release_message(typesupport, message));
+}
+
+rosidl_runtime_cpp::MemoryRegion<void>
+get_backing_storage(
+  const rosidl_message_type_support_t * typesupport,
+  const void * message)
+{
+  return rosidl_runtime_cpp::MemoryRegion<void>(
+    rosidl_typesupport_xcdr_c_get_backing_storage(typesupport, message));
 }
 
 // ============================================================================

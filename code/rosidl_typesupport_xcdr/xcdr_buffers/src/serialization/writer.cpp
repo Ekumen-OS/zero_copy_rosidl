@@ -291,6 +291,103 @@ void XCdrWriter::end_write_sequence()
   context_stack_.pop_back();
 }
 
+// ============================================================================
+// Non-mutating skip helpers
+// ============================================================================
+
+void XCdrWriter::skip_advance(size_t alignment, size_t advance_size)
+{
+  if (overflow_error_) {
+    return;
+  }
+
+  if (is_fixed_mode_) {
+    // Fixed mode: advance position without padding memset or byte writes
+    size_t data_offset = write_position_ - kXCdrHeaderSize;
+    size_t aligned_data_offset = align_to(data_offset, alignment);
+    size_t aligned_pos = kXCdrHeaderSize + aligned_data_offset;
+    size_t new_pos = aligned_pos + advance_size;
+
+    if (new_pos > fixed_span_.size()) {
+      overflow_error_ = true;
+      return;
+    }
+
+    write_position_ = new_pos;
+  } else {
+    // Growing mode: resize (zero-fill is inherent in resize — unavoidable)
+    size_t current_pos = buffer_.size();
+    size_t data_offset = current_pos - kXCdrHeaderSize;
+    size_t aligned_data_offset = align_to(data_offset, alignment);
+    size_t aligned_pos = kXCdrHeaderSize + aligned_data_offset;
+
+    buffer_.resize(aligned_pos + advance_size);
+  }
+}
+
+void XCdrWriter::skip_string(size_t char_count)
+{
+  ensure_header_written();
+
+  if (overflow_error_) {
+    return;
+  }
+
+  skip_advance(kStringLengthPrefixSize, kStringLengthPrefixSize);
+
+  if (overflow_error_) {
+    return;
+  }
+
+  // String data is byte-aligned
+  skip_advance(1, char_count + kStringNullTerminatorSize);
+}
+
+void XCdrWriter::skip_wstring(size_t char_count)
+{
+  ensure_header_written();
+
+  if (overflow_error_) {
+    return;
+  }
+
+  skip_advance(kStringLengthPrefixSize, kStringLengthPrefixSize);
+
+  if (overflow_error_) {
+    return;
+  }
+
+  // Each char16_t aligned individually (matches write<u16string_view>)
+  for (size_t i = 0; i < char_count; ++i) {
+    skip_advance(sizeof(char16_t), sizeof(char16_t));
+    if (overflow_error_) {
+      return;
+    }
+  }
+
+  // Null terminator
+  skip_advance(sizeof(char16_t), sizeof(char16_t));
+}
+
+void XCdrWriter::begin_skip_sequence(size_t count)
+{
+  ensure_header_written();
+
+  if (overflow_error_) {
+    return;
+  }
+
+  // Advance past length prefix (no byte write)
+  skip_advance(kSequenceLengthPrefixSize, kSequenceLengthPrefixSize);
+
+  if (overflow_error_) {
+    return;
+  }
+
+  size_t pos = is_fixed_mode_ ? write_position_ : buffer_.size();
+  context_stack_.push_back({pos, count, 0});
+}
+
 void XCdrWriter::begin_write_struct()
 {
   ensure_header_written();

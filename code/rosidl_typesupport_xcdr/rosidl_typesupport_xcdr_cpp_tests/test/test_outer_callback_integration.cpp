@@ -49,10 +49,15 @@ TEST(TestOuterCallbackIntegration, SerializeThroughConstrainedHandle)
   constraints.name.size = 256;
   constraints.data.size = 100;
 
+  rosidl_message_type_constraints_t wrapped_constraints;
+  wrapped_constraints.type_specific = &constraints;
+  wrapped_constraints.max_string_length = 0;
+  wrapped_constraints.max_total_size = 0;
+  wrapped_constraints.strict = false;
   auto constrained =
     rosidl_typesupport_xcdr_cpp::create_constrained_message_type_support(
-      old_handle, &constraints);
-  ASSERT_NE(nullptr, constrained);
+      old_handle, &wrapped_constraints);
+  ASSERT_NE(nullptr, constrained.get());
   EXPECT_STREQ(rosidl_typesupport_xcdr_cpp__identifier,
     constrained->typesupport_identifier);
 
@@ -64,18 +69,16 @@ TEST(TestOuterCallbackIntegration, SerializeThroughConstrainedHandle)
   rosidl_runtime_cpp::MemoryRegion<void> storage{buffer.data(), buffer.size()};
 
   auto ret = rosidl_typesupport_xcdr_cpp::serialize_message_into(
-    constrained, &original, storage);
+    constrained.get(), &original, storage);
   ASSERT_EQ(RCUTILS_RET_OK, ret);
 
   ExperimentalUnbounded deserialized;
   ret = rosidl_typesupport_xcdr_cpp::deserialize_message_from(
-    constrained, storage, &deserialized);
+    constrained.get(), storage, &deserialized);
   ASSERT_EQ(RCUTILS_RET_OK, ret);
 
   verify_unbounded_message(original, deserialized);
 
-  rosidl_typesupport_xcdr_cpp::destroy_constrained_message_type_support(
-    constrained);
 }
 
 // =============================================================================
@@ -117,15 +120,21 @@ TEST(TestOuterCallbackIntegration, ConstructAndCastThroughConstrained)
   constraints.name.size = 256;
   constraints.data.size = 100;
 
+  rosidl_message_type_constraints_t wrapped_constraints;
+  wrapped_constraints.type_specific = &constraints;
+  wrapped_constraints.max_string_length = 0;
+  wrapped_constraints.max_total_size = 0;
+  wrapped_constraints.strict = false;
   auto constrained =
     rosidl_typesupport_xcdr_cpp::create_constrained_message_type_support(
-      old_handle, &constraints);
-  ASSERT_NE(nullptr, constrained);
+      old_handle, &wrapped_constraints);
+  ASSERT_NE(nullptr, constrained.get());
+  auto constrained_ptr = constrained.get();
 
   // Get expected size from layout.
   size_t expected_size = 0;
   auto ret = rosidl_typesupport_xcdr_cpp::get_expected_message_size(
-    constrained, &expected_size);
+    constrained_ptr, &expected_size);
   ASSERT_EQ(RCUTILS_RET_OK, ret);
   EXPECT_GT(expected_size, 0u);
 
@@ -134,7 +143,7 @@ TEST(TestOuterCallbackIntegration, ConstructAndCastThroughConstrained)
   rosidl_runtime_cpp::MemoryRegion<void> storage{buffer.data(), buffer.size()};
   void * constructed = nullptr;
   ret = rosidl_typesupport_xcdr_cpp::construct_message_at(
-    constrained, storage, &constructed);
+    constrained.get(), storage, &constructed);
   ASSERT_EQ(RCUTILS_RET_OK, ret);
   ASSERT_NE(nullptr, constructed);
 
@@ -142,13 +151,13 @@ TEST(TestOuterCallbackIntegration, ConstructAndCastThroughConstrained)
   auto * typed = static_cast<ExperimentalUnbounded *>(constructed);
   fill_unbounded_message(*typed);
   ret = rosidl_typesupport_xcdr_cpp::serialize_message_into(
-    constrained, constructed, storage);
+    constrained.get(), constructed, storage);
   ASSERT_EQ(RCUTILS_RET_OK, ret);
 
   // Cast from storage (zero-copy receiver side).
   void * casted = nullptr;
   ret = rosidl_typesupport_xcdr_cpp::cast_message_at(
-    constrained, storage, &casted);
+    constrained.get(), storage, &casted);
   ASSERT_EQ(RCUTILS_RET_OK, ret);
   ASSERT_NE(nullptr, casted);
 
@@ -156,8 +165,6 @@ TEST(TestOuterCallbackIntegration, ConstructAndCastThroughConstrained)
   verify_unbounded_message(*typed, *typed_casted);
 
   // Clean up.
-  rosidl_typesupport_xcdr_cpp::destroy_message(constrained, constructed);
-  rosidl_typesupport_xcdr_cpp::destroy_message(constrained, casted);
-  rosidl_typesupport_xcdr_cpp::destroy_constrained_message_type_support(
-    constrained);
+  rosidl_typesupport_xcdr_cpp::destroy_message(constrained.get(), constructed);
+  rosidl_typesupport_xcdr_cpp::destroy_message(constrained.get(), casted);
 }

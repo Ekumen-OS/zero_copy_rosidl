@@ -180,10 +180,15 @@ TEST(TestApiErrors, WrongIdentifierOnSerialise)
 TEST(TestApiErrors, CreateConstrained_NullBase)
 {
   ExperimentalUnbounded::Constraints constraints;
+  rosidl_message_type_constraints_t wrapped_constraints;
+  wrapped_constraints.type_specific = &constraints;
+  wrapped_constraints.max_string_length = 0;
+  wrapped_constraints.max_total_size = 0;
+  wrapped_constraints.strict = false;
   auto constrained =
     rosidl_typesupport_xcdr_cpp::create_constrained_message_type_support(
-      nullptr, &constraints);
-  EXPECT_EQ(nullptr, constrained);
+      nullptr, &wrapped_constraints);
+  EXPECT_EQ(nullptr, constrained.get());
 }
 
 TEST(TestApiErrors, DestroyConstrained_Null)
@@ -211,7 +216,7 @@ TEST(TestApiErrors, CompareConstraints_BothNull)
 {
   EXPECT_TRUE(
     rosidl_typesupport_xcdr_cpp::compare_constraints(
-      nullptr, nullptr, nullptr, nullptr, nullptr));
+      nullptr, nullptr, nullptr, nullptr));
 }
 
 TEST(TestApiErrors, CompareConstraints_CandidateNullNotCompatible)
@@ -220,7 +225,7 @@ TEST(TestApiErrors, CompareConstraints_CandidateNullNotCompatible)
   baseline.max_string_length = 100;
   EXPECT_FALSE(
     rosidl_typesupport_xcdr_cpp::compare_constraints(
-      nullptr, nullptr, &baseline, nullptr, nullptr));
+      nullptr, nullptr, &baseline, nullptr));
 }
 
 TEST(TestApiErrors, CompareConstraints_WrongIdentifier)
@@ -239,7 +244,7 @@ TEST(TestApiErrors, CompareConstraints_WrongIdentifier)
 
   EXPECT_FALSE(
     rosidl_typesupport_xcdr_cpp::compare_constraints(
-      &bad_ts, &candidate, &baseline, nullptr, nullptr));
+      &bad_ts, &candidate, &baseline, nullptr));
 }
 
 int main(int argc, char ** argv)

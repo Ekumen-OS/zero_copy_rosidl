@@ -120,6 +120,56 @@ struct rosidl_message_xcdr_cpp_type_support_t
     const void * message,
     rosidl_typesupport_xcdr_c_constraint_report_callback_t report_cb,
     void * user_data){nullptr};
+
+  /// Per-type consume-and-compact callback (layout-driven).
+  /**
+   * Consumes the message view: uses the cached constrained layout to
+   * determine per-field maximum bounds during traversal, re-writes compact
+   * (actual-size) XCDR encoding into the message's own backing buffer using
+   * an offset writer (data area after CDR header), and destroys the view.
+   *
+   * On success returns a region whose .location.address is the blob
+   * pointer (same value that loan_sample returned) and .size is the
+   * compacted payload byte count (excl. header).
+   *
+   * On failure returns a null region ({ {nullptr, 0}, 0 }).
+   *
+   * \param[in]  message         Message view to consume and compact.
+   * \param[in]  cached_layout   Pre-built constrained layout from handle.
+   * \return Region with blob + size on success, null on failure.
+   */
+  rosidl_memory_region_t (*compact_fields)(
+    void * message,
+    const xcdr_buffers::XCdrStructLayout * cached_layout){nullptr};
+
+  /// Per-type recursive compact fields helper (internal recursion, layout-driven).
+  /**
+   * Non-consuming recursive workhorse shared across nested messages.
+   * Uses a shared writer and write-mode flag; the flag tunnels through
+   * the call stack so a mismatch deep in a nested message flips write
+   * mode for the entire remaining traversal.
+   * Derives per-field maximum bounds from the provided layout.
+   *
+   * \param[in]  message      Message to compact (untyped).
+   * \param[in]  layout       Struct layout with member metadata.
+   * \param[in]  writer       Shared writer.
+   * \param[out] emit         Write-mode flag (set to true on first undersized field).
+   * \return RCUTILS_RET_OK on success, RCUTILS_RET_ERROR on constraint violation.
+   */
+  rcutils_ret_t (*compact_fields_recursive)(
+    const void * message,
+    const xcdr_buffers::XCdrStructLayout & layout,
+    xcdr_buffers::XCdrWriter & writer,
+    bool & emit){nullptr};
+
+  /// Return the backing storage of a message without releasing it.
+  /** Non-consuming counterpart of release.  Returns the same backing memory
+   *  region that release_message would return, but does NOT destroy the view.
+   *  For messages with external storage, returns the external block region.
+   *  For inline-only messages, returns the message pointer itself with size 0.
+   *  \param[in]  message  Message to query.
+   *  \return Storage region, or null region on failure. */
+  rosidl_memory_region_t (*get_backing_storage)(const void * message){nullptr};
 };
 
 // ============================================================================
@@ -255,6 +305,38 @@ validate_message(
   const rosidl_message_type_constraints_t * constraints,
   const void * message,
   rosidl_runtime_cpp::ConstraintReportCallback report_cb = nullptr);
+
+  /// Consume a message view by compacting it in-place (layout-driven).
+  /**
+   * Dispatches through the C trampoline to the per-message generated
+   * compact callback.  Uses the cached layout from the constrained handle
+   * for per-field maximum bounds.  Consumes the message: traverses fields,
+   * re-writes compact encoding into the backing buffer using an offset
+   * writer, and destroys the view.  Returns a region with blob pointer +
+   * compacted size on success, or null region on failure.
+   *
+   * \param typesupport  XCDR typesupport handle (constrained, with cached layout).
+   * \param message      Message view to consume and compact.
+   * \return Region with blob pointer + size on success, null on failure.
+   */
+  ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC
+  rosidl_memory_region_t
+  compact_message_in_place(
+    const rosidl_message_type_support_t * typesupport,
+    void * message);
+
+/// Return the backing storage of a message without releasing it.
+/** Non-consuming counterpart of release_message.  Dispatches through the
+ *  C trampoline to the per-message generated callback.
+ *  \param[in]  type_support  XCDR typesupport handle.
+ *  \param[in]  message       Message view to query.
+ *  \return MemoryRegion wrapping the backing storage, or null on failure.
+ */
+ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC
+rosidl_runtime_cpp::MemoryRegion<void>
+get_backing_storage(
+  const rosidl_message_type_support_t * type_support,
+  const void * message);
 
 /// Template to get message type support handle for specific message type.
 template<typename MessageT>

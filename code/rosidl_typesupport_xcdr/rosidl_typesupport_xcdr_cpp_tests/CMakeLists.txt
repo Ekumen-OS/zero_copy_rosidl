@@ -76,14 +76,19 @@ if(BUILD_TESTING)
     test/test_constrained_typesupport.cpp
   )
 
-  # --- Outer callback integration (new-style wrapper, dual-path dispatch) ---
+  # --- Outer callback integration ---
   add_xcdr_test(test_outer_callback_integration
     test/test_outer_callback_integration.cpp
   )
 
-  # --- API error contracts ---
+  # --- Typesupport API error contracts ---
   add_xcdr_test(test_typesupport_api_errors
     test/test_typesupport_api_errors.cpp
+  )
+
+  # --- Compact traversal (fast path, rewrite path, fail path) ---
+  add_xcdr_test(test_compact_traversal
+    test/test_compact_traversal.cpp
   )
 
 endif()

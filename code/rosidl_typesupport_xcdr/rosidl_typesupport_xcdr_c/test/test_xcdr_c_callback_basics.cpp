@@ -201,12 +201,14 @@ static rosidl_message_xcdr_type_support_t mock_outer = {
   mock_deserialize,
   mock_destroy_message,
   mock_release_message,
+  nullptr,  // get_backing_storage (not used by these tests)
   mock_create_constrained,
   mock_destroy_constrained,
   mock_compare_ts,
   mock_validate_message,
   mock_get_constraints,
   mock_destroy_inner,
+  nullptr,  // compact_message_in_place (not used by these tests)
 };
 
 /// Build a minimal valid rosidl_message_type_support_t wrapping mock_outer.

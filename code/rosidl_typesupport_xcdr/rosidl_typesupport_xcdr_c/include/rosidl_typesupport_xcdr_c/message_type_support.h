@@ -152,6 +152,20 @@ typedef struct rosidl_message_xcdr_type_support_s
   rosidl_memory_region_t (*release_message)(
     void * message);
 
+  /// Return the backing storage of a message without releasing it.
+  /** Non-consuming counterpart of `release_message`.  Returns the same
+   *  backing memory region that `release_message` would return, but does
+   *  NOT destroy the message view.  The message remains valid after this call.
+   *
+   *  For messages with external storage, returns the external block region.
+   *  For inline-only messages (no external storage), returns a region whose
+   *  address is the message pointer itself and size is 0 (zero-length marker).
+   *
+   *  \param[in]  message Message to query.
+   *  \return Storage region, or { {NULL, 0}, 0 } on failure. */
+  rosidl_memory_region_t (*get_backing_storage)(
+    const void * message);
+
   // -------------------------------------------------------------------
   // Constrained-handle lifecycle
   // -------------------------------------------------------------------
@@ -225,6 +239,32 @@ typedef struct rosidl_message_xcdr_type_support_s
    *  \param[in] type_support  XCDR type support (derives inner state from inner field). */
   void (*destroy_inner)(
     const struct rosidl_message_xcdr_type_support_s * type_support);
+
+  // -------------------------------------------------------------------
+  // Compaction
+  // -------------------------------------------------------------------
+
+  /// Consume a message view by compacting it in-place (layout-driven).
+  /**
+   * Consumes the message view: uses the cached constrained layout for
+   * per-field maximum bounds, rewrites a compact (actual-size) XCDR
+   * encoding into the message's own backing buffer using an offset writer
+   * (data area after the CDR header), and destroys the message view.
+   *
+   * On success returns a region whose .location.address is the blob
+   * pointer (same value that loan_sample returned to rmw, for Fast DDS
+   * write/discard) and .size is the compacted payload byte count
+   * (excluding the CDR representation header).
+   *
+   * On failure returns a null region ({ {nullptr, 0}, 0 }).
+   *
+   * \param[in]  type_support  XCDR type support with cached layout.
+   * \param[in]  message       Message view to consume and compact.
+   * \return Region with blob pointer + size on success, null on failure.
+   */
+  rosidl_memory_region_t (*compact_message_in_place)(
+    const struct rosidl_message_xcdr_type_support_s * type_support,
+    void * message);
 } rosidl_message_xcdr_type_support_t;
 
 // ============================================================================
@@ -322,6 +362,12 @@ rosidl_typesupport_xcdr_c_release_message(
   const rosidl_message_type_support_t * type_support,
   void * message);
 
+ROSIDL_TYPESUPPORT_XCDR_C_PUBLIC
+rosidl_memory_region_t
+rosidl_typesupport_xcdr_c_get_backing_storage(
+  const rosidl_message_type_support_t * type_support,
+  const void * message);
+
 /// \}
 
 /// \name Constrained-handle lifecycle
@@ -400,6 +446,36 @@ rosidl_typesupport_xcdr_c_validate_message(
   const void * message,
   rosidl_typesupport_xcdr_c_constraint_report_callback_t report_cb,
   void * user_data);
+
+/// \}
+
+/// \name Compaction
+/// \{
+
+/// Consume a message view by compacting it in-place (layout-driven).
+/**
+ * Consumes the message view: uses the cached constrained layout from
+ * the handle for per-field maximum bounds, rewrites a compact (actual-size)
+ * XCDR encoding into the message's own backing buffer using an offset
+ * writer, and destroys the message view.
+ *
+ * On success returns a region whose .location.address is the blob
+ * pointer (same value that loan_sample returned) and .size is the
+ * compacted payload byte count (excl. CDR header).
+ *
+ * On failure returns a null region ({ {nullptr, 0}, 0 }).
+ *
+ * The type_support must have an identifier containing "xcdr".
+ *
+ * \param[in]  type_support  XCDR typesupport handle (constrained, with cached layout).
+ * \param[in]  message       Message instance to consume and compact.
+ * \return Region with blob pointer + size on success, null on failure.
+ */
+ROSIDL_TYPESUPPORT_XCDR_C_PUBLIC
+rosidl_memory_region_t
+rosidl_typesupport_xcdr_c_compact_message_in_place(
+  const rosidl_message_type_support_t * type_support,
+  void * message);
 
 /// \}
 

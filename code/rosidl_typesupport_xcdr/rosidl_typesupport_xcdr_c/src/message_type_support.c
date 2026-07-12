@@ -292,6 +292,27 @@ rosidl_typesupport_xcdr_c_release_message(
   return xcdr->release_message(message);
 }
 
+rosidl_memory_region_t
+rosidl_typesupport_xcdr_c_get_backing_storage(
+  const rosidl_message_type_support_t * type_support,
+  const void * message)
+{
+  rosidl_memory_region_t empty = {{NULL, 0}, 0};
+  if (NULL == type_support || NULL == message) {
+    return empty;
+  }
+  if (!is_xcdr_identifier(type_support->typesupport_identifier))
+  {
+    return empty;
+  }
+  const rosidl_message_xcdr_type_support_t * xcdr =
+    (const rosidl_message_xcdr_type_support_t *)type_support->data;
+  if (NULL == xcdr || NULL == xcdr->get_backing_storage) {
+    return empty;
+  }
+  return xcdr->get_backing_storage(message);
+}
+
 // ---- Constrained-handle lifecycle ----
 
 rosidl_message_type_support_t *
@@ -449,6 +470,44 @@ rosidl_typesupport_xcdr_c_compare_constraints(
   }
 
   return true;
+}
+
+// ---- Compaction ----
+
+rosidl_memory_region_t
+rosidl_typesupport_xcdr_c_compact_message_in_place(
+  const rosidl_message_type_support_t * type_support,
+  void * message)
+{
+  rosidl_memory_region_t null_region = {{NULL, 0}, 0};
+
+  if (NULL == type_support) {
+    RCUTILS_SET_ERROR_MSG("type_support is nullptr");
+    return null_region;
+  }
+  if (NULL == message) {
+    RCUTILS_SET_ERROR_MSG("message is nullptr");
+    return null_region;
+  }
+  if (!is_xcdr_identifier(type_support->typesupport_identifier))
+  {
+    RCUTILS_SET_ERROR_MSG("Not an XCDR typesupport");
+    return null_region;
+  }
+
+  const rosidl_message_xcdr_type_support_t * xcdr =
+    (const rosidl_message_xcdr_type_support_t *)type_support->data;
+  if (NULL == xcdr) {
+    RCUTILS_SET_ERROR_MSG("xcdr callback table is nullptr");
+    return null_region;
+  }
+
+  // If there is no compact callback, the type does not support compaction.
+  if (NULL == xcdr->compact_message_in_place) {
+    RCUTILS_SET_ERROR_MSG("compact_message_in_place callback not available");
+    return null_region;
+  }
+  return xcdr->compact_message_in_place(xcdr, message);
 }
 
 // ---- Message instance validation ----

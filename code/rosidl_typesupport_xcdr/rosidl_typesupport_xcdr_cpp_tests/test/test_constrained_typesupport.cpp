@@ -54,10 +54,11 @@ TEST(TestConstrainedTypesupport, NullConstraintsFails)
     ExperimentalUnbounded>();
   ASSERT_NE(nullptr, base);
 
+  // No constraints pointer should produce a nullptr result.
   auto constrained =
     rosidl_typesupport_xcdr_cpp::create_constrained_message_type_support(
       base, nullptr);
-  EXPECT_EQ(nullptr, constrained);
+  EXPECT_EQ(nullptr, constrained.get());
 }
 
 TEST(TestConstrainedTypesupport, BoundedMessageCannotBeConstrained)
@@ -69,10 +70,15 @@ TEST(TestConstrainedTypesupport, BoundedMessageCannotBeConstrained)
   ASSERT_NE(nullptr, base);
 
   ExperimentalBounded::Constraints constraints;
+  rosidl_message_type_constraints_t wrapped_constraints;
+  wrapped_constraints.type_specific = &constraints;
+  wrapped_constraints.max_string_length = 0;
+  wrapped_constraints.max_total_size = 0;
+  wrapped_constraints.strict = false;
   auto constrained =
     rosidl_typesupport_xcdr_cpp::create_constrained_message_type_support(
-      base, &constraints);
-  EXPECT_EQ(nullptr, constrained);
+      base, &wrapped_constraints);
+  EXPECT_EQ(nullptr, constrained.get());
 }
 
 TEST(TestConstrainedTypesupport, DestroyNullptr)
@@ -95,18 +101,19 @@ TEST(TestConstrainedTypesupport, ValidConstraintsSucceeds)
   constraints.name.size = 256;
   constraints.data.size = 100;
 
+  rosidl_message_type_constraints_t wrapped_constraints;
+  wrapped_constraints.type_specific = &constraints;
+  wrapped_constraints.max_string_length = 0;
+  wrapped_constraints.max_total_size = 0;
+  wrapped_constraints.strict = false;
   auto constrained =
     rosidl_typesupport_xcdr_cpp::create_constrained_message_type_support(
-      base, &constraints);
-  ASSERT_NE(nullptr, constrained);
+      base, &wrapped_constraints);
+  ASSERT_NE(nullptr, constrained.get());
   EXPECT_STREQ(
     rosidl_typesupport_xcdr_cpp__identifier,
     constrained->typesupport_identifier);
-  EXPECT_NE(nullptr, constrained->data);
-
-  rosidl_typesupport_xcdr_cpp::destroy_constrained_message_type_support(
-    constrained);
-}
+  EXPECT_NE(nullptr, constrained->data);}
 
 TEST(TestConstrainedTypesupport, GetExpectedMessageSize)
 {
@@ -118,23 +125,24 @@ TEST(TestConstrainedTypesupport, GetExpectedMessageSize)
   constraints.name.size = 256;
   constraints.data.size = 100;
 
+  rosidl_message_type_constraints_t wrapped_constraints;
+  wrapped_constraints.type_specific = &constraints;
+  wrapped_constraints.max_string_length = 0;
+  wrapped_constraints.max_total_size = 0;
+  wrapped_constraints.strict = false;
   auto constrained =
     rosidl_typesupport_xcdr_cpp::create_constrained_message_type_support(
-      base, &constraints);
-  ASSERT_NE(nullptr, constrained);
+      base, &wrapped_constraints);
+  ASSERT_NE(nullptr, constrained.get());
 
   size_t expected_size = 0;
   auto ret = rosidl_typesupport_xcdr_cpp::get_expected_message_size(
-    constrained, &expected_size);
+    constrained.get(), &expected_size);
   EXPECT_EQ(RCUTILS_RET_OK, ret);
   EXPECT_GT(expected_size, 0u);
   // id(4) + string_length_prefix(4) + name_max(256) + null(1) +
   // sequence_length_prefix(4) + data_max(100)
-  EXPECT_GE(expected_size, 4u + 4u + 256u + 1u + 4u + 100u);
-
-  rosidl_typesupport_xcdr_cpp::destroy_constrained_message_type_support(
-    constrained);
-}
+  EXPECT_GE(expected_size, 4u + 4u + 256u + 1u + 4u + 100u);}
 
 TEST(TestConstrainedTypesupport, SerializeRoundtrip)
 {
@@ -146,14 +154,19 @@ TEST(TestConstrainedTypesupport, SerializeRoundtrip)
   constraints.name.size = 256;
   constraints.data.size = 100;
 
+  rosidl_message_type_constraints_t wrapped_constraints;
+  wrapped_constraints.type_specific = &constraints;
+  wrapped_constraints.max_string_length = 0;
+  wrapped_constraints.max_total_size = 0;
+  wrapped_constraints.strict = false;
   auto constrained =
     rosidl_typesupport_xcdr_cpp::create_constrained_message_type_support(
-      base, &constraints);
-  ASSERT_NE(nullptr, constrained);
+      base, &wrapped_constraints);
+  ASSERT_NE(nullptr, constrained.get());
 
   size_t expected_size = 0;
   auto ret = rosidl_typesupport_xcdr_cpp::get_expected_message_size(
-    constrained, &expected_size);
+    constrained.get(), &expected_size);
   ASSERT_EQ(RCUTILS_RET_OK, ret);
   ASSERT_GT(expected_size, 0u);
 
@@ -165,19 +178,15 @@ TEST(TestConstrainedTypesupport, SerializeRoundtrip)
   rosidl_runtime_cpp::MemoryRegion<void> storage{buffer.data(), buffer.size()};
 
   ret = rosidl_typesupport_xcdr_cpp::serialize_message_into(
-    constrained, &msg, storage);
+    constrained.get(), &msg, storage);
   ASSERT_EQ(RCUTILS_RET_OK, ret);
 
   // Deserialize via constrained handle and verify
   ExperimentalUnbounded deserialized;
   ret = rosidl_typesupport_xcdr_cpp::deserialize_message_from(
-    constrained, storage, &deserialized);
+    constrained.get(), storage, &deserialized);
   ASSERT_EQ(RCUTILS_RET_OK, ret);
-  verify_unbounded_message(msg, deserialized);
-
-  rosidl_typesupport_xcdr_cpp::destroy_constrained_message_type_support(
-    constrained);
-}
+  verify_unbounded_message(msg, deserialized);}
 
 // =============================================================================
 // Zero-copy operations through constrained typesupport
@@ -193,14 +202,19 @@ TEST(TestConstrainedTypesupport, ConstructMessageAt)
   constraints.name.size = 256;
   constraints.data.size = 100;
 
+  rosidl_message_type_constraints_t wrapped_constraints;
+  wrapped_constraints.type_specific = &constraints;
+  wrapped_constraints.max_string_length = 0;
+  wrapped_constraints.max_total_size = 0;
+  wrapped_constraints.strict = false;
   auto constrained =
     rosidl_typesupport_xcdr_cpp::create_constrained_message_type_support(
-      base, &constraints);
-  ASSERT_NE(nullptr, constrained);
+      base, &wrapped_constraints);
+  ASSERT_NE(nullptr, constrained.get());
 
   size_t expected_size = 0;
   auto ret = rosidl_typesupport_xcdr_cpp::get_expected_message_size(
-    constrained, &expected_size);
+    constrained.get(), &expected_size);
   ASSERT_EQ(RCUTILS_RET_OK, ret);
   ASSERT_GT(expected_size, 0u);
 
@@ -209,33 +223,20 @@ TEST(TestConstrainedTypesupport, ConstructMessageAt)
   // points directly into the buffer at the XCDR-framed locations.
   std::vector<uint8_t> buffer(expected_size);
   rosidl_runtime_cpp::MemoryRegion<void> storage{buffer.data(), buffer.size()};
-
   void * msg_ptr = nullptr;
   ret = rosidl_typesupport_xcdr_cpp::construct_message_at(
-    constrained, storage, &msg_ptr);
+    constrained.get(), storage, &msg_ptr);
   ASSERT_EQ(RCUTILS_RET_OK, ret);
   ASSERT_NE(nullptr, msg_ptr);
 
-  // Fill the allocated message in-place (writes directly to the buffer
-  // via external storage)
   auto * msg = static_cast<ExperimentalUnbounded *>(msg_ptr);
   fill_unbounded_message(*msg);
 
-  // Verify fields directly — the message lives in the buffer and the
-  // external storage should contain the correctly filled values.
-  // NOTE: serialize/deserialize roundtrip is NOT used here because
-  // the construct_message_at buffer has layout-relative field positions
-  // (padded to max constraint sizes), while serialize_message_into
-  // produces compact serialization (actual-data-relative).  These two
-  // framing schemes are incompatible for variable-length fields.
   EXPECT_EQ(msg->id.get(), 999u);
   EXPECT_EQ(std::string_view(msg->name.data(), msg->name.size()), "test_name");
   EXPECT_EQ(msg->data.size(), 5u);
 
-  rosidl_typesupport_xcdr_cpp::destroy_message(constrained, msg_ptr);
-  rosidl_typesupport_xcdr_cpp::destroy_constrained_message_type_support(
-    constrained);
-}
+  rosidl_typesupport_xcdr_cpp::destroy_message(constrained.get(), msg_ptr);}
 
 TEST(TestConstrainedTypesupport, CastMessageAt)
 {
@@ -247,10 +248,15 @@ TEST(TestConstrainedTypesupport, CastMessageAt)
   constraints.name.size = 256;
   constraints.data.size = 100;
 
+  rosidl_message_type_constraints_t wrapped_constraints;
+  wrapped_constraints.type_specific = &constraints;
+  wrapped_constraints.max_string_length = 0;
+  wrapped_constraints.max_total_size = 0;
+  wrapped_constraints.strict = false;
   auto constrained =
     rosidl_typesupport_xcdr_cpp::create_constrained_message_type_support(
-      base, &constraints);
-  ASSERT_NE(nullptr, constrained);
+      base, &wrapped_constraints);
+  ASSERT_NE(nullptr, constrained.get());
 
   // Serialize a normal message into a buffer sized by expected size
   ExperimentalUnbounded msg;
@@ -258,7 +264,7 @@ TEST(TestConstrainedTypesupport, CastMessageAt)
 
   size_t expected_size = 0;
   auto ret = rosidl_typesupport_xcdr_cpp::get_expected_message_size(
-    constrained, &expected_size);
+    constrained.get(), &expected_size);
   ASSERT_EQ(RCUTILS_RET_OK, ret);
   ASSERT_GT(expected_size, 0u);
 
@@ -266,7 +272,7 @@ TEST(TestConstrainedTypesupport, CastMessageAt)
   rosidl_runtime_cpp::MemoryRegion<void> storage{buffer.data(), buffer.size()};
 
   ret = rosidl_typesupport_xcdr_cpp::serialize_message_into(
-    constrained, &msg, storage);
+    constrained.get(), &msg, storage);
   ASSERT_EQ(RCUTILS_RET_OK, ret);
 
   // cast_message_at reads the buffer in-place via the constrained handle.
@@ -279,18 +285,14 @@ TEST(TestConstrainedTypesupport, CastMessageAt)
   // separate concern.
   void * cast_ptr = nullptr;
   ret = rosidl_typesupport_xcdr_cpp::cast_message_at(
-    constrained, storage, &cast_ptr);
+    constrained.get(), storage, &cast_ptr);
   if (ret == RCUTILS_RET_OK) {
     ASSERT_NE(nullptr, cast_ptr);
-    rosidl_typesupport_xcdr_cpp::destroy_message(constrained, cast_ptr);
+    rosidl_typesupport_xcdr_cpp::destroy_message(constrained.get(), cast_ptr);
     SUCCEED() << "cast_message_at succeeded via constrained handle";
   } else {
     EXPECT_EQ(nullptr, cast_ptr);
-  }
-
-  rosidl_typesupport_xcdr_cpp::destroy_constrained_message_type_support(
-    constrained);
-}
+  }}
 
 // =============================================================================
 // Ownership and lifecycle edge cases
@@ -307,30 +309,39 @@ TEST(TestConstrainedTypesupport, MultipleConstrainedHandles)
   constraints_a.name.size = 128;
   constraints_a.data.size = 50;
 
+  rosidl_message_type_constraints_t wrapped_a;
+  wrapped_a.type_specific = &constraints_a;
+  wrapped_a.max_string_length = 0;
+  wrapped_a.max_total_size = 0;
+  wrapped_a.strict = false;
+
   auto constrained_a =
     rosidl_typesupport_xcdr_cpp::create_constrained_message_type_support(
-      base, &constraints_a);
-  ASSERT_NE(nullptr, constrained_a);
+      base, &wrapped_a);
+  ASSERT_NE(nullptr, constrained_a.get());
 
   ExperimentalUnbounded::Constraints constraints_b;
   constraints_b.name.size = 256;
   constraints_b.data.size = 100;
 
+  rosidl_message_type_constraints_t wrapped_b;
+  wrapped_b.type_specific = &constraints_b;
+  wrapped_b.max_string_length = 0;
+  wrapped_b.max_total_size = 0;
+  wrapped_b.strict = false;
+
   auto constrained_b =
     rosidl_typesupport_xcdr_cpp::create_constrained_message_type_support(
-      base, &constraints_b);
-  ASSERT_NE(nullptr, constrained_b);
+      base, &wrapped_b);
+  ASSERT_NE(nullptr, constrained_b.get());
 
   // Both should have different sizes reflecting their constraints
   size_t size_a = 0, size_b = 0;
   EXPECT_EQ(RCUTILS_RET_OK,
-    rosidl_typesupport_xcdr_cpp::get_expected_message_size(constrained_a, &size_a));
+    rosidl_typesupport_xcdr_cpp::get_expected_message_size(constrained_a.get(), &size_a));
   EXPECT_EQ(RCUTILS_RET_OK,
-    rosidl_typesupport_xcdr_cpp::get_expected_message_size(constrained_b, &size_b));
+    rosidl_typesupport_xcdr_cpp::get_expected_message_size(constrained_b.get(), &size_b));
   EXPECT_GT(size_b, size_a);  // B has larger bounds
-
-  rosidl_typesupport_xcdr_cpp::destroy_constrained_message_type_support(constrained_a);
-  rosidl_typesupport_xcdr_cpp::destroy_constrained_message_type_support(constrained_b);
 }
 
 TEST(TestConstrainedTypesupport, ConstrainedHandleSerializeRoundtrip)
@@ -342,14 +353,20 @@ TEST(TestConstrainedTypesupport, ConstrainedHandleSerializeRoundtrip)
   ExperimentalUnbounded::Constraints constraints;
   constraints.data.size = 100;  // only constrain data, keep name at 0 (unlimited)
 
+  rosidl_message_type_constraints_t wrapped;
+  wrapped.type_specific = &constraints;
+  wrapped.max_string_length = 0;
+  wrapped.max_total_size = 0;
+  wrapped.strict = false;
+
   auto constrained =
     rosidl_typesupport_xcdr_cpp::create_constrained_message_type_support(
-      base, &constraints);
-  ASSERT_NE(nullptr, constrained);
+      base, &wrapped);
+  ASSERT_NE(nullptr, constrained.get());
 
   size_t expected_size = 0;
   auto ret = rosidl_typesupport_xcdr_cpp::get_expected_message_size(
-    constrained, &expected_size);
+    constrained.get(), &expected_size);
   ASSERT_EQ(RCUTILS_RET_OK, ret);
   ASSERT_GT(expected_size, 0u);
 
@@ -360,18 +377,15 @@ TEST(TestConstrainedTypesupport, ConstrainedHandleSerializeRoundtrip)
   rosidl_runtime_cpp::MemoryRegion<void> storage{buffer.data(), buffer.size()};
 
   ret = rosidl_typesupport_xcdr_cpp::serialize_message_into(
-    constrained, &msg, storage);
+    constrained.get(), &msg, storage);
   ASSERT_EQ(RCUTILS_RET_OK, ret);
 
   ExperimentalUnbounded deserialized;
   ret = rosidl_typesupport_xcdr_cpp::deserialize_message_from(
-    constrained, storage, &deserialized);
+    constrained.get(), storage, &deserialized);
   ASSERT_EQ(RCUTILS_RET_OK, ret);
   EXPECT_EQ(999u, deserialized.id.get());
-  EXPECT_EQ(5u, deserialized.data.size());
-
-  rosidl_typesupport_xcdr_cpp::destroy_constrained_message_type_support(constrained);
-}
+  EXPECT_EQ(5u, deserialized.data.size());}
 
 int main(int argc, char ** argv)
 {

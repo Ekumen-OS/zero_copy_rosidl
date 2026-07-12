@@ -202,6 +202,68 @@ public:
    */
   void end_write_sequence();
 
+  // ========================================================================
+  // Skip API (non-mutating position advancement)
+  //
+  // Mirrors write() in position advancement but writes nothing to the buffer.
+  // No memset for alignment padding — strictly non-mutating in fixed mode.
+  // ========================================================================
+
+  /**
+   * @brief Skip a primitive value (advance position by sizeof(T) with alignment).
+   *
+   * @tparam T Arithmetic type (value is not needed, only size/alignment)
+   */
+  template<typename T>
+  void skip();
+
+  /**
+   * @brief Skip a string (advance past prefix + data + null terminator).
+   *
+   * @param char_count Number of characters in the string (excluding null)
+   */
+  void skip_string(size_t char_count);
+
+  /**
+   * @brief Skip a wide string (advance past prefix + per-char data + null).
+   *
+   * @param char_count Number of characters in the string (excluding null)
+   */
+  void skip_wstring(size_t char_count);
+
+  /**
+   * @brief Skip a contiguous array of primitives (bulk position advance).
+   *
+   * Advances by alignment + sizeof(T) * count in one call.  Equivalent
+   * to calling skip<T>() count times but much cheaper for large arrays.
+   * Zero-count is a no-op (does not align).
+   *
+   * @tparam T Primitive element type (must be arithmetic)
+   * @param count Number of elements to skip
+   */
+  template<typename T>
+  void skip_array(size_t count);
+
+  /**
+   * @brief Skip a sequence of primitives (bulk position advance + context).
+   *
+   * Writes the length prefix (via begin_skip_sequence), skips the element
+   * payload as a single bulk advance, and ends the sequence.
+   *
+   * @tparam T Primitive element type (must be arithmetic)
+   * @param count Number of elements to skip
+   */
+  template<typename T>
+  void skip_sequence(size_t count);
+
+  /**
+   * @brief Skip a sequence length prefix (advance + push context, no byte write).
+   *
+   * Must be paired with end_write_sequence().
+   * @param count Number of elements (element payloads must be skipped separately)
+   */
+  void begin_skip_sequence(size_t count);
+
   /**
    * @brief Begin writing a struct.
    */
@@ -252,6 +314,8 @@ private:
 
   void ensure_header_written();
   void align_and_reserve(size_t alignment, size_t size);
+  /// Non-mutating position advancement (no memset, no writes).
+  void skip_advance(size_t alignment, size_t advance_size);
 };
 
 // Template implementations
@@ -280,6 +344,56 @@ void XCdrWriter::write(T value)
     tcb::span<uint8_t> dst(buffer_.data() + buffer_.size() - sizeof(T), sizeof(T));
     write_to_bytes(dst, value, endianness_);
   }
+}
+
+template<typename T>
+void XCdrWriter::skip()
+{
+  static_assert(std::is_arithmetic_v<T>, "skip<T> only supports arithmetic types");
+
+  ensure_header_written();
+
+  if (overflow_error_) {
+    return;
+  }
+
+  skip_advance(sizeof(T), sizeof(T));
+}
+
+template<typename T>
+void XCdrWriter::skip_array(size_t count)
+{
+  static_assert(std::is_arithmetic_v<T>, "skip_array only supports arithmetic types");
+
+  ensure_header_written();
+
+  if (overflow_error_) {
+    return;
+  }
+
+  if (0 == count) {
+    return;  // No-op: avoid alignment drift from skip_advance(x, 0)
+  }
+
+  // Guard against multiplication overflow.
+  if (count > SIZE_MAX / sizeof(T)) {
+    overflow_error_ = true;
+    return;
+  }
+
+  skip_advance(sizeof(T), sizeof(T) * count);
+}
+
+template<typename T>
+void XCdrWriter::skip_sequence(size_t count)
+{
+  static_assert(std::is_arithmetic_v<T>, "skip_sequence only supports arithmetic types");
+
+  begin_skip_sequence(count);
+  if (overflow_error_) { return; }
+  skip_array<T>(count);
+  if (overflow_error_) { return; }
+  end_write_sequence();
 }
 
 template<typename T>
