@@ -1141,7 +1141,7 @@ compact_fields_@(msg_typename)(
 @[    if isinstance(member.type, BoundedString)]@
 @# Bounded string: always at max, just skip or write
   if (emit) {
-    writer.write(std::string_view(msg.@(member.name)));
+    writer.write(msg.@(member.name).view());
   } else {
     writer.skip_string(msg.@(member.name).size());
   }
@@ -1166,7 +1166,7 @@ compact_fields_@(msg_typename)(
 @[    if isinstance(member.type, BoundedWString)]@
 @# Bounded wstring: always at max
   if (emit) {
-    writer.write(std::u16string_view(msg.@(member.name)));
+    writer.write(msg.@(member.name).view());
   } else {
     writer.skip_wstring(msg.@(member.name).size());
   }
@@ -1201,7 +1201,7 @@ compact_fields_@(msg_typename)(
 @# Array of strings
   if (emit) {
     for (const auto & _elem : msg.@(member.name)) {
-      writer.write(std::string_view(_elem));
+      writer.write(_elem.view());
     }
   } else {
     for (const auto & _elem : msg.@(member.name)) {
@@ -1213,7 +1213,7 @@ compact_fields_@(msg_typename)(
 @# Array of wstrings
   if (emit) {
     for (const auto & _elem : msg.@(member.name)) {
-      writer.write(std::u16string_view(_elem));
+      writer.write(_elem.view());
     }
   } else {
     for (const auto & _elem : msg.@(member.name)) {
@@ -1308,7 +1308,7 @@ nested_ts_name_arr = get_message_type_name(member.type.value_type, experimental_
   if (emit) {
     writer.begin_write_sequence(msg.@(member.name).size());
     for (const auto & _elem : msg.@(member.name)) {
-      writer.write(std::string_view(_elem));
+      writer.write(_elem.view());
     }
     writer.end_write_sequence();
   } else {
@@ -1324,7 +1324,7 @@ nested_ts_name_arr = get_message_type_name(member.type.value_type, experimental_
   if (emit) {
     writer.begin_write_sequence(msg.@(member.name).size());
     for (const auto & _elem : msg.@(member.name)) {
-      writer.write(std::u16string_view(_elem));
+      writer.write(_elem.view());
     }
     writer.end_write_sequence();
   } else {
