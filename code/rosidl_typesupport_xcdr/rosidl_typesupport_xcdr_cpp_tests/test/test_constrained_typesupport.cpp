@@ -113,7 +113,8 @@ TEST(TestConstrainedTypesupport, ValidConstraintsSucceeds)
   EXPECT_STREQ(
     rosidl_typesupport_xcdr_cpp__identifier,
     constrained->typesupport_identifier);
-  EXPECT_NE(nullptr, constrained->data);}
+  EXPECT_NE(nullptr, constrained->data);
+}
 
 TEST(TestConstrainedTypesupport, GetExpectedMessageSize)
 {
@@ -142,7 +143,8 @@ TEST(TestConstrainedTypesupport, GetExpectedMessageSize)
   EXPECT_GT(expected_size, 0u);
   // id(4) + string_length_prefix(4) + name_max(256) + null(1) +
   // sequence_length_prefix(4) + data_max(100)
-  EXPECT_GE(expected_size, 4u + 4u + 256u + 1u + 4u + 100u);}
+  EXPECT_GE(expected_size, 4u + 4u + 256u + 1u + 4u + 100u);
+}
 
 TEST(TestConstrainedTypesupport, SerializeRoundtrip)
 {
@@ -186,7 +188,8 @@ TEST(TestConstrainedTypesupport, SerializeRoundtrip)
   ret = rosidl_typesupport_xcdr_cpp::deserialize_message_from(
     constrained.get(), storage, &deserialized);
   ASSERT_EQ(RCUTILS_RET_OK, ret);
-  verify_unbounded_message(msg, deserialized);}
+  verify_unbounded_message(msg, deserialized);
+}
 
 // =============================================================================
 // Zero-copy operations through constrained typesupport
@@ -236,7 +239,8 @@ TEST(TestConstrainedTypesupport, ConstructMessageAt)
   EXPECT_EQ(std::string_view(msg->name.data(), msg->name.size()), "test_name");
   EXPECT_EQ(msg->data.size(), 5u);
 
-  rosidl_typesupport_xcdr_cpp::destroy_message(constrained.get(), msg_ptr);}
+  rosidl_typesupport_xcdr_cpp::destroy_message(constrained.get(), msg_ptr);
+}
 
 TEST(TestConstrainedTypesupport, CastMessageAt)
 {
@@ -292,7 +296,8 @@ TEST(TestConstrainedTypesupport, CastMessageAt)
     SUCCEED() << "cast_message_at succeeded via constrained handle";
   } else {
     EXPECT_EQ(nullptr, cast_ptr);
-  }}
+  }
+}
 
 // =============================================================================
 // Ownership and lifecycle edge cases
@@ -385,7 +390,8 @@ TEST(TestConstrainedTypesupport, ConstrainedHandleSerializeRoundtrip)
     constrained.get(), storage, &deserialized);
   ASSERT_EQ(RCUTILS_RET_OK, ret);
   EXPECT_EQ(999u, deserialized.id.get());
-  EXPECT_EQ(5u, deserialized.data.size());}
+  EXPECT_EQ(5u, deserialized.data.size());
+}
 
 int main(int argc, char ** argv)
 {

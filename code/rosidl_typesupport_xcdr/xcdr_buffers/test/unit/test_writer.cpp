@@ -409,7 +409,9 @@ TEST(XCdrWriter_Skip, SkipArray_SizeParity)
   std::vector<uint8_t> buf_skip1(64, 0);
   write_header(buf_skip1);
   XCdrWriter w1(tcb::span<uint8_t>(buf_skip1.data(), buf_skip1.size()), 4);
-  for (int i = 0; i < 5; ++i) { w1.skip<uint32_t>(); }
+  for (int i = 0; i < 5; ++i) {
+    w1.skip<uint32_t>();
+                                                     }
   size_t per_element_size = w1.bytes_written();
 
   std::vector<uint8_t> buf_skip2(64, 0);
@@ -451,7 +453,9 @@ TEST(XCdrWriter_Skip, SkipArray_NonAlignedPreState)
   write_header(buf_loop);
   XCdrWriter w_loop(tcb::span<uint8_t>(buf_loop.data(), buf_loop.size()), 4);
   w_loop.skip<uint8_t>();
-  for (int i = 0; i < 3; ++i) { w_loop.skip<uint32_t>(); }
+  for (int i = 0; i < 3; ++i) {
+    w_loop.skip<uint32_t>();
+                                                         }
   size_t loop_size = w_loop.bytes_written();
 
   // Also test the alignment of the first skip alone: a loop skip after uint8
@@ -471,7 +475,9 @@ TEST(XCdrWriter_Skip, SkipSequence_SizeParity)
   write_header(buf_write);
   XCdrWriter w_writer(tcb::span<uint8_t>(buf_write.data(), buf_write.size()), 4);
   w_writer.begin_write_sequence(5);
-  for (int i = 0; i < 5; ++i) { w_writer.write<uint32_t>(i); }
+  for (int i = 0; i < 5; ++i) {
+    w_writer.write<uint32_t>(i);
+                                                             }
   w_writer.end_write_sequence();
   size_t written_size = w_writer.bytes_written();
 
@@ -498,7 +504,9 @@ TEST(XCdrWriter_Skip, SkipArray_GrowingMode)
 {
   // In growing mode, skip_array must produce same buffer size as per-element skip.
   XCdrWriter per_element_writer;
-  for (int i = 0; i < 8; ++i) { per_element_writer.skip<uint16_t>(); }
+  for (int i = 0; i < 8; ++i) {
+    per_element_writer.skip<uint16_t>();
+                                                                     }
   per_element_writer.flush();
   size_t per_element_size = per_element_writer.bytes_written();
 
@@ -512,7 +520,9 @@ TEST(XCdrWriter_Skip, SkipSequence_GrowingMode)
 {
   XCdrWriter per_element_writer;
   per_element_writer.begin_skip_sequence(6);
-  for (int i = 0; i < 6; ++i) { per_element_writer.skip<uint16_t>(); }
+  for (int i = 0; i < 6; ++i) {
+    per_element_writer.skip<uint16_t>();
+                                                                     }
   per_element_writer.end_write_sequence();
   size_t per_element_size = per_element_writer.bytes_written();
 
@@ -575,7 +585,8 @@ TEST(XCdrWriter_Skip, SkipThenWrite_PositionContinuity)
   // data offsets:
   //   pos 4 → data offset 0, skip uint32 -> align 4, +4 = data offset 4 → abs 8
   //   pos 8 → data offset 4, skip uint16 -> align 2 (-0), +2 = data offset 6 → abs 10
-  //   pos 10 → data offset 6, write uint32 -> align 4 -> data offset 8, +4 = data offset 12 → abs 16
+  //   pos 10 → data offset 6, write uint32 -> align 4 -> data offset 8, +4 = data offset 12
+  //         → abs 16
   // Total: 16
   EXPECT_EQ(writer.bytes_written(), 16);
   EXPECT_FALSE(writer.has_error());
@@ -797,7 +808,6 @@ TEST(XCdrWriter, FixedMode_Offset_DataIncludesHeader)
   // bytes_written() also returns absolute position.
   EXPECT_EQ(writer.bytes_written(), 8);
 }
-
 
 
 int main(int argc, char ** argv)

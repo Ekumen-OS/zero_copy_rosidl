@@ -522,14 +522,14 @@ deserialize_message_from(
     typesupport, storage.c_region(), message);
 }
 
-  rosidl_memory_region_t
-  compact_message_in_place(
-    const rosidl_message_type_support_t * typesupport,
-    void * message)
-  {
-    return rosidl_typesupport_xcdr_c_compact_message_in_place(
+rosidl_memory_region_t
+compact_message_in_place(
+  const rosidl_message_type_support_t * typesupport,
+  void * message)
+{
+  return rosidl_typesupport_xcdr_c_compact_message_in_place(
       typesupport, message);
-  }
+}
 
 void
 destroy_message(
@@ -569,8 +569,10 @@ validate_message(
   rosidl_runtime_cpp::ConstraintReportCallback report_cb)
 {
   using CCallback = rosidl_typesupport_xcdr_c_constraint_report_callback_t;
-  struct Adapter {
-    static void call(void * ud, const char * path, int code) {
+  struct Adapter
+  {
+    static void call(void * ud, const char * path, int code)
+    {
       if (ud) {
         auto & cb = *static_cast<rosidl_runtime_cpp::ConstraintReportCallback *>(ud);
         if (cb) {
@@ -593,8 +595,10 @@ compare_constraints(
   rosidl_runtime_cpp::ConstraintReportCallback report_cb)
 {
   using CCallback = rosidl_typesupport_xcdr_c_constraint_report_callback_t;
-  struct Adapter {
-    static void call(void * ud, const char * path, int code) {
+  struct Adapter
+  {
+    static void call(void * ud, const char * path, int code)
+    {
       if (ud) {
         auto & cb = *static_cast<rosidl_runtime_cpp::ConstraintReportCallback *>(ud);
         if (cb) {

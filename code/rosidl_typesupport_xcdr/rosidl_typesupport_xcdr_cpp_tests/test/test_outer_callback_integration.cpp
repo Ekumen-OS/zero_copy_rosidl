@@ -78,7 +78,6 @@ TEST(TestOuterCallbackIntegration, SerializeThroughConstrainedHandle)
   ASSERT_EQ(RCUTILS_RET_OK, ret);
 
   verify_unbounded_message(original, deserialized);
-
 }
 
 // =============================================================================

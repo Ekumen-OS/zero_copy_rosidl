@@ -72,7 +72,7 @@ void XCdrWriter::ensure_header_written()
   if (overflow_error_) {
     return;  // Already in error state
   }
-  
+
   if (!header_written_) {
     if (is_fixed_mode_) {
       if (fixed_span_.size() < kXCdrHeaderSize) {
@@ -102,17 +102,17 @@ void XCdrWriter::align_and_reserve(size_t alignment, size_t size)
     size_t aligned_data_offset = align_to(data_offset, alignment);
     size_t aligned_pos = kXCdrHeaderSize + aligned_data_offset;
     size_t new_pos = aligned_pos + size;
-    
+
     if (new_pos > fixed_span_.size()) {
       overflow_error_ = true;
       return;
     }
-    
+
     // Zero-fill padding
     if (aligned_pos > write_position_) {
       std::memset(fixed_span_.data() + write_position_, 0, aligned_pos - write_position_);
     }
-    
+
     write_position_ = new_pos;
   } else {
     // Growing mode: allocate as needed
@@ -120,7 +120,7 @@ void XCdrWriter::align_and_reserve(size_t alignment, size_t size)
     size_t data_offset = current_pos - kXCdrHeaderSize;
     size_t aligned_data_offset = align_to(data_offset, alignment);
     size_t aligned_pos = kXCdrHeaderSize + aligned_data_offset;
-    
+
     // Reserve space for padding + data
     buffer_.resize(aligned_pos + size, 0);  // Zero-fill padding
   }
@@ -129,32 +129,32 @@ void XCdrWriter::align_and_reserve(size_t alignment, size_t size)
 void XCdrWriter::write(std::string_view str)
 {
   ensure_header_written();
-  
+
   if (overflow_error_) {
     return;
   }
 
   // Align to prefix size
   align_and_reserve(kStringLengthPrefixSize, kStringLengthPrefixSize);
-  
+
   if (overflow_error_) {
     return;
   }
 
   // Write length prefix (includes null terminator)
   uint32_t length = static_cast<uint32_t>(str.size() + kStringNullTerminatorSize);
-  
+
   if (is_fixed_mode_) {
     size_t length_pos = write_position_ - kStringLengthPrefixSize;
     tcb::span<uint8_t> length_dst(fixed_span_.data() + length_pos, kStringLengthPrefixSize);
     write_to_bytes(length_dst, length, endianness_);
-    
+
     // Check if string + null fits
     if (write_position_ + str.size() + 1 > fixed_span_.size()) {
       overflow_error_ = true;
       return;
     }
-    
+
     // Write string data + null terminator
     std::memcpy(fixed_span_.data() + write_position_, str.data(), str.size());
     write_position_ += str.size();
@@ -163,7 +163,7 @@ void XCdrWriter::write(std::string_view str)
     size_t length_pos = buffer_.size() - kStringLengthPrefixSize;
     tcb::span<uint8_t> length_dst(buffer_.data() + length_pos, kStringLengthPrefixSize);
     write_to_bytes(length_dst, length, endianness_);
-    
+
     // Write string data + null terminator (no additional alignment needed)
     buffer_.insert(buffer_.end(), str.begin(), str.end());
     buffer_.push_back('\0');
@@ -197,7 +197,7 @@ void XCdrWriter::write(std::u16string_view str)
     // Write each char16_t with alignment
     for (char16_t ch : str) {
       align_and_reserve(sizeof(char16_t), sizeof(char16_t));
-      if (overflow_error_) { return; }
+      if (overflow_error_) {return;}
       size_t ch_pos = write_position_ - sizeof(char16_t);
       tcb::span<uint8_t> ch_dst(fixed_span_.data() + ch_pos, sizeof(char16_t));
       write_to_bytes(ch_dst, ch, endianness_);
@@ -205,7 +205,7 @@ void XCdrWriter::write(std::u16string_view str)
 
     // Write null terminator
     align_and_reserve(sizeof(char16_t), sizeof(char16_t));
-    if (overflow_error_) { return; }
+    if (overflow_error_) {return;}
     size_t term_pos = write_position_ - sizeof(char16_t);
     tcb::span<uint8_t> term_dst(fixed_span_.data() + term_pos, sizeof(char16_t));
     char16_t null_term = u'\0';
@@ -267,7 +267,7 @@ void XCdrWriter::begin_write_sequence(size_t count)
   }
 
   uint32_t length = static_cast<uint32_t>(count);
-  
+
   if (is_fixed_mode_) {
     size_t length_pos = write_position_ - kSequenceLengthPrefixSize;
     tcb::span<uint8_t> length_dst(fixed_span_.data() + length_pos, kSequenceLengthPrefixSize);

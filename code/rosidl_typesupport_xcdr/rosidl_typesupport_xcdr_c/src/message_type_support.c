@@ -27,7 +27,7 @@
 static inline bool
 is_xcdr_identifier(const char * id)
 {
-  return (NULL != id && NULL != strstr(id, "xcdr"));
+  return  NULL != id && NULL != strstr(id, "xcdr");
 }
 
 bool
@@ -63,8 +63,7 @@ rosidl_typesupport_xcdr_c_get_expected_size(
     RCUTILS_SET_ERROR_MSG("size is nullptr");
     return RCUTILS_RET_ERROR;
   }
-  if (!is_xcdr_identifier(type_support->typesupport_identifier))
-  {
+  if (!is_xcdr_identifier(type_support->typesupport_identifier)) {
     RCUTILS_SET_ERROR_MSG("Not an XCDR typesupport");
     return RCUTILS_RET_ERROR;
   }
@@ -99,8 +98,7 @@ rosidl_typesupport_xcdr_c_get_message_size(
     RCUTILS_SET_ERROR_MSG("size is nullptr");
     return RCUTILS_RET_ERROR;
   }
-  if (!is_xcdr_identifier(type_support->typesupport_identifier))
-  {
+  if (!is_xcdr_identifier(type_support->typesupport_identifier)) {
     RCUTILS_SET_ERROR_MSG("Not an XCDR typesupport");
     return RCUTILS_RET_ERROR;
   }
@@ -133,8 +131,7 @@ rosidl_typesupport_xcdr_c_construct_message_at(
     RCUTILS_SET_ERROR_MSG("message is nullptr");
     return RCUTILS_RET_ERROR;
   }
-  if (!is_xcdr_identifier(type_support->typesupport_identifier))
-  {
+  if (!is_xcdr_identifier(type_support->typesupport_identifier)) {
     RCUTILS_SET_ERROR_MSG("Not an XCDR typesupport");
     return RCUTILS_RET_ERROR;
   }
@@ -165,8 +162,7 @@ rosidl_typesupport_xcdr_c_cast_message_at(
     RCUTILS_SET_ERROR_MSG("message is nullptr");
     return RCUTILS_RET_ERROR;
   }
-  if (!is_xcdr_identifier(type_support->typesupport_identifier))
-  {
+  if (!is_xcdr_identifier(type_support->typesupport_identifier)) {
     RCUTILS_SET_ERROR_MSG("Not an XCDR typesupport");
     return RCUTILS_RET_ERROR;
   }
@@ -199,8 +195,7 @@ rosidl_typesupport_xcdr_c_serialize_message_into(
     RCUTILS_SET_ERROR_MSG("message is nullptr");
     return RCUTILS_RET_ERROR;
   }
-  if (!is_xcdr_identifier(type_support->typesupport_identifier))
-  {
+  if (!is_xcdr_identifier(type_support->typesupport_identifier)) {
     RCUTILS_SET_ERROR_MSG("Not an XCDR typesupport");
     return RCUTILS_RET_ERROR;
   }
@@ -231,8 +226,7 @@ rosidl_typesupport_xcdr_c_deserialize_message_from(
     RCUTILS_SET_ERROR_MSG("message is nullptr");
     return RCUTILS_RET_ERROR;
   }
-  if (!is_xcdr_identifier(type_support->typesupport_identifier))
-  {
+  if (!is_xcdr_identifier(type_support->typesupport_identifier)) {
     RCUTILS_SET_ERROR_MSG("Not an XCDR typesupport");
     return RCUTILS_RET_ERROR;
   }
@@ -259,8 +253,7 @@ rosidl_typesupport_xcdr_c_destroy_message(
   if (NULL == type_support || NULL == message) {
     return;
   }
-  if (!is_xcdr_identifier(type_support->typesupport_identifier))
-  {
+  if (!is_xcdr_identifier(type_support->typesupport_identifier)) {
     return;
   }
   const rosidl_message_xcdr_type_support_t * xcdr =
@@ -280,8 +273,7 @@ rosidl_typesupport_xcdr_c_release_message(
   if (NULL == type_support || NULL == message) {
     return empty;
   }
-  if (!is_xcdr_identifier(type_support->typesupport_identifier))
-  {
+  if (!is_xcdr_identifier(type_support->typesupport_identifier)) {
     return empty;
   }
   const rosidl_message_xcdr_type_support_t * xcdr =
@@ -301,8 +293,7 @@ rosidl_typesupport_xcdr_c_get_backing_storage(
   if (NULL == type_support || NULL == message) {
     return empty;
   }
-  if (!is_xcdr_identifier(type_support->typesupport_identifier))
-  {
+  if (!is_xcdr_identifier(type_support->typesupport_identifier)) {
     return empty;
   }
   const rosidl_message_xcdr_type_support_t * xcdr =
@@ -328,8 +319,7 @@ rosidl_typesupport_xcdr_c_create_constrained_message_type_support(
     RCUTILS_SET_ERROR_MSG("constraints is nullptr");
     return NULL;
   }
-  if (!is_xcdr_identifier(base_typesupport->typesupport_identifier))
-  {
+  if (!is_xcdr_identifier(base_typesupport->typesupport_identifier)) {
     RCUTILS_SET_ERROR_MSG("Not an XCDR typesupport");
     return NULL;
   }
@@ -354,8 +344,7 @@ rosidl_typesupport_xcdr_c_get_constraints(
     RCUTILS_SET_ERROR_MSG("type_support is nullptr");
     return NULL;
   }
-  if (!is_xcdr_identifier(type_support->typesupport_identifier))
-  {
+  if (!is_xcdr_identifier(type_support->typesupport_identifier)) {
     RCUTILS_SET_ERROR_MSG("Not an XCDR typesupport");
     return NULL;
   }
@@ -378,8 +367,7 @@ rosidl_typesupport_xcdr_c_destroy_constrained_message_type_support(
   if (NULL == type_support) {
     return;
   }
-  if (!is_xcdr_identifier(type_support->typesupport_identifier))
-  {
+  if (!is_xcdr_identifier(type_support->typesupport_identifier)) {
     return;
   }
   const rosidl_message_xcdr_type_support_t * xcdr =
@@ -489,8 +477,7 @@ rosidl_typesupport_xcdr_c_compact_message_in_place(
     RCUTILS_SET_ERROR_MSG("message is nullptr");
     return null_region;
   }
-  if (!is_xcdr_identifier(type_support->typesupport_identifier))
-  {
+  if (!is_xcdr_identifier(type_support->typesupport_identifier)) {
     RCUTILS_SET_ERROR_MSG("Not an XCDR typesupport");
     return null_region;
   }
@@ -528,8 +515,7 @@ rosidl_typesupport_xcdr_c_validate_message(
     RCUTILS_SET_ERROR_MSG("message is nullptr");
     return RCUTILS_RET_ERROR;
   }
-  if (!is_xcdr_identifier(type_support->typesupport_identifier))
-  {
+  if (!is_xcdr_identifier(type_support->typesupport_identifier)) {
     RCUTILS_SET_ERROR_MSG("Not an XCDR typesupport");
     return RCUTILS_RET_ERROR;
   }

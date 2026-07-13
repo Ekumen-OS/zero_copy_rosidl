@@ -65,20 +65,20 @@ struct rosidl_message_xcdr_cpp_type_support_t
   bool is_dynamically_allocated{false};
 
   /// Per-type serialization callback.
-  rcutils_ret_t (*serialize_fields)(const void *, xcdr_buffers::XCdrWriter &){nullptr};
+  rcutils_ret_t (*serialize_fields)(const void *, xcdr_buffers::XCdrWriter &) {nullptr}
   /// Per-type deserialization callback.
-  rcutils_ret_t (*deserialize_fields)(xcdr_buffers::XCdrReader &, void *){nullptr};
+  rcutils_ret_t (*deserialize_fields)(xcdr_buffers::XCdrReader &, void *) {nullptr}
   /// Per-type layout building callback.
   rcutils_ret_t (*build_layout_fields)(
-    xcdr_buffers::XCdrLayoutBuilder &, const void *){nullptr};
+    xcdr_buffers::XCdrLayoutBuilder &, const void *) {nullptr}
   /// Construct message at storage using layout from this inner struct.
   rcutils_ret_t (*construct_message)(
     const rosidl_message_xcdr_cpp_type_support_t *,
-    rosidl_runtime_cpp::MemoryRegion<void> &, void **){nullptr};
+    rosidl_runtime_cpp::MemoryRegion<void> &, void **) {nullptr}
   /// Cast message at storage (parses layout from buffer).
   rcutils_ret_t (*cast_message)(
     const rosidl_message_xcdr_cpp_type_support_t *,
-    rosidl_runtime_cpp::MemoryRegion<void>, void **){nullptr};
+    rosidl_runtime_cpp::MemoryRegion<void>, void **) {nullptr}
   /// Compute serialized size without performing serialization.
   /**
    * For experimental messages with external storage, this callback
@@ -88,11 +88,11 @@ struct rosidl_message_xcdr_cpp_type_support_t
    * Returns RCUTILS_RET_OK on success, RCUTILS_RET_ERROR on failure.
    */
   rcutils_ret_t (*compute_serialized_size)(
-    const void * message, size_t * size){nullptr};
+    const void * message, size_t * size) {nullptr}
 
   /// Build constrained layout from constraints.
   std::shared_ptr<xcdr_buffers::XCdrStructLayout>(*build_constrained)(
-    const void *){nullptr};
+    const void *) {nullptr}
 
   /// Clone constraints into handle-owned storage.
   /**
@@ -101,8 +101,8 @@ struct rosidl_message_xcdr_cpp_type_support_t
    * type_specific clone before releasing the constraints struct itself.
    * Only set on generated inner structs for constrained experimental messages.
    */
-  std::shared_ptr<rosidl_message_type_constraints_t> (*clone_constraints)(
-    const rosidl_message_type_constraints_t * src){nullptr};
+  std::shared_ptr<rosidl_message_type_constraints_t>(*clone_constraints)(
+    const rosidl_message_type_constraints_t * src) {nullptr}
 
   /// Per-type message validation callback.
   /**
@@ -120,7 +120,7 @@ struct rosidl_message_xcdr_cpp_type_support_t
     const void * type_specific,
     const void * message,
     rosidl_typesupport_xcdr_c_constraint_report_callback_t report_cb,
-    void * user_data){nullptr};
+    void * user_data) {nullptr}
 
   /// Per-type consume-and-compact callback (layout-driven).
   /**
@@ -141,7 +141,7 @@ struct rosidl_message_xcdr_cpp_type_support_t
    */
   rosidl_memory_region_t (*compact_fields)(
     void * message,
-    const xcdr_buffers::XCdrStructLayout * cached_layout){nullptr};
+    const xcdr_buffers::XCdrStructLayout * cached_layout) {nullptr}
 
   /// Per-type recursive compact fields helper (internal recursion, layout-driven).
   /**
@@ -161,7 +161,7 @@ struct rosidl_message_xcdr_cpp_type_support_t
     const void * message,
     const xcdr_buffers::XCdrStructLayout & layout,
     xcdr_buffers::XCdrWriter & writer,
-    bool & emit){nullptr};
+    bool & emit) {nullptr}
 
   /// Return the backing storage of a message without releasing it.
   /** Non-consuming counterpart of release.  Returns the same backing memory
@@ -170,7 +170,7 @@ struct rosidl_message_xcdr_cpp_type_support_t
    *  For inline-only messages, returns the message pointer itself with size 0.
    *  \param[in]  message  Message to query.
    *  \return Storage region, or null region on failure. */
-  rosidl_memory_region_t (*get_backing_storage)(const void * message){nullptr};
+  rosidl_memory_region_t (*get_backing_storage)(const void * message) {nullptr}
 };
 
 // ============================================================================
@@ -320,11 +320,11 @@ validate_message(
    * \param message      Message view to consume and compact.
    * \return Region with blob pointer + size on success, null on failure.
    */
-  ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC
-  rosidl_memory_region_t
-  compact_message_in_place(
-    const rosidl_message_type_support_t * typesupport,
-    void * message);
+ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC
+rosidl_memory_region_t
+compact_message_in_place(
+  const rosidl_message_type_support_t * typesupport,
+  void * message);
 
 /// Return the backing storage of a message without releasing it.
 /** Non-consuming counterpart of release_message.  Dispatches through the

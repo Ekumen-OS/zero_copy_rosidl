@@ -136,7 +136,8 @@ public:
   /// Template overload to accept any container with data() and size()
   template<typename Container,
     typename = std::enable_if_t<
-      std::is_convertible_v<decltype(std::declval<const Container &>().data()), const uint8_t *> &&
+      std::is_convertible_v<decltype(std::declval<const Container &>().data()),
+      const uint8_t *> &&
       std::is_convertible_v<decltype(std::declval<const Container &>().size()), size_t>>>
   explicit XCdrReader(
     const Container & buffer,
@@ -161,7 +162,8 @@ public:
   /// Template overload to accept any container with data() and size()
   template<typename Container,
     typename = std::enable_if_t<
-      std::is_convertible_v<decltype(std::declval<const Container &>().data()), const uint8_t *> &&
+      std::is_convertible_v<decltype(std::declval<const Container &>().data()),
+      const uint8_t *> &&
       std::is_convertible_v<decltype(std::declval<const Container &>().size()), size_t>>>
   static XCdrResult<XCdrReader> wrap(
     const Container & buffer,
@@ -368,7 +370,8 @@ XCdrResult<T> XCdrReader::read()
       return error("String not null-terminated");
     }
 
-    std::string_view result(reinterpret_cast<const char *>(buffer_.data() + position_), str_length);
+    std::string_view result(reinterpret_cast<const char *>(buffer_.data() + position_),
+      str_length);
     position_ += length;
 
     return ok(result);

@@ -54,7 +54,7 @@ struct CompactFixture
     ExperimentalUnbounded::Constraints & constraints,
     size_t extra_buf = 0)
   : base(rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<
-      ExperimentalUnbounded>()),
+        ExperimentalUnbounded>()),
     constrained_owner(nullptr),
     constrained(nullptr),
     buffer(),
@@ -63,7 +63,7 @@ struct CompactFixture
     msg(nullptr),
     valid_(false)
   {
-    if (!base) { return; }
+    if (!base) {return;}
 
     rosidl_message_type_constraints_t wrapped;
     wrapped.type_specific = &constraints;
@@ -75,13 +75,13 @@ struct CompactFixture
       rosidl_typesupport_xcdr_cpp::create_constrained_message_type_support(
         base, &wrapped);
     constrained = constrained_owner.get();
-    if (!constrained) { return; }
+    if (!constrained) {return;}
 
     // Determine buffer size from constraints
     size_t expected_size = 0;
     auto ret = rosidl_typesupport_xcdr_cpp::get_expected_message_size(
       constrained, &expected_size);
-    if (ret != RCUTILS_RET_OK || expected_size == 0) { return; }
+    if (ret != RCUTILS_RET_OK || expected_size == 0) {return;}
 
     buffer.resize(expected_size + extra_buf);
     storage = rosidl_runtime_cpp::MemoryRegion<void>{
@@ -90,14 +90,14 @@ struct CompactFixture
     // Construct message in-place (zero-copy loan)
     ret = rosidl_typesupport_xcdr_cpp::construct_message_at(
       constrained, storage, &msg_ptr);
-    if (ret != RCUTILS_RET_OK || !msg_ptr) { return; }
+    if (ret != RCUTILS_RET_OK || !msg_ptr) {return;}
 
     msg = static_cast<ExperimentalUnbounded *>(msg_ptr);
     valid_ = true;
   }
 
-  explicit operator bool() const { return valid_; }
-  bool valid() const { return valid_; }
+  explicit operator bool() const {return valid_;}
+  bool valid() const {return valid_;}
 
 private:
   bool valid_;
@@ -131,7 +131,7 @@ TEST(TestCompactTraversal, AllFieldsAtMax_FastPath)
 
   CompactFixture fx(constraints);
   EXPECT_TRUE(fx.valid());
-  if (!fx.valid()) { return; }
+  if (!fx.valid()) {return;}
   fill_unbounded_message(*fx.msg);
 
   // Compact — all fields at max, should fast-path to release_message.
@@ -158,7 +158,7 @@ TEST(TestCompactTraversal, StringShorterThanMax_Rewrite)
 
   CompactFixture fx(constraints);
   EXPECT_TRUE(fx.valid());
-  if (!fx.valid()) { return; }
+  if (!fx.valid()) {return;}
   fill_unbounded_message(*fx.msg);  // name="test_name" (9 chars), data={1,2,3,4,5} (5)
 
   // Capture the expected max (layout) size before compaction.
@@ -192,7 +192,7 @@ TEST(TestCompactTraversal, SecondFieldShorterThanMax_Rewrite)
 
   CompactFixture fx(constraints);
   EXPECT_TRUE(fx.valid());
-  if (!fx.valid()) { return; }
+  if (!fx.valid()) {return;}
   fill_unbounded_message(*fx.msg);  // name=9 chars (at max), data=5 elements
 
   size_t max_size = fx.buffer.size();

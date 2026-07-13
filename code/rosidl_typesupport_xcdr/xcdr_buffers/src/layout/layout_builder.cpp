@@ -45,7 +45,8 @@ void XCdrLayoutBuilder::add_field(std::string_view name, size_t offset, XCdrLayo
 {
   size_t index = members_.size();
   name_to_index_[std::string(name)] = index;
-  members_.push_back({std::string(name), offset, std::make_shared<XCdrLayout>(std::move(layout))});
+  members_.push_back({std::string(name), offset,
+      std::make_shared<XCdrLayout>(std::move(layout))});
 }
 
 void XCdrLayoutBuilder::allocate_primitive(std::string_view name, XCdrPrimitiveKind kind)
@@ -239,7 +240,7 @@ void XCdrLayoutBuilder::end_allocate_sequence()
     }
 
   } else {
-    // Non-primitive sequence (strings, structs, nested composites) - use unified XCdrSequenceLayout
+    // Non-primitive sequence (strings, structs, nested composites)
     std::pmr::vector<XCdrSequenceLayout::Element> elements(memory_resource_);
     for (size_t i = 0; i < ctx.element_layouts.size(); ++i) {
       elements.push_back({

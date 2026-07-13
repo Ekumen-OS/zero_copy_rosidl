@@ -89,7 +89,7 @@ public:
    *
    * @return true if buffer overflow occurred in fixed-size mode
    */
-  bool has_error() const { return overflow_error_; }
+  bool has_error() const {return overflow_error_;}
 
   /**
    * @brief Return the number of bytes written so far (absolute position).
@@ -101,7 +101,7 @@ public:
    *
    * @return Total bytes written from the start of the buffer.
    */
-  size_t bytes_written() const { return write_position_; }
+  size_t bytes_written() const {return write_position_;}
 
   /**
    * @brief Write a primitive value.
@@ -326,13 +326,13 @@ void XCdrWriter::write(T value)
   static_assert(std::is_arithmetic_v<T>, "write<T> only supports arithmetic types");
 
   ensure_header_written();
-  
+
   if (overflow_error_) {
     return;  // Already in error state, don't continue
   }
-  
+
   align_and_reserve(sizeof(T), sizeof(T));
-  
+
   if (overflow_error_) {
     return;  // Overflow occurred during reserve
   }
@@ -390,9 +390,9 @@ void XCdrWriter::skip_sequence(size_t count)
   static_assert(std::is_arithmetic_v<T>, "skip_sequence only supports arithmetic types");
 
   begin_skip_sequence(count);
-  if (overflow_error_) { return; }
+  if (overflow_error_) {return;}
   skip_array<T>(count);
-  if (overflow_error_) { return; }
+  if (overflow_error_) {return;}
   end_write_sequence();
 }
 
