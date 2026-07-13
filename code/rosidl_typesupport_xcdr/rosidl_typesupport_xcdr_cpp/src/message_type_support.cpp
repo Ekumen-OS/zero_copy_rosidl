@@ -121,7 +121,7 @@ cpp_cast_message_at(
     return RCUTILS_RET_ERROR;
   }
   rosidl_runtime_cpp::MemoryRegion<void> cpp_storage(storage);
-  return impl->cast_message(cpp_storage, message);
+  return impl->cast_message(impl, cpp_storage, message);
 }
 
 extern "C" rcutils_ret_t

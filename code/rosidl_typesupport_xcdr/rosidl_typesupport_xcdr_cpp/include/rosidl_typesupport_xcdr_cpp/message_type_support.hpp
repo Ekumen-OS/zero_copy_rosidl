@@ -77,6 +77,7 @@ struct rosidl_message_xcdr_cpp_type_support_t
     rosidl_runtime_cpp::MemoryRegion<void> &, void **){nullptr};
   /// Cast message at storage (parses layout from buffer).
   rcutils_ret_t (*cast_message)(
+    const rosidl_message_xcdr_cpp_type_support_t *,
     rosidl_runtime_cpp::MemoryRegion<void>, void **){nullptr};
   /// Compute serialized size without performing serialization.
   /**

@@ -897,6 +897,7 @@ construct_message_at_@(msg_typename)(
 // Cast message at storage (zero-copy receiver side)
 rcutils_ret_t
 cast_message_at_@(msg_typename)(
+  const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t * impl,
   rosidl_runtime_cpp::MemoryRegion<void> storage,
   void ** message_ptr)
 {
@@ -938,8 +939,21 @@ cast_message_at_@(msg_typename)(
   ext_storage.prepopulated = true;
   
   // 5. Construct message from external storage
-  *message_ptr = new @(full_msg_typename)(ext_storage, rosidl_runtime_cpp::MessageInitialization::SKIP);
+  auto * msg = new @(full_msg_typename)(ext_storage, rosidl_runtime_cpp::MessageInitialization::SKIP);
   
+  // 6. Validate against constraints if the handle carries owned constraint state.
+  // When rmw creates a per-loan constrained handle, owned_constraints is set
+  // to enforce upper bounds during the cast path.
+  if (impl && impl->owned_constraints && impl->owned_constraints->type_specific) {
+    if (RCUTILS_RET_OK != impl->validate_fields(
+        impl->owned_constraints->type_specific, msg, nullptr, nullptr))
+    {
+      delete msg;
+      return RCUTILS_RET_ERROR;
+    }
+  }
+  
+  *message_ptr = msg;
   return RCUTILS_RET_OK;
 }
 
@@ -1582,7 +1596,10 @@ inline const rosidl_message_xcdr_cpp_type_support_t & get_inner_@(msg_typename)(
                                 rosidl_runtime_cpp::MemoryRegion<void> & s, void ** m) {
       return @(msg_namespace)::construct_message_at_@(msg_typename)(impl, s, m);
     };
-    tmp.cast_message = &@(msg_namespace)::cast_message_at_@(msg_typename);
+    tmp.cast_message = [](const rosidl_message_xcdr_cpp_type_support_t * impl,
+                           rosidl_runtime_cpp::MemoryRegion<void> s, void ** m) {
+      return @(msg_namespace)::cast_message_at_@(msg_typename)(impl, s, m);
+    };
     tmp.compute_serialized_size = &@(msg_namespace)::compute_serialized_size_@(msg_typename);
     tmp.validate_fields = &@(msg_namespace)::validate_message_@(msg_typename);
     tmp.compact_fields = &@(msg_namespace)::compact_message_@(msg_typename);
@@ -1605,7 +1622,10 @@ inline const rosidl_message_xcdr_cpp_type_support_t & get_inner_@(msg_typename)(
                                 rosidl_runtime_cpp::MemoryRegion<void> & s, void ** m) {
       return @(msg_namespace)::construct_message_at_@(msg_typename)(impl, s, m);
     };
-    tmp.cast_message = &@(msg_namespace)::cast_message_at_@(msg_typename);
+    tmp.cast_message = [](const rosidl_message_xcdr_cpp_type_support_t * impl,
+                           rosidl_runtime_cpp::MemoryRegion<void> s, void ** m) {
+      return @(msg_namespace)::cast_message_at_@(msg_typename)(impl, s, m);
+    };
     tmp.compute_serialized_size = &@(msg_namespace)::compute_serialized_size_@(msg_typename);
     tmp.compact_fields = &@(msg_namespace)::compact_message_@(msg_typename);
     tmp.compact_fields_recursive = &@(msg_namespace)::compact_fields_@(msg_typename);
