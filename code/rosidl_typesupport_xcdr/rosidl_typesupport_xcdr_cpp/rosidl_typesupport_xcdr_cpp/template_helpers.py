@@ -95,7 +95,8 @@ def needs_constraints(member_type):
 
 
 def get_message_type_name(namespaced_type, experimental_context=False):
-    """Get fully qualified C++ type name for a message.
+    """
+    Get fully qualified C++ type name for a message.
 
     If experimental_context is True, append 'experimental' to the namespace
     so that the type resolves to the experimental variant.
@@ -108,7 +109,8 @@ def get_message_type_name(namespaced_type, experimental_context=False):
 
 
 def get_nested_typesupport_include(namespaced_type, experimental_context=False):
-    """Get include path for nested message's XCDR typesupport.
+    """
+    Get include path for nested message's XCDR typesupport.
 
     If experimental_context is True, the include path targets the experimental
     variant of the nested type's typesupport header.

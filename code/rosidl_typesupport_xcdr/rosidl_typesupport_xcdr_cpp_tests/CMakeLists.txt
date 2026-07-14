@@ -20,6 +20,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/experimental/BasicTypes.msg"
   "msg/experimental/BoundedMessage.msg"
   "msg/experimental/UnboundedMessage.msg"
+  "msg/experimental/InnerValue.msg"
+  "msg/experimental/NestedContainers.msg"
   "msg/InnerMessage.msg"
   "msg/NestedMessage.msg"
   "srv/AddTwoInts.srv"
@@ -89,6 +91,11 @@ if(BUILD_TESTING)
   # --- Compact traversal (fast path, rewrite path, fail path) ---
   add_xcdr_test(test_compact_traversal
     test/test_compact_traversal.cpp
+  )
+
+  # --- ExternalStorage recursion (nested types, containers) ---
+  add_xcdr_test(test_external_storage_recursion
+    test/test_external_storage_recursion.cpp
   )
 
 endif()
