@@ -1832,6 +1832,8 @@ get_message_type_support_handle<@(full_msg_typename)>()
   static const rosidl_message_xcdr_type_support_t outer = []() {
     auto tmp = *rosidl_typesupport_xcdr_cpp::get_xcdr_cpp_type_support_prototype();
     tmp.inner = const_cast<rosidl_message_xcdr_cpp_type_support_t *>(&inner);
+    tmp.message_namespace = "@(msg_namespace)";
+    tmp.message_name = "@(msg_typename)";
 @[if is_experimental]@
     tmp.destroy_message = &@(msg_namespace)::destroy_message_@(msg_typename);
     tmp.release_message = &@(msg_namespace)::release_message_@(msg_typename);
@@ -1847,9 +1849,9 @@ get_message_type_support_handle<@(full_msg_typename)>()
     rosidl_typesupport_xcdr_cpp__identifier,
     &outer,
     get_message_typesupport_handle_function,
-    nullptr,  // get_type_hash_func
-    nullptr,  // get_type_description_func
-    nullptr,  // get_type_description_sources_func
+    xcdr_default_get_type_hash,            // safe fallback (returns zero hash)
+    xcdr_default_get_type_description,     // safe fallback (returns nullptr)
+    xcdr_default_get_type_description_sources,  // safe fallback (returns nullptr)
   };
 
   return &handle;

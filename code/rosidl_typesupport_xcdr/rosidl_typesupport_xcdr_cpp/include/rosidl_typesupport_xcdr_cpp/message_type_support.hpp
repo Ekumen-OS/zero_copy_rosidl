@@ -385,4 +385,33 @@ compare_constraints(
   rosidl_runtime_cpp::ConstraintReportCallback report_cb = nullptr);
 
 }  // namespace rosidl_typesupport_xcdr_cpp
+
+// ---- Default fallback functions for generated dispatch handles ----
+// These return zero / null values when a message type does not provide
+// its own type hash, type description, or type description sources
+// (e.g., XCDR-only experimental messages).  Using these instead of
+// nullptr prevents null-function-pointer crashes in callers that
+// unconditionally dereference the handle's function pointers.
+
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
+ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC
+const rosidl_type_hash_t *
+xcdr_default_get_type_hash(const rosidl_message_type_support_t * type_support);
+
+ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC
+const rosidl_runtime_c__type_description__TypeDescription *
+xcdr_default_get_type_description(const rosidl_message_type_support_t * type_support);
+
+ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC
+const rosidl_runtime_c__type_description__TypeSource__Sequence *
+xcdr_default_get_type_description_sources(const rosidl_message_type_support_t * type_support);
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif  // ROSIDL_TYPESUPPORT_XCDR_CPP__MESSAGE_TYPE_SUPPORT_HPP_
