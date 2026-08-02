@@ -27,6 +27,7 @@
 
 // xcdr_buffers headers needed by the inner struct definition
 #include "xcdr_buffers/layout/layout.hpp"
+#include "xcdr_buffers/layout/layout_parser.hpp"
 
 // Forward declare remaining xcdr_buffers types
 namespace xcdr_buffers
@@ -121,6 +122,26 @@ struct rosidl_message_xcdr_cpp_type_support_t
     const void * message,
     rosidl_typesupport_xcdr_c_constraint_report_callback_t report_cb,
     void * user_data) = nullptr;
+
+  /// Per-type layout-field parser (cast path).
+  /**
+   * Walks the buffer with the given layout parser, emitting the parse calls
+   * for this message's own members.  Nested struct members recurse into the
+   * nested type's own parse_fields callback (mirroring how serialize_fields
+   * and build_layout_fields recurse), so the layout parser can infer the
+   * offsets of variable-length members from the wire data.
+   *
+   * Generated for EVERY message (experimental and non-experimental alike),
+   * because a non-experimental type can be nested inside an experimental
+   * message that is cast.  Only experimental messages expose cast_message
+   * (they are the only messages backed by typed views).
+   *
+   * \param[in,out] parser  Layout parser positioned after this struct's
+   *                        context has been opened (begin_parse_struct).
+   * \return RCUTILS_RET_OK on success, RCUTILS_RET_ERROR on parse failure.
+   */
+  rcutils_ret_t (*parse_fields)(
+    xcdr_buffers::XCdrLayoutParser & parser) = nullptr;
 
   /// Per-type consume-and-compact callback (layout-driven).
   /**

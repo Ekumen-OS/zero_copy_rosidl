@@ -48,8 +48,12 @@ cpp_get_expected_size(
   }
   auto * impl = static_cast<const rosidl_message_xcdr_cpp_type_support_t *>(xcdr->inner);
   if (nullptr == impl->cached_layout) {
-    RCUTILS_SET_ERROR_MSG("cached_layout not available");
-    return RCUTILS_RET_ERROR;
+    // No cached layout means the expected size is not statically known
+    // (unbounded type, or an unconstrained handle).  Report 0 instead of
+    // failing: callers use 0 to mean "we don't know" (not plain, not
+    // bounded) rather than an error.
+    *size = 0;
+    return RCUTILS_RET_OK;
   }
   *size = impl->cached_layout->total_size();
   return RCUTILS_RET_OK;

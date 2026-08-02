@@ -280,7 +280,7 @@ for member in message.structure.members:
 @[end if]@
 @[end def]@
 
-@[def generate_parser_field(member)]@
+@[def generate_parser_field(member, is_experimental=False)]@
 @{ from rosidl_parser.definition import BasicType, AbstractString, AbstractWString, BoundedString, BoundedWString, Array, BoundedSequence, AbstractSequence, NamespacedType }@ @
 @{ from rosidl_typesupport_xcdr_cpp.template_helpers import get_xcdr_primitive_kind, get_cpp_type, get_message_type_name }@ @
 @[if isinstance(member.type, BasicType)]@
@@ -296,6 +296,16 @@ for member in message.structure.members:
     parser.parse_string();
 @[    elif isinstance(member.type.value_type, NamespacedType)]@
     parser.begin_parse_struct();
+    {
+      auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental))>();
+      auto nested_outer_@(member.name) = static_cast<const rosidl_message_xcdr_type_support_t *>(nested_ts_@(member.name)->data);
+      auto nested_inner_@(member.name) = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(nested_outer_@(member.name)->inner);
+      if (nullptr == nested_inner_@(member.name)->parse_fields) {
+        return RCUTILS_RET_ERROR;
+      }
+      auto _ret_@(member.name) = nested_inner_@(member.name)->parse_fields(parser);
+      if (RCUTILS_RET_OK != _ret_@(member.name)) { return _ret_@(member.name); }
+    }
     parser.end_parse_struct();
 @[    end if]@
   parser.end_parse_array();
@@ -308,11 +318,31 @@ for member in message.structure.members:
     parser.parse_string();
 @[  elif isinstance(member.type.value_type, NamespacedType)]@
     parser.begin_parse_struct();
+    {
+      auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental))>();
+      auto nested_outer_@(member.name) = static_cast<const rosidl_message_xcdr_type_support_t *>(nested_ts_@(member.name)->data);
+      auto nested_inner_@(member.name) = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(nested_outer_@(member.name)->inner);
+      if (nullptr == nested_inner_@(member.name)->parse_fields) {
+        return RCUTILS_RET_ERROR;
+      }
+      auto _ret_@(member.name) = nested_inner_@(member.name)->parse_fields(parser);
+      if (RCUTILS_RET_OK != _ret_@(member.name)) { return _ret_@(member.name); }
+    }
     parser.end_parse_struct();
 @[  end if]@
   parser.end_parse_sequence();
 @[elif isinstance(member.type, NamespacedType)]@
-  parser.begin_parse_struct();
+  parser.begin_parse_struct("@(member.name)");
+  {
+    auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type, experimental_context=is_experimental))>();
+    auto nested_outer_@(member.name) = static_cast<const rosidl_message_xcdr_type_support_t *>(nested_ts_@(member.name)->data);
+    auto nested_inner_@(member.name) = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(nested_outer_@(member.name)->inner);
+    if (nullptr == nested_inner_@(member.name)->parse_fields) {
+      return RCUTILS_RET_ERROR;
+    }
+    auto _ret_@(member.name) = nested_inner_@(member.name)->parse_fields(parser);
+    if (RCUTILS_RET_OK != _ret_@(member.name)) { return _ret_@(member.name); }
+  }
   parser.end_parse_struct();
 @[else]@
   // TODO: Parse @(member.name)
@@ -1061,6 +1091,22 @@ populate_external_storage_@(msg_typename)(
   return RCUTILS_RET_OK;
 }
 
+// Parse layout fields from buffer (zero-copy receiver side)
+//
+// Recurses into nested struct members via the nested type's own parse_fields
+// callback, so variable-length members anywhere in the message tree get
+// correctly inferred offsets from the wire data.
+rcutils_ret_t
+parse_fields_@(msg_typename)(
+  xcdr_buffers::XCdrLayoutParser & parser)
+{
+@[  for member in message.structure.members]@
+@(generate_parser_field(member, is_experimental))
+@[  end for]@
+
+  return RCUTILS_RET_OK;
+}
+
 // Cast message at storage (zero-copy receiver side)
 rcutils_ret_t
 cast_message_at_@(msg_typename)(
@@ -1074,9 +1120,14 @@ cast_message_at_@(msg_typename)(
     storage.size());
 
   xcdr_buffers::XCdrLayoutParser parser(buffer_span);
-@[  for member in message.structure.members]@
-@(generate_parser_field(member))
-@[  end for]@
+  if (nullptr == impl || nullptr == impl->parse_fields) {
+    RCUTILS_SET_ERROR_MSG("parse_fields callback not available");
+    return RCUTILS_RET_ERROR;
+  }
+  auto _parse_ret = impl->parse_fields(parser);
+  if (RCUTILS_RET_OK != _parse_ret) {
+    return _parse_ret;
+  }
 
   auto layout_result = parser.finalize();
   if (!layout_result) {
@@ -1762,6 +1813,7 @@ inline const rosidl_message_xcdr_cpp_type_support_t & get_inner_@(msg_typename)(
     tmp.build_layout_fields = &@(msg_namespace)::build_layout_fields_@(msg_typename);
     tmp.serialize_fields = &@(msg_namespace)::serialize_fields_into_writer_@(msg_typename);
     tmp.deserialize_fields = &@(msg_namespace)::deserialize_fields_from_reader_@(msg_typename);
+    tmp.parse_fields = &@(msg_namespace)::parse_fields_@(msg_typename);
     tmp.construct_message = [](const rosidl_message_xcdr_cpp_type_support_t * impl,
                                 rosidl_runtime_cpp::MemoryRegion<void> & s, void ** m) {
       return @(msg_namespace)::construct_message_at_@(msg_typename)(impl, s, m);
@@ -1788,6 +1840,7 @@ inline const rosidl_message_xcdr_cpp_type_support_t & get_inner_@(msg_typename)(
     tmp.build_layout_fields = &@(msg_namespace)::build_layout_fields_@(msg_typename);
     tmp.serialize_fields = &@(msg_namespace)::serialize_fields_into_writer_@(msg_typename);
     tmp.deserialize_fields = &@(msg_namespace)::deserialize_fields_from_reader_@(msg_typename);
+    tmp.parse_fields = &@(msg_namespace)::parse_fields_@(msg_typename);
     tmp.construct_message = [](const rosidl_message_xcdr_cpp_type_support_t * impl,
                                 rosidl_runtime_cpp::MemoryRegion<void> & s, void ** m) {
       return @(msg_namespace)::construct_message_at_@(msg_typename)(impl, s, m);
