@@ -311,12 +311,17 @@ for member in message.structure.members:
   parser.end_parse_array();
 @[  end if]@
 @[elif isinstance(member.type, AbstractSequence)]@
-  auto @(member.name)_size = parser.begin_parse_sequence();
 @[  if isinstance(member.type.value_type, BasicType)]@
-    parser.parse_primitive(@(get_xcdr_primitive_kind(member.type.value_type)));
-@[  elif isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
+@[    if isinstance(member.type, BoundedSequence)]@
+  parser.parse_primitive_sequence(@(get_xcdr_primitive_kind(member.type.value_type)), @(member.type.maximum_size));
+@[    else]@
+  parser.parse_primitive_sequence(@(get_xcdr_primitive_kind(member.type.value_type)));
+@[    end if]@
+@[  else]@
+  auto @(member.name)_size = parser.begin_parse_sequence();
+@[    if isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
     parser.parse_string();
-@[  elif isinstance(member.type.value_type, NamespacedType)]@
+@[    elif isinstance(member.type.value_type, NamespacedType)]@
     parser.begin_parse_struct();
     {
       auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental))>();
@@ -329,8 +334,9 @@ for member in message.structure.members:
       if (RCUTILS_RET_OK != _ret_@(member.name)) { return _ret_@(member.name); }
     }
     parser.end_parse_struct();
-@[  end if]@
+@[    end if]@
   parser.end_parse_sequence();
+@[  end if]@
 @[elif isinstance(member.type, NamespacedType)]@
   parser.begin_parse_struct("@(member.name)");
   {
