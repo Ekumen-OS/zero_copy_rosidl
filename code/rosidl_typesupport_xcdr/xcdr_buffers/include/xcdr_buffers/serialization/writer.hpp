@@ -17,6 +17,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory_resource>
 #include <string_view>
 #include <string>
@@ -316,6 +317,9 @@ private:
   void align_and_reserve(size_t alignment, size_t size);
   /// Non-mutating position advancement (no memset, no writes).
   void skip_advance(size_t alignment, size_t advance_size);
+  /// Bulk-write an arithmetic span after a single alignment/reserve.
+  template<typename T>
+  void write_pod_span(tcb::span<const T> values);
 };
 
 // Template implementations
@@ -397,16 +401,54 @@ void XCdrWriter::skip_sequence(size_t count)
 }
 
 template<typename T>
+void XCdrWriter::write_pod_span(tcb::span<const T> values)
+{
+  static_assert(std::is_arithmetic_v<T>, "write_pod_span only supports arithmetic types");
+
+  if (values.empty()) {
+    return;
+  }
+
+  ensure_header_written();
+
+  if (overflow_error_) {
+    return;
+  }
+
+  // Guard against multiplication overflow.
+  if (values.size() > (std::numeric_limits<size_t>::max)() / sizeof(T)) {
+    overflow_error_ = true;
+    return;
+  }
+
+  const size_t total = values.size() * sizeof(T);
+
+  align_and_reserve(sizeof(T), total);
+
+  if (overflow_error_) {
+    return;
+  }
+
+  // The reserved region starts right before the (advanced) write position.
+  tcb::span<uint8_t> dst;
+  if (is_fixed_mode_) {
+    dst = tcb::span<uint8_t>(fixed_span_.data() + write_position_ - total, total);
+  } else {
+    dst = tcb::span<uint8_t>(buffer_.data() + buffer_.size() - total, total);
+  }
+
+  // Bulk copy when the wire endianness matches the host; byte-swap otherwise.
+  write_to_bytes(dst, values, endianness_);
+}
+
+template<typename T>
 void XCdrWriter::write_array(tcb::span<const T> values)
 {
   static_assert(std::is_arithmetic_v<T>, "write_array only supports arithmetic types");
 
   begin_write_array(values.size());
 
-  // Write all elements
-  for (const auto & value : values) {
-    write(value);
-  }
+  write_pod_span(values);
 
   end_write_array();
 }
@@ -418,10 +460,7 @@ void XCdrWriter::write_sequence(tcb::span<const T> values)
 
   begin_write_sequence(values.size());
 
-  // Write all elements
-  for (const auto & value : values) {
-    write(value);
-  }
+  write_pod_span(values);
 
   end_write_sequence();
 }

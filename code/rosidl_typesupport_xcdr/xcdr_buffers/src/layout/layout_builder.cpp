@@ -15,6 +15,7 @@
 #include "xcdr_buffers/layout/layout_builder.hpp"
 
 #include <algorithm>
+#include <cassert>
 
 namespace xcdr_buffers
 {
@@ -152,37 +153,27 @@ void XCdrLayoutBuilder::end_allocate_array()
 
   const auto & first_elem = ctx.element_layouts[0];
 
-  if (std::holds_alternative<XCdrPrimitiveLayout>(first_elem)) {
-    // Primitive array
-    auto prim = std::get<XCdrPrimitiveLayout>(first_elem);
+  // Primitive arrays must be built with allocate_primitive_array(): the
+  // begin/allocate/end path is only for non-primitive elements (strings,
+  // structs, composites), where each element may have a different layout.
+  assert(!std::holds_alternative<XCdrPrimitiveLayout>(first_elem) &&
+    "Primitive arrays must be built with allocate_primitive_array()");
 
-    if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
-      context_stack_.back().nested_builder->add_field(
-        ctx.field_name,
-        ctx.element_offsets[0] + ctx.start_offset,
-        XCdrPrimitiveArrayLayout(prim.kind(), ctx.element_count));
-    } else {
-      add_field(ctx.field_name, ctx.start_offset,
-          XCdrPrimitiveArrayLayout(prim.kind(), ctx.element_count));
-    }
+  // Non-primitive array (strings, structs, nested composites) - use unified XCdrArrayLayout
+  std::pmr::vector<XCdrArrayLayout::Element> elements(memory_resource_);
+  for (size_t i = 0; i < ctx.element_layouts.size(); ++i) {
+    elements.push_back({
+        ctx.element_offsets[i],
+        std::make_shared<XCdrLayout>(std::move(ctx.element_layouts[i]))
+    });
+  }
 
+  if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
+    context_stack_.back().nested_builder->add_field(
+      ctx.field_name, ctx.start_offset, XCdrArrayLayout(std::move(elements), memory_resource_));
   } else {
-    // Non-primitive array (strings, structs, nested composites) - use unified XCdrArrayLayout
-    std::pmr::vector<XCdrArrayLayout::Element> elements(memory_resource_);
-    for (size_t i = 0; i < ctx.element_layouts.size(); ++i) {
-      elements.push_back({
-          ctx.element_offsets[i],
-          std::make_shared<XCdrLayout>(std::move(ctx.element_layouts[i]))
-      });
-    }
-
-    if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
-      context_stack_.back().nested_builder->add_field(
-        ctx.field_name, ctx.start_offset, XCdrArrayLayout(std::move(elements), memory_resource_));
-    } else {
-      add_field(ctx.field_name, ctx.start_offset,
-          XCdrArrayLayout(std::move(elements), memory_resource_));
-    }
+    add_field(ctx.field_name, ctx.start_offset,
+        XCdrArrayLayout(std::move(elements), memory_resource_));
   }
 }
 
@@ -226,37 +217,28 @@ void XCdrLayoutBuilder::end_allocate_sequence()
 
   const auto & first_elem = ctx.element_layouts[0];
 
-  if (std::holds_alternative<XCdrPrimitiveLayout>(first_elem)) {
-    // Primitive sequence
-    auto prim = std::get<XCdrPrimitiveLayout>(first_elem);
+  // Primitive sequences must be built with allocate_primitive_sequence():
+  // the begin/allocate/end path is only for non-primitive elements (strings,
+  // structs, composites), where each element may have a different layout.
+  assert(!std::holds_alternative<XCdrPrimitiveLayout>(first_elem) &&
+    "Primitive sequences must be built with allocate_primitive_sequence()");
 
-    if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
-      context_stack_.back().nested_builder->add_field(
-        ctx.field_name, ctx.start_offset,
-          XCdrPrimitiveSequenceLayout(prim.kind(), ctx.element_count));
-    } else {
-      add_field(ctx.field_name, ctx.start_offset,
-          XCdrPrimitiveSequenceLayout(prim.kind(), ctx.element_count));
-    }
+  // Non-primitive sequence (strings, structs, nested composites)
+  std::pmr::vector<XCdrSequenceLayout::Element> elements(memory_resource_);
+  for (size_t i = 0; i < ctx.element_layouts.size(); ++i) {
+    elements.push_back({
+        ctx.element_offsets[i],
+        std::make_shared<XCdrLayout>(std::move(ctx.element_layouts[i]))
+    });
+  }
 
+  if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
+    context_stack_.back().nested_builder->add_field(
+      ctx.field_name, ctx.start_offset,
+        XCdrSequenceLayout(std::move(elements), memory_resource_));
   } else {
-    // Non-primitive sequence (strings, structs, nested composites)
-    std::pmr::vector<XCdrSequenceLayout::Element> elements(memory_resource_);
-    for (size_t i = 0; i < ctx.element_layouts.size(); ++i) {
-      elements.push_back({
-          ctx.element_offsets[i],
-          std::make_shared<XCdrLayout>(std::move(ctx.element_layouts[i]))
-      });
-    }
-
-    if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
-      context_stack_.back().nested_builder->add_field(
-        ctx.field_name, ctx.start_offset,
-          XCdrSequenceLayout(std::move(elements), memory_resource_));
-    } else {
-      add_field(ctx.field_name, ctx.start_offset,
-          XCdrSequenceLayout(std::move(elements), memory_resource_));
-    }
+    add_field(ctx.field_name, ctx.start_offset,
+        XCdrSequenceLayout(std::move(elements), memory_resource_));
   }
 }
 
@@ -385,21 +367,38 @@ void XCdrLayoutBuilder::begin_allocate_sequence(size_t actual_count)
 void XCdrLayoutBuilder::allocate_primitive_array(
   std::string_view name, XCdrPrimitiveKind kind, size_t count)
 {
-  begin_allocate_array(name, count);
-  for (size_t i = 0; i < count; ++i) {
-    allocate_primitive(kind);  // Use no-name version for elements
+  // Build the homogeneous primitive array layout in one shot: align to the
+  // element alignment, record the (aligned) field offset, and advance past
+  // all elements.  The begin/allocate/end path is for non-primitive arrays.
+  align_current_offset(get_primitive_alignment(kind));
+  size_t field_offset = current_offset_;
+  XCdrPrimitiveArrayLayout arr(kind, count, memory_resource_);
+  current_offset_ += arr.size();
+
+  if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
+    context_stack_.back().nested_builder->add_field(name, field_offset, std::move(arr));
+  } else {
+    add_field(name, field_offset, std::move(arr));
   }
-  end_allocate_array();
 }
 
 void XCdrLayoutBuilder::allocate_primitive_sequence(
   std::string_view name, XCdrPrimitiveKind kind, size_t actual_count)
 {
-  begin_allocate_sequence(name, actual_count);
-  for (size_t i = 0; i < actual_count; ++i) {
-    allocate_primitive(kind);  // Use no-name version for elements
+  // Build the homogeneous primitive sequence layout in one shot: align to the
+  // length prefix, record the prefix-start field offset, and advance past the
+  // prefix + padding + all element bytes.  The begin/allocate/end path is for
+  // non-primitive sequences.
+  align_current_offset(kSequenceLengthPrefixSize);
+  size_t field_offset = current_offset_;
+  XCdrPrimitiveSequenceLayout seq(kind, actual_count, memory_resource_);
+  current_offset_ += seq.size();
+
+  if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
+    context_stack_.back().nested_builder->add_field(name, field_offset, std::move(seq));
+  } else {
+    add_field(name, field_offset, std::move(seq));
   }
-  end_allocate_sequence();
 }
 
 XCdrStructLayout XCdrLayoutBuilder::finalize()

@@ -18,6 +18,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory_resource>
 #include <string>
 #include <string_view>
@@ -593,18 +594,27 @@ XCdrStatus XCdrReader::read_into(T & value)
       return status;
     }
 
-    for (std::size_t i = 0; i < N; ++i) {
-      if constexpr (std::is_arithmetic_v<ElemType>) {
-        status = read_into(value[i]);
-      } else {
+    if constexpr (std::is_arithmetic_v<ElemType>&& !std::is_same_v<ElemType, bool>) {
+      // Bulk read: align once, then memcpy (or byte-swap) the whole array.
+      status = align_position(sizeof(ElemType));
+      if (!status) {
+        return status;
+      }
+      constexpr size_t total = N * sizeof(ElemType);
+      status = ensure_available(total);
+      if (!status) {
+        return status;
+      }
+      tcb::span<const uint8_t> src(buffer_.data() + position_, total);
+      read_from_bytes(tcb::span<ElemType>(value.data(), N), src, endianness_);
+      position_ += total;
+    } else {
+      for (std::size_t i = 0; i < N; ++i) {
         auto elem_result = read<ElemType>();
         if (!elem_result) {
           return tl::unexpected(elem_result.error());
         }
         value[i] = *elem_result;
-      }
-      if (!status) {
-        return status;
       }
     }
 
@@ -620,18 +630,29 @@ XCdrStatus XCdrReader::read_into(T & value)
     }
 
     size_t count = *count_result;
-    value.clear();
-    value.reserve(count);
 
-    for (size_t i = 0; i < count; ++i) {
-      if constexpr (std::is_arithmetic_v<ElemType>) {
-        ElemType elem;
-        auto status = read_into(elem);
-        if (!status) {
-          return status;
-        }
-        value.push_back(elem);
-      } else {
+    if constexpr (std::is_arithmetic_v<ElemType>&& !std::is_same_v<ElemType, bool>) {
+      // Bulk read: align once, then memcpy (or byte-swap) the whole payload.
+      if (count > (std::numeric_limits<size_t>::max)() / sizeof(ElemType)) {
+        return error("Sequence count overflows");
+      }
+      const size_t total = count * sizeof(ElemType);
+      auto status = align_position(sizeof(ElemType));
+      if (!status) {
+        return status;
+      }
+      status = ensure_available(total);
+      if (!status) {
+        return status;
+      }
+      value.resize(count);
+      tcb::span<const uint8_t> src(buffer_.data() + position_, total);
+      read_from_bytes(tcb::span<ElemType>(value.data(), count), src, endianness_);
+      position_ += total;
+    } else {
+      value.clear();
+      value.reserve(count);
+      for (size_t i = 0; i < count; ++i) {
         auto elem_result = read<ElemType>();
         if (!elem_result) {
           return tl::unexpected(elem_result.error());

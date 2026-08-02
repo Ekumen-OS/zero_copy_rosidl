@@ -221,7 +221,7 @@ XCdrStatus XCdrLayoutParser::parse_primitive_array(XCdrPrimitiveKind kind, size_
 
 XCdrStatus XCdrLayoutParser::parse_primitive_sequence(
   std::string_view name, XCdrPrimitiveKind kind,
-  size_t actual_count)
+  size_t max_count)
 {
   if (!header_parsed_) {
     return error("Must call parse_header() before parsing sequences");
@@ -236,7 +236,7 @@ XCdrStatus XCdrLayoutParser::parse_primitive_sequence(
   // Align to prefix size
   align_read_offset(kSequenceLengthPrefixSize);
 
-  // Read sequence count
+  // Read sequence count from the wire
   if (read_offset_ + kSequenceLengthPrefixSize > buffer_.size()) {
     return error("Buffer too small for sequence length prefix");
   }
@@ -248,26 +248,26 @@ XCdrStatus XCdrLayoutParser::parse_primitive_sequence(
                   endianness_);
   read_offset_ += kSequenceLengthPrefixSize;
 
-  // Validate count matches
-  if (sequence_count != actual_count) {
-    return error("Sequence count mismatch: expected " + std::to_string(actual_count) +
+  // Validate count does not exceed the bound (0 = unbounded)
+  if (max_count != 0 && sequence_count > max_count) {
+    return error("Sequence count exceeds maximum: max " + std::to_string(max_count) +
                  ", got " + std::to_string(sequence_count));
   }
 
-  // Use builder's one-shot method
-  builder_.allocate_primitive_sequence(std::string(name), kind, actual_count);
+  // Use builder's one-shot method with the wire count
+  builder_.allocate_primitive_sequence(std::string(name), kind, sequence_count);
 
   // Align for first element, then advance read offset for all element data
   size_t element_size = get_primitive_size(kind);
   align_read_offset(element_size);
-  read_offset_ += element_size * actual_count;
+  read_offset_ += element_size * sequence_count;
 
   return ok();
 }
 
 XCdrStatus XCdrLayoutParser::parse_primitive_sequence(
   XCdrPrimitiveKind kind,
-  size_t actual_count)
+  size_t max_count)
 {
   if (!header_parsed_) {
     return error("Must call parse_header() before parsing sequences");
@@ -279,7 +279,7 @@ XCdrStatus XCdrLayoutParser::parse_primitive_sequence(
   // Align to prefix size
   align_read_offset(kSequenceLengthPrefixSize);
 
-  // Read sequence count
+  // Read sequence count from the wire
   if (read_offset_ + kSequenceLengthPrefixSize > buffer_.size()) {
     return error("Buffer too small for sequence length prefix");
   }
@@ -291,19 +291,19 @@ XCdrStatus XCdrLayoutParser::parse_primitive_sequence(
                   endianness_);
   read_offset_ += kSequenceLengthPrefixSize;
 
-  // Validate count matches
-  if (sequence_count != actual_count) {
-    return error("Sequence count mismatch: expected " + std::to_string(actual_count) +
+  // Validate count does not exceed the bound (0 = unbounded)
+  if (max_count != 0 && sequence_count > max_count) {
+    return error("Sequence count exceeds maximum: max " + std::to_string(max_count) +
                  ", got " + std::to_string(sequence_count));
   }
 
-  // Use builder's one-shot method
-  builder_.allocate_primitive_sequence(field_name, kind, actual_count);
+  // Use builder's one-shot method with the wire count
+  builder_.allocate_primitive_sequence(field_name, kind, sequence_count);
 
   // Align for first element, then advance read offset for all element data
   size_t element_size = get_primitive_size(kind);
   align_read_offset(element_size);
-  read_offset_ += element_size * actual_count;
+  read_offset_ += element_size * sequence_count;
 
   return ok();
 }

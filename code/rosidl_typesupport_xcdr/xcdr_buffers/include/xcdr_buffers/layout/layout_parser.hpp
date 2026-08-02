@@ -150,23 +150,33 @@ public:
   ///
   /// Use this for sequences of primitives. For sequences of strings or
   /// structs, use begin/end_parse_sequence().
-  /// Reads the sequence count from the buffer and validates against
-  /// actual_count.
+  /// Reads the sequence count from the buffer and validates it does not
+  /// exceed the optional maximum (for bounded sequences).
   ///
   /// @param name Field name (must not be empty)
   /// @param kind Primitive element kind
-  /// @param actual_count Expected number of elements
-  /// @return ok() on success, error() if buffer overflow, count mismatch, or name is empty
+  /// @param max_count Upper bound on the element count (bounded sequences);
+  ///                  0 means unbounded (no check).
+  /// @return ok() on success, error() if buffer overflow, count exceeds the
+  ///         bound, or name is empty
   XCdrStatus parse_primitive_sequence(
     std::string_view name, XCdrPrimitiveKind kind,
-    size_t actual_count);
+    size_t max_count = 0);
 
   /// Parses a primitive sequence (one-shot operation) with auto-generated name.
   ///
+  /// The element count is read from the buffer's length prefix (the cast
+  /// path) and validated against the optional maximum (bounded sequences).
+  /// Builds the layout via the builder's one-shot allocate_primitive_sequence().
+  ///
   /// @param kind Primitive element kind
-  /// @param actual_count Expected number of elements
-  /// @return ok() on success, error() if buffer overflow or count mismatch
-  XCdrStatus parse_primitive_sequence(XCdrPrimitiveKind kind, size_t actual_count);
+  /// @param max_count Upper bound on the element count; 0 means unbounded
+  ///                  (no check).
+  /// @return ok() on success, error() if buffer overflow or count exceeds
+  ///         the bound
+  XCdrStatus parse_primitive_sequence(
+    XCdrPrimitiveKind kind,
+    size_t max_count = 0);
 
   /// Begins parsing a fixed-size array (struct context) with explicit name.
   ///
