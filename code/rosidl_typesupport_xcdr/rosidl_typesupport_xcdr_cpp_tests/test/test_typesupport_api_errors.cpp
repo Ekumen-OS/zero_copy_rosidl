@@ -203,9 +203,13 @@ TEST(TestApiErrors, GetExpectedSizeOnNonExperimental)
     rosidl_typesupport_xcdr_cpp_tests::msg::BasicTypes>();
   ASSERT_NE(nullptr, ts);
 
-  size_t size = 0;
+  size_t size = 42;
+  // Non-experimental types have no cached layout, so the expected size is
+  // not statically known: the API reports OK with size 0 ("we don't know"),
+  // not an error.
   auto ret = rosidl_typesupport_xcdr_cpp::get_expected_message_size(ts, &size);
-  EXPECT_EQ(RCUTILS_RET_ERROR, ret);
+  EXPECT_EQ(RCUTILS_RET_OK, ret);
+  EXPECT_EQ(0u, size);
 }
 
 // =============================================================================

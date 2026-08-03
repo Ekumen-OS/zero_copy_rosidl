@@ -946,7 +946,7 @@ nested_fn_arr = get_message_type_name(member.type.value_type, experimental_conte
     auto _nested_ts = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(nested_fn_arr)>();
     auto _nested_outer = static_cast<const rosidl_message_xcdr_type_support_t *>(_nested_ts->data);
     auto _nested_inner = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(_nested_outer->inner);
-    const auto & _arr_layout = std::get<xcdr_buffers::XCdrStructLayout>(
+    const auto & _arr_layout = std::get<xcdr_buffers::XCdrArrayLayout>(
       layout.get_member(@(i))->get().layout());
     for (size_t _j = 0; _j < @(member.type.size); ++_j) {
       const auto & _elem_layout = std::get<xcdr_buffers::XCdrStructLayout>(
@@ -1449,8 +1449,11 @@ compact_fields_@(msg_typename)(
   }
 
 @[    elif isinstance(member.type.value_type, NamespacedType)]@
-@# Array of nested messages
-@[      if 'experimental' in member.type.value_type.namespaces]@
+@# Array of nested messages.
+@# We are generating an experimental variant (is_experimental), so the nested
+@# element type has an experimental variant with compact_fields_recursive: use
+@# it to propagate emit (see the nested struct member comment above).
+@[      if is_experimental]@
 @{
 nested_ns_arr = '::'.join(member.type.value_type.namespaces)
 nested_short_arr = member.type.value_type.name
@@ -1460,7 +1463,7 @@ nested_ts_name_arr = get_message_type_name(member.type.value_type, experimental_
     auto _nested_ts_arr = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(nested_ts_name_arr)>();
     auto _nested_outer_arr = static_cast<const rosidl_message_xcdr_type_support_t *>(_nested_ts_arr->data);
     auto _nested_inner_arr = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(_nested_outer_arr->inner);
-    const auto & _arr_layout = std::get<xcdr_buffers::XCdrStructLayout>(
+    const auto & _arr_layout = std::get<xcdr_buffers::XCdrArrayLayout>(
       layout.get_member(@(i))->get().layout());
     for (size_t _j = 0; _j < @(member.type.size); ++_j) {
       const auto & _elem_layout = std::get<xcdr_buffers::XCdrStructLayout>(
@@ -1563,8 +1566,11 @@ nested_ts_name_arr = get_message_type_name(member.type.value_type, experimental_
   }
 
 @[    elif isinstance(member.type.value_type, NamespacedType)]@
-@# Sequence of nested messages
-@[      if 'experimental' in member.type.value_type.namespaces]@
+@# Sequence of nested messages.
+@# We are generating an experimental variant (is_experimental), so the nested
+@# element type has an experimental variant with compact_fields_recursive: use
+@# it to propagate emit (see the nested struct member comment above).
+@[      if is_experimental]@
 @{
 nested_ns_seq = '::'.join(member.type.value_type.namespaces)
 nested_short_seq = member.type.value_type.name
@@ -1612,8 +1618,13 @@ nested_ts_name_seq = get_message_type_name(member.type.value_type, experimental_
 @[    end if]@
 
 @[  elif isinstance(member.type, NamespacedType)]@
-@# Nested message member
-@[    if 'experimental' in member.type.namespaces]@
+@# Nested message member.
+@# We are generating an experimental variant (is_experimental), so every nested
+@# message type also has an experimental variant with compact_fields_recursive:
+@# use it to propagate emit — an undersized variable-length field anywhere in the
+@# nested tree must force the compact rewrite, otherwise the released raw view
+@# (bound-sized slots with a compacted nested header) desyncs the wire parser.
+@[    if is_experimental]@
 @{
 nested_ns = '::'.join(member.type.namespaces)
 nested_short = member.type.name
