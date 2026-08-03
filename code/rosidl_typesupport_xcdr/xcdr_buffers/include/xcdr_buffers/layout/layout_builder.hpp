@@ -15,6 +15,7 @@
 #ifndef XCDR_BUFFERS__LAYOUT__LAYOUT_BUILDER_HPP_
 #define XCDR_BUFFERS__LAYOUT__LAYOUT_BUILDER_HPP_
 
+#include <functional>
 #include <memory>
 #include <memory_resource>
 #include <string>
@@ -57,9 +58,11 @@ public:
   void allocate_primitive(std::string_view name, XCdrPrimitiveKind kind);
 
   /**
-   * @brief Allocate a primitive element (array/sequence context).
+   * @brief Allocate a primitive element (array/sequence context) or an
+   * unnamed field (struct context).
    *
-   * Use inside begin/end_allocate_array or begin/end_allocate_sequence.
+   * Fields allocated without a name are not registered in the name-to-index
+   * map; access them by index.
    *
    * @param kind Primitive type kind
    */
@@ -111,12 +114,14 @@ public:
     size_t actual_count);
 
   /**
-   * @brief Same as allocate_primitive_array(name, kind, count) but uses auto-generated field name.
+   * @brief Same as allocate_primitive_array(name, kind, count) but with no
+   * field name (not registered in the name-to-index map).
    */
   void allocate_primitive_array(XCdrPrimitiveKind kind, size_t count);
 
   /**
-   * @brief Same as allocate_primitive_sequence(name, kind, actual_count) but uses auto-generated field name.
+   * @brief Same as allocate_primitive_sequence(name, kind, actual_count) but
+   * with no field name (not registered in the name-to-index map).
    */
   void allocate_primitive_sequence(XCdrPrimitiveKind kind, size_t actual_count);
 
@@ -137,10 +142,10 @@ public:
   void begin_allocate_array(std::string_view name, size_t count);
 
   /**
-   * @brief Begin allocating an array field with auto-generated name.
+   * @brief Begin allocating an array field with no name.
    *
-   * Same as begin_allocate_array(name, count) but uses auto-generated field
-   * name (field_0, field_1, etc.).
+   * Same as begin_allocate_array(name, count) but the field is not registered
+   * in the name-to-index map.
    *
    * @param count Number of elements
    */
@@ -170,10 +175,10 @@ public:
   void begin_allocate_sequence(std::string_view name, size_t actual_count);
 
   /**
-   * @brief Begin allocating a sequence field with auto-generated name.
+   * @brief Begin allocating a sequence field with no name.
    *
-   * Same as begin_allocate_sequence(name, actual_count) but uses
-   * auto-generated field name (field_0, field_1, etc.).
+   * Same as begin_allocate_sequence(name, actual_count) but the field is not
+   * registered in the name-to-index map.
    *
    * @param actual_count Number of elements
    */
@@ -235,8 +240,11 @@ private:
     enum class Type { kStruct, kArray, kSequence };
     enum class ElementType { kNone, kPrimitive, kString, kStruct };
 
+    explicit BuildContext(std::pmr::memory_resource * mr)
+    : field_name(mr), element_layouts(mr), element_offsets(mr) {}
+
     Type type;
-    std::string field_name;
+    std::pmr::string field_name;
     size_t start_offset;
     size_t element_count;  // For arrays/sequences
     ElementType element_type = ElementType::kNone;  // Track element type category
@@ -244,7 +252,7 @@ private:
     XCdrCharKind char_kind;       // For string elements
 
     // Nested builder for structs
-    std::unique_ptr<XCdrLayoutBuilder> nested_builder;
+    std::shared_ptr<XCdrLayoutBuilder> nested_builder;
 
     // Element layouts for arrays/sequences (one per element)
     std::pmr::vector<XCdrLayout> element_layouts;
@@ -252,7 +260,7 @@ private:
   };
 
   std::pmr::vector<XCdrStructLayout::Member> members_;
-  std::pmr::map<std::string, size_t> name_to_index_;
+  std::pmr::map<std::pmr::string, size_t, std::less<>> name_to_index_;
   size_t current_offset_;
   size_t max_alignment_;
   XCdrEndianness endianness_;
@@ -260,11 +268,9 @@ private:
   bool is_top_level_;  // Whether this is a top-level struct (needs header in buffer)
 
   std::pmr::vector<BuildContext> context_stack_;
-  size_t field_counter_;  // For auto-generating field names
 
   void add_field(std::string_view name, size_t offset, XCdrLayout layout);
   void align_current_offset(size_t alignment);
-  std::string generate_field_name();  // Generate field_N names
 };
 
 }  // namespace xcdr_buffers

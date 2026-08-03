@@ -65,14 +65,14 @@ TEST_F(ConstAccessorTest, AccessPrimitiveField)
   auto buffer = writer_.flush();
 
   // Build layout
-  builder_.allocate_primitive(XCdrPrimitiveKind::kUint32);
+  builder_.allocate_primitive("a", XCdrPrimitiveKind::kUint32);
   auto layout = builder_.finalize();
 
   // Access the field
   auto accessor_result = XCdrConstAccessor::wrap(buffer, layout);
   ASSERT_TRUE(accessor_result);
   auto accessor = *accessor_result;
-  uint32_t value = accessor["field_0"].as<uint32_t>();
+  uint32_t value = accessor["a"].as<uint32_t>();
   EXPECT_EQ(value, 12345u);
 }
 
@@ -106,14 +106,14 @@ TEST_F(ConstAccessorTest, AccessStringField)
   auto buffer = writer_.flush();
 
   // Build layout
-  builder_.allocate_string(13);  // "Hello, World!" length
+  builder_.allocate_string("s", 13);  // "Hello, World!" length
   auto layout = builder_.finalize();
 
   // Access the string
   auto accessor_result = XCdrConstAccessor::wrap(buffer, layout);
   ASSERT_TRUE(accessor_result);
   auto accessor = *accessor_result;
-  std::string_view value = accessor["field_0"].as<std::string_view>();
+  std::string_view value = accessor["s"].as<std::string_view>();
   EXPECT_EQ(value, "Hello, World!");
 }
 
@@ -208,14 +208,14 @@ TEST_F(ConstAccessorTest, AccessPrimitiveArray)
   auto buffer = writer_.flush();
 
   // Build layout
-  builder_.allocate_primitive_array(XCdrPrimitiveKind::kUint32, 5);
+  builder_.allocate_primitive_array("arr", XCdrPrimitiveKind::kUint32, 5);
   auto layout = builder_.finalize();
 
   // Access array elements
   auto accessor_result = XCdrConstAccessor::wrap(buffer, layout);
   ASSERT_TRUE(accessor_result);
   auto accessor = *accessor_result;
-  auto array_accessor = accessor["field_0"];
+  auto array_accessor = accessor["arr"];
 
   auto size_result = array_accessor.size();
   ASSERT_TRUE(size_result);
@@ -234,14 +234,14 @@ TEST_F(ConstAccessorTest, IterateOverPrimitiveArray)
   auto buffer = writer_.flush();
 
   // Build layout
-  builder_.allocate_primitive_array(XCdrPrimitiveKind::kUint32, 3);
+  builder_.allocate_primitive_array("arr", XCdrPrimitiveKind::kUint32, 3);
   auto layout = builder_.finalize();
 
   // Iterate
   auto accessor_result = XCdrConstAccessor::wrap(buffer, layout);
   ASSERT_TRUE(accessor_result);
   auto accessor = *accessor_result;
-  auto array_accessor = accessor["field_0"];
+  auto array_accessor = accessor["arr"];
 
   std::vector<uint32_t> retrieved;
   for (auto elem : array_accessor) {
@@ -262,7 +262,7 @@ TEST_F(ConstAccessorTest, AccessStringArray)
   auto buffer = writer_.flush();
 
   // Build layout
-  builder_.begin_allocate_array(3);
+  builder_.begin_allocate_array("arr", 3);
   builder_.allocate_string(3);
   builder_.allocate_string(3);
   builder_.allocate_string(5);
@@ -273,7 +273,7 @@ TEST_F(ConstAccessorTest, AccessStringArray)
   auto accessor_result = XCdrConstAccessor::wrap(buffer, layout);
   ASSERT_TRUE(accessor_result);
   auto accessor = *accessor_result;
-  auto array_accessor = accessor["field_0"];
+  auto array_accessor = accessor["arr"];
 
   EXPECT_EQ(*array_accessor.size(), 3);
   EXPECT_EQ(array_accessor[0].as<std::string_view>(), "one");
@@ -289,14 +289,14 @@ TEST_F(ConstAccessorTest, AccessPrimitiveSequence)
   auto buffer = writer_.flush();
 
   // Build layout
-  builder_.allocate_primitive_sequence(XCdrPrimitiveKind::kDouble, 4);
+  builder_.allocate_primitive_sequence("seq", XCdrPrimitiveKind::kDouble, 4);
   auto layout = builder_.finalize();
 
   // Access sequence
   auto accessor_result = XCdrConstAccessor::wrap(buffer, layout);
   ASSERT_TRUE(accessor_result);
   auto accessor = *accessor_result;
-  auto seq_accessor = accessor["field_0"];
+  auto seq_accessor = accessor["seq"];
 
   EXPECT_EQ(*seq_accessor.size(), 4);
   for (size_t i = 0; i < 4; ++i) {
@@ -314,7 +314,7 @@ TEST_F(ConstAccessorTest, AccessStringSequence)
   auto buffer = writer_.flush();
 
   // Build layout
-  builder_.begin_allocate_sequence(2);
+  builder_.begin_allocate_sequence("seq", 2);
   builder_.allocate_string(5);
   builder_.allocate_string(5);
   builder_.end_allocate_sequence();
@@ -324,7 +324,7 @@ TEST_F(ConstAccessorTest, AccessStringSequence)
   auto accessor_result = XCdrConstAccessor::wrap(buffer, layout);
   ASSERT_TRUE(accessor_result);
   auto accessor = *accessor_result;
-  auto seq_accessor = accessor["field_0"];
+  auto seq_accessor = accessor["seq"];
 
   EXPECT_EQ(*seq_accessor.size(), 2);
   EXPECT_EQ(seq_accessor[0].as<std::string_view>(), "hello");
@@ -338,15 +338,15 @@ TEST_F(ConstAccessorTest, ErrorOnWrongType)
   auto buffer = writer_.flush();
 
   // Build layout
-  builder_.allocate_primitive(XCdrPrimitiveKind::kUint32);
+  builder_.allocate_primitive("a", XCdrPrimitiveKind::kUint32);
   auto layout = builder_.finalize();
 
   // Try to access as wrong type
   auto accessor_result = XCdrConstAccessor::wrap(buffer, layout);
   ASSERT_TRUE(accessor_result);
   auto accessor = *accessor_result;
-  EXPECT_THROW(accessor["field_0"].as<double>(), XCdrError);
-  EXPECT_THROW(accessor["field_0"].as<std::string_view>(), XCdrError);
+  EXPECT_THROW(accessor["a"].as<double>(), XCdrError);
+  EXPECT_THROW(accessor["a"].as<std::string_view>(), XCdrError);
 }
 
 TEST_F(ConstAccessorTest, ErrorOnArrayOutOfBounds)
@@ -357,14 +357,14 @@ TEST_F(ConstAccessorTest, ErrorOnArrayOutOfBounds)
   auto buffer = writer_.flush();
 
   // Build layout
-  builder_.allocate_primitive_array(XCdrPrimitiveKind::kUint32, 3);
+  builder_.allocate_primitive_array("arr", XCdrPrimitiveKind::kUint32, 3);
   auto layout = builder_.finalize();
 
   // Try to access out of bounds
   auto accessor_result = XCdrConstAccessor::wrap(buffer, layout);
   ASSERT_TRUE(accessor_result);
   auto accessor = *accessor_result;
-  auto array_accessor = accessor["field_0"];
+  auto array_accessor = accessor["arr"];
 
   auto result = array_accessor.item(3);  // Out of bounds
   EXPECT_FALSE(result);
@@ -399,14 +399,14 @@ TEST_F(ConstAccessorTest, SliceReturnsRawBuffer)
   auto buffer = writer_.flush();
 
   // Build layout
-  builder_.allocate_primitive(XCdrPrimitiveKind::kUint32);
+  builder_.allocate_primitive("v", XCdrPrimitiveKind::kUint32);
   auto layout = builder_.finalize();
 
   // Get slice
   auto accessor_result = XCdrConstAccessor::wrap(buffer, layout);
   ASSERT_TRUE(accessor_result);
   auto accessor = *accessor_result;
-  auto slice = accessor["field_0"].slice();
+  auto slice = accessor["v"].slice();
 
   EXPECT_EQ(slice.size(), 4);  // uint32 is 4 bytes
 

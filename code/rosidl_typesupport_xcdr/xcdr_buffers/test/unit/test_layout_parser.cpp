@@ -53,7 +53,7 @@ TEST_F(LayoutParserTest, ParseSinglePrimitive)
   auto buffer = writer_.flush();
 
   XCdrLayoutParser parser(buffer);
-  ASSERT_TRUE(parser.parse_primitive(XCdrPrimitiveKind::kUint32));
+  ASSERT_TRUE(parser.parse_primitive("a", XCdrPrimitiveKind::kUint32));
 
   auto result = parser.finalize();
   ASSERT_TRUE(result);
@@ -63,8 +63,29 @@ TEST_F(LayoutParserTest, ParseSinglePrimitive)
   auto member_result = layout.get_member(0);
   ASSERT_TRUE(member_result);
   const auto & member = member_result->get();
-  EXPECT_EQ(member.name(), "field_0");
+  EXPECT_EQ(member.name(), "a");
   EXPECT_EQ(layout.total_size(), kXCdrHeaderSize + 4);
+}
+
+TEST_F(LayoutParserTest, ParseUnnamedFieldsHaveEmptyNames)
+{
+  writer_.write(static_cast<uint32_t>(42));
+  auto buffer = writer_.flush();
+
+  XCdrLayoutParser parser(buffer);
+  ASSERT_TRUE(parser.parse_primitive(XCdrPrimitiveKind::kUint32));
+
+  auto result = parser.finalize();
+  ASSERT_TRUE(result);
+
+  const auto & layout = *result;
+  EXPECT_EQ(layout.member_count(), 1);
+  auto member_result = layout.get_member(0);
+  ASSERT_TRUE(member_result);
+  EXPECT_EQ(member_result->get().name(), "");
+
+  // Unnamed members are not reachable by name
+  EXPECT_FALSE(layout.get_member("a"));
 }
 
 TEST_F(LayoutParserTest, ParseMultiplePrimitives)

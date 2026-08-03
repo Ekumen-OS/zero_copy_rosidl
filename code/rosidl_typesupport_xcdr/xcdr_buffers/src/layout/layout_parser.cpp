@@ -51,7 +51,6 @@ XCdrLayoutParser::XCdrLayoutParser(
   read_offset_(0),
   endianness_(XCdrEndianness::kLittleEndian),
   header_parsed_(false),
-  field_counter_(0),
   struct_depth_(1)  // Start at depth 1 for implicit top-level struct
 {
   // Parse header automatically
@@ -93,11 +92,8 @@ XCdrStatus XCdrLayoutParser::parse_primitive(std::string_view name, XCdrPrimitiv
     return status;
   }
 
-  // Generate name if needed
-  std::string field_name = generate_field_name_if_needed(name);
-
   // Tell builder to allocate this primitive
-  builder_.allocate_primitive(field_name, kind);
+  builder_.allocate_primitive(name, kind);
 
   // Advance read offset
   advance(size);
@@ -150,11 +146,8 @@ XCdrStatus XCdrLayoutParser::parse_string(std::string_view name, XCdrCharKind ch
 
   const size_t string_length_chars = string_length_bytes / char_size;
 
-  // Generate name if needed
-  std::string field_name = generate_field_name_if_needed(name);
-
   // Tell builder to allocate this string
-  builder_.allocate_string(field_name, string_length_chars, char_kind);
+  builder_.allocate_string(name, string_length_chars, char_kind);
 
   // Advance past the string data
   advance(wire_length);
@@ -189,7 +182,7 @@ XCdrStatus XCdrLayoutParser::parse_primitive_array(
   }
 
   // Use builder's one-shot method
-  builder_.allocate_primitive_array(std::string(name), kind, count);
+  builder_.allocate_primitive_array(name, kind, count);
 
   // Advance read offset
   size_t element_size = get_primitive_size(kind);
@@ -205,11 +198,8 @@ XCdrStatus XCdrLayoutParser::parse_primitive_array(XCdrPrimitiveKind kind, size_
     return error("Must call parse_header() before parsing arrays");
   }
 
-  // Auto-generate field name
-  std::string field_name = "field_" + std::to_string(field_counter_++);
-
-  // Use builder's one-shot method
-  builder_.allocate_primitive_array(field_name, kind, count);
+  // Unnamed field (not registered in the name-to-index map)
+  builder_.allocate_primitive_array("", kind, count);
 
   // Advance read offset
   size_t element_size = get_primitive_size(kind);
@@ -255,7 +245,7 @@ XCdrStatus XCdrLayoutParser::parse_primitive_sequence(
   }
 
   // Use builder's one-shot method with the wire count
-  builder_.allocate_primitive_sequence(std::string(name), kind, sequence_count);
+  builder_.allocate_primitive_sequence(name, kind, sequence_count);
 
   // Align for first element, then advance read offset for all element data
   size_t element_size = get_primitive_size(kind);
@@ -273,9 +263,7 @@ XCdrStatus XCdrLayoutParser::parse_primitive_sequence(
     return error("Must call parse_header() before parsing sequences");
   }
 
-  // Auto-generate field name
-  std::string field_name = "field_" + std::to_string(field_counter_++);
-
+  // Unnamed field (not registered in the name-to-index map)
   // Align to prefix size
   align_read_offset(kSequenceLengthPrefixSize);
 
@@ -298,7 +286,7 @@ XCdrStatus XCdrLayoutParser::parse_primitive_sequence(
   }
 
   // Use builder's one-shot method with the wire count
-  builder_.allocate_primitive_sequence(field_name, kind, sequence_count);
+  builder_.allocate_primitive_sequence("", kind, sequence_count);
 
   // Align for first element, then advance read offset for all element data
   size_t element_size = get_primitive_size(kind);
@@ -434,7 +422,6 @@ XCdrResult<XCdrStructLayout> XCdrLayoutParser::finalize()
   // Reset parser state
   read_offset_ = 0;
   header_parsed_ = false;
-  field_counter_ = 0;
   struct_depth_ = 0;
 
   return ok(std::move(layout));
@@ -498,20 +485,6 @@ void XCdrLayoutParser::align_read_offset(size_t alignment)
   size_t relative_offset = read_offset_ - kXCdrHeaderSize;
   size_t aligned_relative_offset = align_to(relative_offset, alignment);
   read_offset_ = kXCdrHeaderSize + aligned_relative_offset;
-}
-
-std::string XCdrLayoutParser::generate_field_name_if_needed(std::string_view name)
-{
-  if (!name.empty()) {
-    return std::string(name);
-  }
-
-  // Generate name only if we're in a struct context (depth > 0)
-  if (struct_depth_ > 0) {
-    return "field_" + std::to_string(field_counter_++);
-  }
-
-  return "";
 }
 
 }  // namespace xcdr_buffers

@@ -96,7 +96,8 @@ public:
   ///
   /// Advances the read offset by the primitive's size (with alignment).
   ///
-  /// @param name Field name (empty for auto-generated names)
+  /// @param name Field name (empty for an unnamed field, not registered in
+  ///             the name-to-index map)
   /// @param kind The primitive type to parse
   /// @return ok() on success, error() if buffer overflow or header not parsed
   XCdrStatus parse_primitive(std::string_view name, XCdrPrimitiveKind kind);
@@ -113,7 +114,8 @@ public:
   ///
   /// Reads the length prefix (4 bytes) and advances by that many bytes.
   ///
-  /// @param name Field name (empty for auto-generated names)
+  /// @param name Field name (empty for an unnamed field, not registered in
+  ///             the name-to-index map)
   /// @param char_kind Character kind (char8 or char16)
   /// @return ok() on success, error() if buffer overflow or invalid length
   XCdrStatus parse_string(std::string_view name, XCdrCharKind char_kind = XCdrCharKind::kChar8);
@@ -139,7 +141,9 @@ public:
   XCdrStatus parse_primitive_array(
     std::string_view name, XCdrPrimitiveKind kind, size_t count);
 
-  /// Parses a primitive array (one-shot operation) with auto-generated name.
+  /// Parses a primitive array (one-shot operation) with no field name.
+  ///
+  /// The field is not registered in the name-to-index map; access by index.
   ///
   /// @param kind Primitive element kind
   /// @param count Number of elements
@@ -163,11 +167,12 @@ public:
     std::string_view name, XCdrPrimitiveKind kind,
     size_t max_count = 0);
 
-  /// Parses a primitive sequence (one-shot operation) with auto-generated name.
+  /// Parses a primitive sequence (one-shot operation) with no field name.
   ///
   /// The element count is read from the buffer's length prefix (the cast
   /// path) and validated against the optional maximum (bounded sequences).
   /// Builds the layout via the builder's one-shot allocate_primitive_sequence().
+  /// The field is not registered in the name-to-index map; access by index.
   ///
   /// @param kind Primitive element kind
   /// @param max_count Upper bound on the element count; 0 means unbounded
@@ -193,11 +198,10 @@ public:
   /// @return ok() on success, error() if header not parsed
   XCdrStatus begin_parse_array(std::string_view name, size_t count);
 
-  /// Begins parsing a fixed-size array (struct context) with auto-generated
-  /// name.
+  /// Begins parsing a fixed-size array (struct context) with no field name.
   ///
-  /// Same as begin_parse_array(name, count) but uses auto-generated field name
-  /// (field_0, field_1, etc.).
+  /// Same as begin_parse_array(name, count) but the field is not registered
+  /// in the name-to-index map.
   ///
   /// @param count Number of elements in the array
   /// @return ok() on success, error() if header not parsed
@@ -226,10 +230,10 @@ public:
   /// @return Result containing the sequence count on success, error otherwise
   XCdrResult<size_t> begin_parse_sequence(std::string_view name);
 
-  /// Begins parsing a sequence (struct context) with auto-generated name.
+  /// Begins parsing a sequence (struct context) with no field name.
   ///
-  /// Same as begin_parse_sequence(name) but uses auto-generated field name
-  /// (field_0, field_1, etc.).
+  /// Same as begin_parse_sequence(name) but the field is not registered in
+  /// the name-to-index map.
   ///
   /// @return Result containing the sequence count on success, error otherwise
   XCdrResult<size_t> begin_parse_sequence();
@@ -309,18 +313,11 @@ private:
   /// @param alignment Alignment requirement (must be power of 2)
   void align_read_offset(size_t alignment);
 
-  /// Generates a field name if none provided.
-  ///
-  /// @param name User-provided name (may be empty)
-  /// @return Generated name if empty, otherwise original name
-  std::string generate_field_name_if_needed(std::string_view name);
-
   tcb::span<const uint8_t> buffer_;
   XCdrLayoutBuilder builder_;
   size_t read_offset_;
   XCdrEndianness endianness_;
   bool header_parsed_;
-  size_t field_counter_;
   int struct_depth_;  // Track nesting depth (0 = top level)
 };
 

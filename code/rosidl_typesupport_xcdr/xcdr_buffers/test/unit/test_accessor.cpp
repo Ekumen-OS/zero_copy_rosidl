@@ -58,21 +58,21 @@ TEST_F(AccessorTest, ReadPrimitiveField)
   tcb::span<uint8_t> buffer(buffer_vec);
 
   // Build layout
-  builder_.allocate_primitive(XCdrPrimitiveKind::kUint32);
+  builder_.allocate_primitive("a", XCdrPrimitiveKind::kUint32);
   auto layout = builder_.finalize();
 
   // Read
   auto accessor_result = XCdrAccessor::wrap(buffer, layout);
   ASSERT_TRUE(accessor_result);
   auto accessor = *accessor_result;
-  auto value = accessor["field_0"].as<uint32_t>();
+  auto value = accessor["a"].as<uint32_t>();
   EXPECT_EQ(value, 99999u);
 }
 
 TEST_F(AccessorTest, WritePrimitiveField)
 {
   // Create buffer using layout
-  builder_.allocate_primitive(XCdrPrimitiveKind::kUint32);
+  builder_.allocate_primitive("a", XCdrPrimitiveKind::kUint32);
   auto layout = builder_.finalize();
 
   // Allocate buffer and apply layout
@@ -84,10 +84,10 @@ TEST_F(AccessorTest, WritePrimitiveField)
   auto accessor_result = XCdrAccessor::wrap(buffer, layout);
   ASSERT_TRUE(accessor_result);
   auto accessor = *accessor_result;
-  accessor["field_0"] = 12345u;
+  accessor["a"] = 12345u;
 
   // Verify by reading back
-  EXPECT_EQ((accessor["field_0"].as<uint32_t>()), 12345u);
+  EXPECT_EQ((accessor["a"].as<uint32_t>()), 12345u);
 
   // Verify using Reader
   XCdrReader reader(buffer);
@@ -97,9 +97,9 @@ TEST_F(AccessorTest, WritePrimitiveField)
 TEST_F(AccessorTest, WriteMultiplePrimitives)
 {
   // Build layout
-  builder_.allocate_primitive(XCdrPrimitiveKind::kUint32);
-  builder_.allocate_primitive(XCdrPrimitiveKind::kDouble);
-  builder_.allocate_primitive(XCdrPrimitiveKind::kUint8);
+  builder_.allocate_primitive("a", XCdrPrimitiveKind::kUint32);
+  builder_.allocate_primitive("b", XCdrPrimitiveKind::kDouble);
+  builder_.allocate_primitive("c", XCdrPrimitiveKind::kUint8);
   auto layout = builder_.finalize();
 
   // Create buffer
@@ -111,14 +111,14 @@ TEST_F(AccessorTest, WriteMultiplePrimitives)
   auto accessor_result = XCdrAccessor::wrap(buffer, layout);
   ASSERT_TRUE(accessor_result);
   auto accessor = *accessor_result;
-  accessor["field_0"] = 100u;
-  accessor["field_1"] = 2.71828;
-  accessor["field_2"] = static_cast<uint8_t>(255);
+  accessor["a"] = 100u;
+  accessor["b"] = 2.71828;
+  accessor["c"] = static_cast<uint8_t>(255);
 
   // Verify
-  EXPECT_EQ((accessor["field_0"].as<uint32_t>()), 100u);
-  EXPECT_NEAR(((accessor["field_1"].as<double>())), 2.71828, 0.00001);
-  EXPECT_EQ((accessor["field_2"].as<uint8_t>()), 255);
+  EXPECT_EQ((accessor["a"].as<uint32_t>()), 100u);
+  EXPECT_NEAR(((accessor["b"].as<double>())), 2.71828, 0.00001);
+  EXPECT_EQ((accessor["c"].as<uint8_t>()), 255);
 }
 
 TEST_F(AccessorTest, ReadStringField)
@@ -130,21 +130,21 @@ TEST_F(AccessorTest, ReadStringField)
   tcb::span<uint8_t> buffer(buffer_vec);
 
   // Build layout
-  builder_.allocate_string(11);  // "test string" length
+  builder_.allocate_string("s", 11);  // "test string" length
   auto layout = builder_.finalize();
 
   // Read
   auto accessor_result = XCdrAccessor::wrap(buffer, layout);
   ASSERT_TRUE(accessor_result);
   auto accessor = *accessor_result;
-  auto str_value = accessor["field_0"].as<std::string_view>();
+  auto str_value = accessor["s"].as<std::string_view>();
   EXPECT_EQ(str_value, "test string");
 }
 
 TEST_F(AccessorTest, WriteStringField)
 {
   // Build layout
-  builder_.allocate_string(5);  // "hello" length
+  builder_.allocate_string("s", 5);  // "hello" length
   auto layout = builder_.finalize();
 
   // Create buffer
@@ -156,10 +156,10 @@ TEST_F(AccessorTest, WriteStringField)
   auto accessor_result = XCdrAccessor::wrap(buffer, layout);
   ASSERT_TRUE(accessor_result);
   auto accessor = *accessor_result;
-  accessor["field_0"] = std::string_view("hello");
+  accessor["s"] = std::string_view("hello");
 
   // Verify
-  auto str_value = accessor["field_0"].as<std::string_view>();
+  auto str_value = accessor["s"].as<std::string_view>();
   EXPECT_EQ(str_value, "hello");
 
   // Verify using Reader
@@ -170,7 +170,7 @@ TEST_F(AccessorTest, WriteStringField)
 TEST_F(AccessorTest, WriteStringFieldValidatesLength)
 {
   // Build layout for 5-char string
-  builder_.allocate_string(5);
+  builder_.allocate_string("s", 5);
   auto layout = builder_.finalize();
 
   std::vector<uint8_t> buffer_vec(layout.total_size());
@@ -182,11 +182,11 @@ TEST_F(AccessorTest, WriteStringFieldValidatesLength)
   auto accessor = *accessor_result;
 
   // Try to write wrong lengths (5 chars expected)
-  EXPECT_THROW(accessor["field_0"] = std::string_view("too long!"), XCdrError);  // 9 chars
-  EXPECT_THROW(accessor["field_0"] = std::string_view("hi"), XCdrError);          // 2 chars
+  EXPECT_THROW(accessor["s"] = std::string_view("too long!"), XCdrError);  // 9 chars
+  EXPECT_THROW(accessor["s"] = std::string_view("hi"), XCdrError);          // 2 chars
 
   // Correct length should work
-  EXPECT_NO_THROW(accessor["field_0"] = std::string_view("hello"));  // 5 chars
+  EXPECT_NO_THROW(accessor["s"] = std::string_view("hello"));  // 5 chars
 }
 
 TEST_F(AccessorTest, WriteNamedField)
@@ -272,7 +272,7 @@ TEST_F(AccessorTest, WriteNestedFieldWithPath)
 TEST_F(AccessorTest, WritePrimitiveArrayElements)
 {
   // Build layout using shortcut
-  builder_.allocate_primitive_array(XCdrPrimitiveKind::kUint32, 5);
+  builder_.allocate_primitive_array("arr", XCdrPrimitiveKind::kUint32, 5);
   auto layout = builder_.finalize();
 
   // Create buffer
@@ -284,7 +284,7 @@ TEST_F(AccessorTest, WritePrimitiveArrayElements)
   auto accessor_result = XCdrAccessor::wrap(buffer, layout);
   ASSERT_TRUE(accessor_result);
   auto accessor = *accessor_result;
-  auto array_accessor = accessor["field_0"];
+  auto array_accessor = accessor["arr"];
 
   for (size_t i = 0; i < 5; ++i) {
     array_accessor[i] = static_cast<uint32_t>((i + 1) * 10);
@@ -299,7 +299,7 @@ TEST_F(AccessorTest, WritePrimitiveArrayElements)
 TEST_F(AccessorTest, WriteStringArrayElements)
 {
   // Build layout
-  builder_.begin_allocate_array(3);
+  builder_.begin_allocate_array("arr", 3);
   builder_.allocate_string(3);  // "one"
   builder_.allocate_string(3);  // "two"
   builder_.allocate_string(5);  // "three"
@@ -315,7 +315,7 @@ TEST_F(AccessorTest, WriteStringArrayElements)
   auto accessor_result = XCdrAccessor::wrap(buffer, layout);
   ASSERT_TRUE(accessor_result);
   auto accessor = *accessor_result;
-  auto array_accessor = accessor["field_0"];
+  auto array_accessor = accessor["arr"];
 
   array_accessor[0] = std::string_view("one");
   array_accessor[1] = std::string_view("two");
@@ -333,7 +333,7 @@ TEST_F(AccessorTest, WriteStringArrayElements)
 TEST_F(AccessorTest, WriteSequenceElements)
 {
   // Build layout using shortcut
-  builder_.allocate_primitive_sequence(XCdrPrimitiveKind::kDouble, 4);
+  builder_.allocate_primitive_sequence("seq", XCdrPrimitiveKind::kDouble, 4);
   auto layout = builder_.finalize();
 
   // Create buffer
@@ -345,7 +345,7 @@ TEST_F(AccessorTest, WriteSequenceElements)
   auto accessor_result = XCdrAccessor::wrap(buffer, layout);
   ASSERT_TRUE(accessor_result);
   auto accessor = *accessor_result;
-  auto seq_accessor = accessor["field_0"];
+  auto seq_accessor = accessor["seq"];
 
   seq_accessor[0] = 1.1;
   seq_accessor[1] = 2.2;
@@ -362,7 +362,7 @@ TEST_F(AccessorTest, WriteSequenceElements)
 TEST_F(AccessorTest, IterateAndModifyArray)
 {
   // Build layout using shortcut
-  builder_.allocate_primitive_array(XCdrPrimitiveKind::kUint32, 4);
+  builder_.allocate_primitive_array("arr", XCdrPrimitiveKind::kUint32, 4);
   auto layout = builder_.finalize();
 
   // Create buffer
@@ -374,7 +374,7 @@ TEST_F(AccessorTest, IterateAndModifyArray)
   auto accessor_result = XCdrAccessor::wrap(buffer, layout);
   ASSERT_TRUE(accessor_result);
   auto accessor = *accessor_result;
-  auto array_accessor = accessor["field_0"];
+  auto array_accessor = accessor["arr"];
 
   size_t index = 0;
   for (auto elem : array_accessor) {
@@ -392,7 +392,7 @@ TEST_F(AccessorTest, IterateAndModifyArray)
 TEST_F(AccessorTest, MutableSlice)
 {
   // Build layout
-  builder_.allocate_primitive(XCdrPrimitiveKind::kUint32);
+  builder_.allocate_primitive("v", XCdrPrimitiveKind::kUint32);
   auto layout = builder_.finalize();
 
   // Create buffer
@@ -404,7 +404,7 @@ TEST_F(AccessorTest, MutableSlice)
   auto accessor_result = XCdrAccessor::wrap(buffer, layout);
   ASSERT_TRUE(accessor_result);
   auto accessor = *accessor_result;
-  auto slice = accessor["field_0"].slice();
+  auto slice = accessor["v"].slice();
 
   EXPECT_EQ(slice.size(), 4);  // uint32 is 4 bytes
 
@@ -415,13 +415,13 @@ TEST_F(AccessorTest, MutableSlice)
   slice[3] = 0xAA;
 
   // Verify value
-  EXPECT_EQ((accessor["field_0"].as<uint32_t>()), 0xAABBCCDD);
+  EXPECT_EQ((accessor["v"].as<uint32_t>()), 0xAABBCCDD);
 }
 
 TEST_F(AccessorTest, ErrorOnWrongTypeAssignment)
 {
   // Build layout for uint32
-  builder_.allocate_primitive(XCdrPrimitiveKind::kUint32);
+  builder_.allocate_primitive("v", XCdrPrimitiveKind::kUint32);
   auto layout = builder_.finalize();
 
   std::vector<uint8_t> buffer_vec(layout.total_size());
@@ -433,7 +433,7 @@ TEST_F(AccessorTest, ErrorOnWrongTypeAssignment)
   auto accessor = *accessor_result;
 
   // Try to assign wrong type
-  EXPECT_THROW(accessor["field_0"] = 3.14, XCdrError);  // double instead of uint32
+  EXPECT_THROW(accessor["v"] = 3.14, XCdrError);  // double instead of uint32
 }
 
 TEST_F(AccessorTest, ComplexStructReadWrite)

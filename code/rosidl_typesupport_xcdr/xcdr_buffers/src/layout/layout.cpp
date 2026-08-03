@@ -179,7 +179,7 @@ size_t XCdrSequenceLayout::size() const
 
 XCdrStructLayout::XCdrStructLayout(
   std::pmr::vector<Member> members,
-  std::pmr::map<std::string, size_t> name_to_index,
+  std::pmr::map<std::pmr::string, size_t, std::less<>> name_to_index,
   size_t total_size,
   size_t max_alignment,
   XCdrEndianness endianness,
@@ -198,7 +198,7 @@ XCdrStructLayout::XCdrStructLayout(
 XCdrResult<XCdrStructLayout::MemberConstRef> XCdrStructLayout::get_member(
   std::string_view name) const
 {
-  auto it = name_to_index_.find(std::string(name));
+  auto it = name_to_index_.find(name);
   if (it == name_to_index_.end()) {
     return error("Member '" + std::string(name) + "' not found in struct");
   }
