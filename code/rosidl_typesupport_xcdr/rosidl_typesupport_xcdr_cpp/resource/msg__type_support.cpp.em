@@ -140,6 +140,8 @@ for member in message.structure.members:
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <memory_resource>
+#include <new>
 #include <string>
 #include <vector>
 
@@ -496,14 +498,13 @@ for member in message.structure.members:
 @[elif isinstance(member.type, Array)]@
 @[  if isinstance(member.type.value_type, BasicType)]@
   {
-    auto @(member.name)_result = reader.read<std::array<@(get_cpp_type(member.type.value_type)), @(member.type.size)> >();
+    // Zero-copy fixed-extent span view + bulk copy: one memcpy into the
+    // member (the std::array path materialized + copied the array).  The
+    // span read is a non-owning view and rejects mismatched endianness.
+    auto @(member.name)_result = reader.read<tcb::span<const @(get_cpp_type(member.type.value_type)), @(member.type.size)> >();
     if (!@(member.name)_result) { return RCUTILS_RET_ERROR; }
-    auto @(member.name)_array = *@(member.name)_result;
-@[    if is_experimental]@
-    std::copy(@(member.name)_array.begin(), @(member.name)_array.end(), @(msg_prefix).@(member.name).begin());
-@[    else]@
-    @(msg_prefix).@(member.name) = @(member.name)_array;
-@[    end if]@
+    std::memcpy(@(msg_prefix).@(member.name).data(), @(member.name)_result->data(),
+      @(member.type.size) * sizeof(@(get_cpp_type(member.type.value_type))));
   }
 @[  else]@
   reader.begin_read_array(@(member.type.size));
@@ -537,12 +538,29 @@ for member in message.structure.members:
 @[  end if]@
 @[elif isinstance(member.type, AbstractSequence)]@
 @[  if isinstance(member.type.value_type, BasicType)]@
+@[    if get_cpp_type(member.type.value_type) != 'bool']@
   {
-    auto @(member.name)_result = reader.read<std::vector<@(get_cpp_type(member.type.value_type))>>();
+    // Zero-copy span view + bulk copy: resize (one pass) + memcpy (one pass),
+    // matching FastCDR's resize + deserialize_array.  Avoids materializing a
+    // std::vector and converting it into the target sequence (4 passes over
+    // the payload).  The span read is a non-owning view and rejects
+    // mismatched endianness (the XCDR backend is little-endian only).
+    auto @(member.name)_result = reader.read<tcb::span<const @(get_cpp_type(member.type.value_type))>>();
     if (!@(member.name)_result) { return RCUTILS_RET_ERROR; }
-    auto @(member.name)_vec = *@(member.name)_result;
-    @(msg_prefix).@(member.name) = std::move(@(member.name)_vec);
+    auto @(member.name)_span = *@(member.name)_result;
+    @(msg_prefix).@(member.name).resize(@(member.name)_span.size());
+    std::memcpy(@(msg_prefix).@(member.name).data(), @(member.name)_span.data(),
+      @(member.name)_span.size() * sizeof(@(get_cpp_type(member.type.value_type))));
   }
+@[    else]@
+  {
+    // bool sequences: the generated container has no data() (bit-packed
+    // storage), so fall back to the element-wise vector read.
+    auto @(member.name)_result = reader.read<std::vector<bool>>();
+    if (!@(member.name)_result) { return RCUTILS_RET_ERROR; }
+    @(msg_prefix).@(member.name) = std::move(*@(member.name)_result);
+  }
+@[    end if]@
 @[  else]@
   {
     auto @(member.name)_size_result = reader.begin_read_sequence();
@@ -1125,7 +1143,17 @@ cast_message_at_@(msg_typename)(
     static_cast<const uint8_t*>(storage.data()),
     storage.size());
 
-  xcdr_buffers::XCdrLayoutParser parser(buffer_span);
+  // Stack-backed pool for the temporary layout: every layout allocation
+  // (member vectors, shared_ptr control blocks, nested builders, names) is
+  // served from this monotonic buffer instead of the heap. The layout and
+  // accessor are ephemeral (tossed at function exit), so the pool releases
+  // everything in one stack unwind. If a message's layout ever outgrows the
+  // buffer, the pool silently falls back to the heap.
+  alignas(std::max_align_t) std::byte _cast_pool_buffer[8192];
+  std::pmr::monotonic_buffer_resource _cast_pool(
+    _cast_pool_buffer, sizeof(_cast_pool_buffer));
+
+  xcdr_buffers::XCdrLayoutParser parser(buffer_span, &_cast_pool);
   if (nullptr == impl || nullptr == impl->parse_fields) {
     RCUTILS_SET_ERROR_MSG("parse_fields callback not available");
     return RCUTILS_RET_ERROR;
