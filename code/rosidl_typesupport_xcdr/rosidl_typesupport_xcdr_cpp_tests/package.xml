@@ -14,6 +14,7 @@
   <depend>rosidl_typesupport_xcdr_cpp</depend>
 
   <test_depend>ament_cmake_gtest</test_depend>
+  <test_depend>rosidl_typesupport_xcdr_c</test_depend>
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 

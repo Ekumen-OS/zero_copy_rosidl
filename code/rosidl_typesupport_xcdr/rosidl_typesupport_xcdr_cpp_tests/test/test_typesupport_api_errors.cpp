@@ -25,7 +25,12 @@
 
 #include <vector>
 
-using CallbacksT = rosidl_typesupport_xcdr_cpp::message_type_support_callbacks_experimental_t;
+// =============================================================================
+// Types under test
+// =============================================================================
+
+using ExperimentalUnbounded =
+  rosidl_typesupport_xcdr_cpp_tests::msg::experimental::UnboundedMessage;
 
 // =============================================================================
 // Trampolines with nullptr typesupport handle
@@ -166,6 +171,80 @@ TEST(TestApiErrors, WrongIdentifierOnSerialise)
   auto ret = rosidl_typesupport_xcdr_cpp::get_message_size(ts, &msg, &size);
   EXPECT_EQ(RCUTILS_RET_OK, ret);
   EXPECT_GT(size, 0u);
+}
+
+// =============================================================================
+// Constrained lifecycle error contracts
+// =============================================================================
+
+TEST(TestApiErrors, CreateConstrained_NullBase)
+{
+  ExperimentalUnbounded::Constraints constraints;
+  rosidl_message_type_constraints_t wrapped_constraints;
+  wrapped_constraints.type_specific = &constraints;
+  wrapped_constraints.max_string_length = 0;
+  wrapped_constraints.max_total_size = 0;
+  wrapped_constraints.strict = false;
+  auto constrained =
+    rosidl_typesupport_xcdr_cpp::create_constrained_message_type_support(
+      nullptr, &wrapped_constraints);
+  EXPECT_EQ(nullptr, constrained.get());
+}
+
+TEST(TestApiErrors, DestroyConstrained_Null)
+{
+  EXPECT_NO_THROW(
+    rosidl_typesupport_xcdr_cpp::destroy_constrained_message_type_support(nullptr));
+}
+
+TEST(TestApiErrors, GetExpectedSizeOnNonExperimental)
+{
+  auto ts = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<
+    rosidl_typesupport_xcdr_cpp_tests::msg::BasicTypes>();
+  ASSERT_NE(nullptr, ts);
+
+  size_t size = 0;
+  auto ret = rosidl_typesupport_xcdr_cpp::get_expected_message_size(ts, &size);
+  EXPECT_EQ(RCUTILS_RET_ERROR, ret);
+}
+
+// =============================================================================
+// compare_constraints error contracts
+// =============================================================================
+
+TEST(TestApiErrors, CompareConstraints_BothNull)
+{
+  EXPECT_TRUE(
+    rosidl_typesupport_xcdr_cpp::compare_constraints(
+      nullptr, nullptr, nullptr, nullptr));
+}
+
+TEST(TestApiErrors, CompareConstraints_CandidateNullNotCompatible)
+{
+  rosidl_message_type_constraints_t baseline{};
+  baseline.max_string_length = 100;
+  EXPECT_FALSE(
+    rosidl_typesupport_xcdr_cpp::compare_constraints(
+      nullptr, nullptr, &baseline, nullptr));
+}
+
+TEST(TestApiErrors, CompareConstraints_WrongIdentifier)
+{
+  // Build a mock handle with a non-XCDR identifier
+  rosidl_message_type_support_t bad_ts{};
+  bad_ts.typesupport_identifier = "some_other_typesupport";
+  int dummy{};
+  bad_ts.data = &dummy;
+
+  int ts_val{};
+  rosidl_message_type_constraints_t candidate{};
+  rosidl_message_type_constraints_t baseline{};
+  candidate.type_specific = &ts_val;
+  baseline.type_specific = &ts_val;
+
+  EXPECT_FALSE(
+    rosidl_typesupport_xcdr_cpp::compare_constraints(
+      &bad_ts, &candidate, &baseline, nullptr));
 }
 
 int main(int argc, char ** argv)

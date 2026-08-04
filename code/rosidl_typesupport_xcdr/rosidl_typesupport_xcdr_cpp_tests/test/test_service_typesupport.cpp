@@ -98,36 +98,34 @@ TEST(TestServiceTypesupport, IdentifierMatching)
 TEST(TestServiceTypesupport, RequestRoundtrip)
 {
   using Request = rosidl_typesupport_xcdr_cpp_tests::srv::AddTwoInts_Request;
-  using type_support_callbacks_t =
-    rosidl_typesupport_xcdr_cpp::message_type_support_callbacks_experimental_t;
 
   auto handle = rosidl_typesupport_xcdr_cpp::get_service_type_support_handle<
     rosidl_typesupport_xcdr_cpp_tests::srv::AddTwoInts>();
+  ASSERT_NE(nullptr, handle);
 
-  auto * callbacks =
-    static_cast<const type_support_callbacks_t *>(handle->request_typesupport->data);
-  ASSERT_NE(nullptr, callbacks);
-  ASSERT_NE(nullptr, callbacks->get_message_size);
-  ASSERT_NE(nullptr, callbacks->serialize_message_into);
-  ASSERT_NE(nullptr, callbacks->deserialize_message_from);
+  auto * request_ts = handle->request_typesupport;
+  ASSERT_NE(nullptr, request_ts);
 
   Request request;
   request.a = 5;
   request.b = 7;
 
   size_t size = 0;
-  auto ret = callbacks->get_message_size(&request, &size);
+  auto ret = rosidl_typesupport_xcdr_cpp::get_message_size(
+    request_ts, &request, &size);
   ASSERT_EQ(RCUTILS_RET_OK, ret);
   ASSERT_GT(size, 0u);
 
   std::vector<uint8_t> buffer(size);
   rosidl_runtime_cpp::MemoryRegion<void> storage(buffer.data(), size);
 
-  ret = callbacks->serialize_message_into(&request, storage);
+  ret = rosidl_typesupport_xcdr_cpp::serialize_message_into(
+    request_ts, &request, storage);
   EXPECT_EQ(RCUTILS_RET_OK, ret);
 
   Request request_out;
-  ret = callbacks->deserialize_message_from(storage, &request_out);
+  ret = rosidl_typesupport_xcdr_cpp::deserialize_message_from(
+    request_ts, storage, &request_out);
   EXPECT_EQ(RCUTILS_RET_OK, ret);
   EXPECT_EQ(request.a, request_out.a);
   EXPECT_EQ(request.b, request_out.b);
@@ -140,35 +138,33 @@ TEST(TestServiceTypesupport, RequestRoundtrip)
 TEST(TestServiceTypesupport, ResponseRoundtrip)
 {
   using Response = rosidl_typesupport_xcdr_cpp_tests::srv::AddTwoInts_Response;
-  using type_support_callbacks_t =
-    rosidl_typesupport_xcdr_cpp::message_type_support_callbacks_experimental_t;
 
   auto handle = rosidl_typesupport_xcdr_cpp::get_service_type_support_handle<
     rosidl_typesupport_xcdr_cpp_tests::srv::AddTwoInts>();
+  ASSERT_NE(nullptr, handle);
 
-  auto * callbacks =
-    static_cast<const type_support_callbacks_t *>(handle->response_typesupport->data);
-  ASSERT_NE(nullptr, callbacks);
-  ASSERT_NE(nullptr, callbacks->get_message_size);
-  ASSERT_NE(nullptr, callbacks->serialize_message_into);
-  ASSERT_NE(nullptr, callbacks->deserialize_message_from);
+  auto * response_ts = handle->response_typesupport;
+  ASSERT_NE(nullptr, response_ts);
 
   Response response;
   response.sum = 12;
 
   size_t size = 0;
-  auto ret = callbacks->get_message_size(&response, &size);
+  auto ret = rosidl_typesupport_xcdr_cpp::get_message_size(
+    response_ts, &response, &size);
   ASSERT_EQ(RCUTILS_RET_OK, ret);
   ASSERT_GT(size, 0u);
 
   std::vector<uint8_t> buffer(size);
   rosidl_runtime_cpp::MemoryRegion<void> storage(buffer.data(), size);
 
-  ret = callbacks->serialize_message_into(&response, storage);
+  ret = rosidl_typesupport_xcdr_cpp::serialize_message_into(
+    response_ts, &response, storage);
   EXPECT_EQ(RCUTILS_RET_OK, ret);
 
   Response response_out;
-  ret = callbacks->deserialize_message_from(storage, &response_out);
+  ret = rosidl_typesupport_xcdr_cpp::deserialize_message_from(
+    response_ts, storage, &response_out);
   EXPECT_EQ(RCUTILS_RET_OK, ret);
   EXPECT_EQ(response.sum, response_out.sum);
 }
@@ -180,22 +176,21 @@ TEST(TestServiceTypesupport, ResponseRoundtrip)
 TEST(TestServiceTypesupport, EventRoundtrip)
 {
   using Event = rosidl_typesupport_xcdr_cpp_tests::srv::AddTwoInts_Event;
-  using type_support_callbacks_t =
-    rosidl_typesupport_xcdr_cpp::message_type_support_callbacks_experimental_t;
 
   auto handle = rosidl_typesupport_xcdr_cpp::get_service_type_support_handle<
     rosidl_typesupport_xcdr_cpp_tests::srv::AddTwoInts>();
+  ASSERT_NE(nullptr, handle);
 
-  auto * callbacks =
-    static_cast<const type_support_callbacks_t *>(handle->event_typesupport->data);
-  ASSERT_NE(nullptr, callbacks);
+  auto * event_ts = handle->event_typesupport;
+  ASSERT_NE(nullptr, event_ts);
 
   // The Event type is auto-generated.  Create a minimal instance and verify
   // the serialization pipeline accepts it.
   Event event{};
 
   size_t size = 0;
-  auto ret = callbacks->get_message_size(&event, &size);
+  auto ret = rosidl_typesupport_xcdr_cpp::get_message_size(
+    event_ts, &event, &size);
   EXPECT_EQ(RCUTILS_RET_OK, ret);
   EXPECT_GT(size, 0u);
 }

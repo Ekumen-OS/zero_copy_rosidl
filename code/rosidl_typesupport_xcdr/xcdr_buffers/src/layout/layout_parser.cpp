@@ -316,7 +316,8 @@ XCdrStatus XCdrLayoutParser::begin_parse_array(std::string_view name, size_t cou
 
   // Validate name is not empty when explicitly provided
   if (name.empty()) {
-    return error("Array name must not be empty. Use no-argument overload for auto-generated names");
+    return error(
+        "Array name must not be empty. Use no-argument overload for auto-generated names");
   }
 
   // Use provided name directly (no auto-generation)

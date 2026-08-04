@@ -257,7 +257,7 @@ XCdrResult<XCdrAccessor> XCdrAccessor::member(std::string_view name_or_path)
     if (!member_result) {
       return error("Failed to get member at index " + std::to_string(i));
     }
-    const XCdrStructLayout::Member & member_ref = member_result->get();  // Unwrap reference_wrapper
+    const XCdrStructLayout::Member & member_ref = member_result->get();
     if (member_ref.name() == first_component) {
       member_ptr = &member_ref;
       break;

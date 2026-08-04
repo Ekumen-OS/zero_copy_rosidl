@@ -13,12 +13,15 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(rosidl_typesupport_xcdr_cpp REQUIRED)
+find_package(rosidl_typesupport_xcdr_c REQUIRED)
 
 # Generate interfaces
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/experimental/BasicTypes.msg"
   "msg/experimental/BoundedMessage.msg"
   "msg/experimental/UnboundedMessage.msg"
+  "msg/experimental/InnerValue.msg"
+  "msg/experimental/NestedContainers.msg"
   "msg/InnerMessage.msg"
   "msg/NestedMessage.msg"
   "srv/AddTwoInts.srv"
@@ -36,6 +39,7 @@ if(BUILD_TESTING)
     if(TARGET ${target_name})
       target_link_libraries(${target_name}
         rosidl_typesupport_xcdr_cpp::rosidl_typesupport_xcdr_cpp
+        rosidl_typesupport_xcdr_c::rosidl_typesupport_xcdr_c
         xcdr_buffers::xcdr_buffers
       )
       rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME}
@@ -74,9 +78,24 @@ if(BUILD_TESTING)
     test/test_constrained_typesupport.cpp
   )
 
-  # --- API error contracts ---
+  # --- Outer callback integration ---
+  add_xcdr_test(test_outer_callback_integration
+    test/test_outer_callback_integration.cpp
+  )
+
+  # --- Typesupport API error contracts ---
   add_xcdr_test(test_typesupport_api_errors
     test/test_typesupport_api_errors.cpp
+  )
+
+  # --- Compact traversal (fast path, rewrite path, fail path) ---
+  add_xcdr_test(test_compact_traversal
+    test/test_compact_traversal.cpp
+  )
+
+  # --- ExternalStorage recursion (nested types, containers) ---
+  add_xcdr_test(test_external_storage_recursion
+    test/test_external_storage_recursion.cpp
   )
 
 endif()

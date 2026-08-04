@@ -1,6 +1,5 @@
 @# generated from rosidl_typesupport_xcdr_cpp/resource/srv__rosidl_typesupport_xcdr_cpp.hpp.em
 @# with input from @(package_name):@(interface_path)
-@# generated code does not contain a copyright notice
 @{
 from rosidl_cmake import convert_camel_case_to_lower_case_underscore
 from rosidl_parser.definition import SERVICE_REQUEST_MESSAGE_SUFFIX
@@ -25,13 +24,29 @@ symbol_parent_parts = list(interface_path.parents[0].parts)
 if force_experimental:
     symbol_parent_parts = [symbol_parent_parts[0] + '_experimental']
 
-header_guard_parts = [
-    package_name] + list(interface_path.parents[0].parts) + [
-    'detail', convert_camel_case_to_lower_case_underscore(service_typename) + '__rosidl_typesupport_xcdr_cpp_hpp']
-header_guard_variable = '__'.join([x.upper() for x in header_guard_parts]) + '_'
+header_guard_parts = [package_name] + list(interface_path.parents[0].parts) + [
+    'detail', convert_camel_case_to_lower_case_underscore(service_typename)]
+# For experimental services, insert 'experimental' before 'detail'
+if force_experimental and 'experimental' not in header_guard_parts and 'detail' in header_guard_parts:
+    header_guard_parts.insert(header_guard_parts.index('detail'), 'experimental')
+header_guard_body = '__'.join([x.upper() for x in header_guard_parts + ['rosidl_typesupport_xcdr_cpp']]) + '_HPP_'
 }@
-#ifndef @(header_guard_variable)
-#define @(header_guard_variable)
+// Copyright 2026 Ekumen Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#ifndef @(header_guard_body)
+#define @(header_guard_body)
 
 #include "rosidl_runtime_c/message_type_support_struct.h"
 #include "rosidl_runtime_c/service_type_support_struct.h"
@@ -89,4 +104,4 @@ get_service_type_support_handle<@(service_full_namespace)::@(service_typename)>(
 
 }  // namespace rosidl_typesupport_xcdr_cpp
 
-#endif  // @(header_guard_variable)
+#endif  // @(header_guard_body)

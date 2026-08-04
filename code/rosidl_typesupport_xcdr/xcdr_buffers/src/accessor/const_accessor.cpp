@@ -257,7 +257,7 @@ XCdrResult<XCdrConstAccessor> XCdrConstAccessor::member(std::string_view name_or
     if (!member_result) {
       return error("Failed to get member at index " + std::to_string(i));
     }
-    const XCdrStructLayout::Member & member_ref = member_result->get();  // Unwrap reference_wrapper
+    const XCdrStructLayout::Member & member_ref = member_result->get();
     if (member_ref.name() == first_component) {
       member_ptr = &member_ref;
       break;
@@ -375,7 +375,8 @@ XCdrResult<XCdrConstAccessor> XCdrConstAccessor::item(size_t index) const
     }
 
     const size_t elem_offset = base_offset_ + prim_seq.element_offset(index);
-    return XCdrConstAccessor(buffer_, &get_primitive_layout(prim_seq.element_kind()), elem_offset);
+    return XCdrConstAccessor(buffer_, &get_primitive_layout(prim_seq.element_kind()),
+        elem_offset);
   }
 
   // Handle non-primitive sequences (unified)

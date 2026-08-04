@@ -67,7 +67,9 @@ XCdrPrimitiveArrayLayout::XCdrPrimitiveArrayLayout(
 // XCdrArrayLayout
 // ============================================================================
 
-XCdrArrayLayout::XCdrArrayLayout(std::pmr::vector<Element> elements, std::pmr::memory_resource * mr)
+XCdrArrayLayout::XCdrArrayLayout(
+  std::pmr::vector<Element> elements,
+  std::pmr::memory_resource * mr)
 : elements_(std::move(elements)), memory_resource_(mr ? mr : std::pmr::new_delete_resource())
 {
 }
