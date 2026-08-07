@@ -14,9 +14,11 @@
 
 #include <gtest/gtest.h>
 #include <pybind11/embed.h>
+#include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -295,6 +297,187 @@ TEST_F(EmbeddedPython, ConstructEmptyZeroCopy)
 
   // Round-trip the constructed empty message.
   roundtrip(ts, m);
+}
+
+// Cast a message whose fixed_array lives at a known offset in the wire buffer,
+// then prove the numpy view is a *live* view over that memory: writes into the
+// wire buffer appear in the numpy view, and writes through the numpy view land
+// in the wire buffer.
+TEST_F(EmbeddedPython, CastNumpyViewReadsLiveWireData)
+{
+  const auto * ts = get_message_type_support_handle<
+    rosidl_typesupport_xcdr_cpython_tests::msg::experimental::Containers>();
+  ASSERT_NE(ts, nullptr);
+
+  std::vector<uint8_t> wire;
+  py::object src = build_message(
+    R"(
+from rosidl_typesupport_xcdr_cpython_tests.msg.experimental._containers import Containers
+from rosidl_runtime_cpython.string import String
+m = Containers()
+m.fixed_array = [10, 20, 30, 40]
+m.dynamic_seq = [1, 2, 3]
+m.bounded_seq = [5, 6]
+s1 = String(); s1.assign('a')
+s2 = String(); s2.assign('bb')
+m.string_seq = [s1, s2]
+m
+)");
+  serialize_message(ts, src, wire);
+
+  void * msg_ptr = nullptr;
+  rosidl_memory_region_t region{{wire.data(), 0}, wire.size()};
+  ASSERT_EQ(rosidl_typesupport_xcdr_c_cast_message_at(ts, region, &msg_ptr), RCUTILS_RET_OK);
+  ASSERT_NE(msg_ptr, nullptr);
+  py::object m = py::reinterpret_steal<py::object>(static_cast<PyObject *>(msg_ptr));
+
+  // The numpy view of the cast fixed_array points into the wire buffer.
+  py::array arr = py::reinterpret_borrow<py::array>(m.attr("fixed_array").attr("numpy")());
+  auto info = arr.request();
+  ASSERT_EQ(info.ndim, 1);
+  ASSERT_EQ(info.shape[0], 4);
+  auto * view = static_cast<int32_t *>(info.ptr);
+  ASSERT_EQ(view[0], 10);
+  ASSERT_EQ(view[3], 40);
+  // Same address as the fixed_array region inside the wire buffer.
+  auto * view_bytes = static_cast<const uint8_t *>(info.ptr);
+  ptrdiff_t fixed_array_offset = view_bytes - wire.data();
+  ASSERT_GE(fixed_array_offset, 0);
+
+  // Write into the wire buffer directly; the numpy view must see the change.
+  int32_t * wire_slot = reinterpret_cast<int32_t *>(wire.data() + fixed_array_offset);
+  wire_slot[1] = -77;
+  ASSERT_EQ(view[1], -77);
+  // The container itself reflects the live data too.
+  ASSERT_EQ(py::cast<int>(m.attr("fixed_array")[py::int_(1)]), -77);
+
+  // Write through the numpy view; the wire buffer must change.
+  view[2] = 12345;
+  ASSERT_EQ(wire_slot[2], 12345);
+  ASSERT_EQ(py::cast<int>(m.attr("fixed_array")[py::int_(2)]), 12345);
+
+  // Serialization still round-trips with the live values.
+  std::vector<uint8_t> rewire;
+  serialize_message(ts, m, rewire);
+  py::object check = m.attr("__class__")();
+  rosidl_memory_region_t r2{{rewire.data(), 0}, rewire.size()};
+  ASSERT_EQ(
+    rosidl_typesupport_xcdr_c_deserialize_message_from(ts, r2, check.ptr()),
+    RCUTILS_RET_OK);
+  ASSERT_EQ(py::cast<int>(check.attr("fixed_array")[py::int_(1)]), -77);
+  ASSERT_EQ(py::cast<int>(check.attr("fixed_array")[py::int_(2)]), 12345);
+}
+
+// get_backing_storage is non-consuming: it reports the region without
+// invalidating the message, which remains fully usable afterwards.
+TEST_F(EmbeddedPython, GetBackingStorageIsNonConsuming)
+{
+  const auto * ts = get_message_type_support_handle<
+    rosidl_typesupport_xcdr_cpython_tests::msg::experimental::Primitives>();
+  ASSERT_NE(ts, nullptr);
+
+  std::vector<uint8_t> buffer(512);
+  void * msg_ptr = nullptr;
+  rosidl_memory_region_t region{{buffer.data(), 0}, buffer.size()};
+  ASSERT_EQ(rosidl_typesupport_xcdr_c_construct_message_at(ts, region, &msg_ptr), RCUTILS_RET_OK);
+  ASSERT_NE(msg_ptr, nullptr);
+
+  rosidl_memory_region_t backing = rosidl_typesupport_xcdr_c_get_backing_storage(ts, msg_ptr);
+  ASSERT_EQ(backing.location.address, buffer.data());
+  ASSERT_GT(backing.size, 0u);
+
+  // Message is still alive: fill it and serialize.
+  py::object m = py::reinterpret_steal<py::object>(static_cast<PyObject *>(msg_ptr));
+  m.attr("int32_value") = py::cast(7);
+  std::vector<uint8_t> out;
+  serialize_message(ts, m, out);
+  ASSERT_GT(out.size(), 0u);
+
+  // Backing query remains stable and non-consuming.
+  backing = rosidl_typesupport_xcdr_c_get_backing_storage(ts, msg_ptr);
+  ASSERT_EQ(backing.location.address, buffer.data());
+
+  // destroy_message (not release) is the terminal call here.  Relinquish the
+  // Python reference first: destroy_message DECREFs the PyObject (consumes the
+  // reference construct_message_at returned).  Keeping `m` alive across the
+  // call would double-decref (use-after-free).
+  m.release();
+  rosidl_typesupport_xcdr_c_destroy_message(ts, msg_ptr);
+}
+
+// Lifecycle stress under ASAN: exercise the construct→use→release and
+// cast→use→destroy handoffs repeatedly.  Refcount errors (double-DECREF,
+// using a released message, leaking the PyObject) surface as ASAN
+// use-after-free / alloc-dealloc-mismatch / leak reports.
+TEST_F(EmbeddedPython, LifecycleStressNoUseAfterFree)
+{
+  const auto * containers_ts = get_message_type_support_handle<
+    rosidl_typesupport_xcdr_cpython_tests::msg::experimental::Containers>();
+  const auto * primitives_ts = get_message_type_support_handle<
+    rosidl_typesupport_xcdr_cpython_tests::msg::experimental::Primitives>();
+  ASSERT_NE(containers_ts, nullptr);
+  ASSERT_NE(primitives_ts, nullptr);
+
+  std::vector<uint8_t> wire;
+  py::object src = build_message(
+    R"(
+from rosidl_typesupport_xcdr_cpython_tests.msg.experimental._containers import Containers
+from rosidl_runtime_cpython.string import String
+m = Containers()
+m.fixed_array = [1, 2, 3, 4]
+m.dynamic_seq = [10, 20, 30]
+m.bounded_seq = [7, 8]
+s1 = String(); s1.assign('x')
+s2 = String(); s2.assign('y')
+s3 = String(); s3.assign('z')
+m.string_seq = [s1, s2, s3]
+m
+)");
+  serialize_message(containers_ts, src, wire);
+
+  constexpr int kIterations = 50;
+
+  // Construct → write → release (loan handoff).  Primitives is fully bounded,
+  // so construct works without a constrained handle.
+  for (int i = 0; i < kIterations; ++i) {
+    std::vector<uint8_t> buffer(512);
+    void * msg_ptr = nullptr;
+    rosidl_memory_region_t region{{buffer.data(), 0}, buffer.size()};
+    ASSERT_EQ(
+      rosidl_typesupport_xcdr_c_construct_message_at(primitives_ts, region, &msg_ptr),
+      RCUTILS_RET_OK);
+    ASSERT_NE(msg_ptr, nullptr);
+    py::object m = py::reinterpret_steal<py::object>(static_cast<PyObject *>(msg_ptr));
+    m.attr("int32_value") = py::cast(i);
+    // Release path reads the PyObject, extracts the block, DECREFs it.
+    m.release();
+    rosidl_memory_region_t released = rosidl_typesupport_xcdr_c_release_message(
+      primitives_ts, msg_ptr);
+    ASSERT_EQ(released.location.address, buffer.data());
+    ASSERT_GT(released.size, 0u);
+  }
+
+  // Cast → read → destroy (receiver handoff).  Cast parses the layout from
+  // the wire, so no constraints are needed.
+  for (int i = 0; i < kIterations; ++i) {
+    // A fresh copy of the wire each iteration so ASAN redzones guard the
+    // exact region the cast message views.
+    std::vector<uint8_t> copy = wire;
+    void * msg_ptr = nullptr;
+    rosidl_memory_region_t region{{copy.data(), 0}, copy.size()};
+    ASSERT_EQ(
+      rosidl_typesupport_xcdr_c_cast_message_at(containers_ts, region, &msg_ptr),
+      RCUTILS_RET_OK);
+    ASSERT_NE(msg_ptr, nullptr);
+    py::object m = py::reinterpret_steal<py::object>(static_cast<PyObject *>(msg_ptr));
+    ASSERT_EQ(py::cast<int>(m.attr("fixed_array")[py::int_(0)]), 1);
+    py::array arr = py::reinterpret_borrow<py::array>(m.attr("fixed_array").attr("numpy")());
+    auto info = arr.request();
+    auto * view = static_cast<const int32_t *>(info.ptr);
+    ASSERT_EQ(view[3], 4);
+    m.release();
+    rosidl_typesupport_xcdr_c_destroy_message(containers_ts, msg_ptr);
+  }
 }
 // ============================================================================
 // Phase 4d: constrained handles — construct/cast/validate/compare

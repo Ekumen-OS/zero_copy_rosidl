@@ -41,6 +41,31 @@ namespace rosidl_typesupport_xcdr_cpython
 {
 
 // ============================================================================
+// Message ownership / lifetime contract (Python)
+//
+// The CPython typesupport implements the language-agnostic contract from
+// rosidl_typesupport_xcdr_c/message_type_support.h with Python reference
+// semantics:
+//
+// 1. `construct_message` / `cast_message` return a **new reference** to a
+//    Python message object (`PyObject *`) whose containers view the
+//    caller-provided storage region through non-owning RawBuffers.  The
+//    message must not outlive the storage region.
+// 2. `destroy_message` DECREFs the Python object once.  The storage region
+//    is not touched.
+// 3. `release_message` reads the backing region out of the Python object's
+//    ExternalStorage descriptors (no copies), DECREFs the Python object
+//    once, and returns the region.  Exactly one of destroy_message /
+//    release_message must be called per constructed/cast message; calling
+//    both double-DECREFs (use-after-free).
+// 4. `get_backing_storage` is non-consuming: it reads the region without
+//    touching the message's reference count.
+// 5. All callbacks that touch a Python object must hold the GIL.  The
+//    generated release/get_backing_storage wrappers acquire it; the outer
+//    table defaults (cpython_destroy_message etc.) do too.
+// ============================================================================
+
+// ============================================================================
 // Language-specific inner state
 // ============================================================================
 

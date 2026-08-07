@@ -37,6 +37,21 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
 
+  # Optional AddressSanitizer / UndefinedBehaviorSanitizer build for the
+  # lifecycle tests.  Enable with:
+  #   colcon build --cmake-args -DROSIDL_TYPESUPPORT_XCDR_CPYTHON_TESTS_ASAN=ON
+  # The xcdr_buffers and rosidl_typesupport_xcdr_cpython libraries must be
+  # built with the same sanitizer flags for full coverage (see PLAN §Phase 6).
+  option(ROSIDL_TYPESUPPORT_XCDR_CPYTHON_TESTS_ASAN
+    "Build tests with AddressSanitizer/UndefinedBehaviorSanitizer" OFF)
+  if(ROSIDL_TYPESUPPORT_XCDR_CPYTHON_TESTS_ASAN)
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -O1)
+    add_link_options(-fsanitize=address,undefined)
+    # The embedded CPython interpreter is not ASAN-instrumented; preload the
+    # ASAN runtime so it initializes before libpython.
+    set(ASAN_PRELOAD "$ENV{ROSIDL_TYPESUPPORT_XCDR_CPYTHON_ASAN_PRELOAD}")
+  endif()
+
   # Exclude cpplint: the workspace's mandated uncrustify style (Allman braces
   # for function definitions, ament_code_style_0_78) conflicts with cpplint's
   # whitespace/braces rule, and cpplint is not enforced by sibling packages

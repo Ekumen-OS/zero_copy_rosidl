@@ -818,27 +818,32 @@ get_message_class_@(msg_typename)()
   parser.parse_primitive_sequence(@(get_xcdr_primitive_kind(member.type.value_type)));
 @[    end if]@
 @[  else]@
-  parser.begin_parse_sequence();
+  {
+    auto _count_result = parser.begin_parse_sequence();
+    if (!_count_result) { return RCUTILS_RET_ERROR; }
+    for (size_t _i = 0; _i < *_count_result; ++_i) {
 @[    if isinstance(member.type.value_type, AbstractWString)]@
-    parser.parse_string(xcdr_buffers::XCdrCharKind::kChar16);
+      parser.parse_string(xcdr_buffers::XCdrCharKind::kChar16);
 @[    elif isinstance(member.type.value_type, AbstractString)]@
-    parser.parse_string();
+      parser.parse_string();
 @[    elif isinstance(member.type.value_type, NamespacedType)]@
-    parser.begin_parse_struct();
-    {
-      auto _ts = rosidl_typesupport_xcdr_cpython::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental))>();
-      auto _outer = static_cast<const rosidl_message_xcdr_type_support_t *>(_ts->data);
-      auto _inner = static_cast<const rosidl_typesupport_xcdr_cpython::rosidl_message_xcdr_cpython_type_support_t *>(_outer->inner);
-      if (nullptr == _inner->parse_fields) {
-        RCUTILS_SET_ERROR_MSG("@(msg_typename).@(member.name): nested parse_fields not available");
-        return RCUTILS_RET_ERROR;
+      parser.begin_parse_struct();
+      {
+        auto _ts = rosidl_typesupport_xcdr_cpython::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental))>();
+        auto _outer = static_cast<const rosidl_message_xcdr_type_support_t *>(_ts->data);
+        auto _inner = static_cast<const rosidl_typesupport_xcdr_cpython::rosidl_message_xcdr_cpython_type_support_t *>(_outer->inner);
+        if (nullptr == _inner->parse_fields) {
+          RCUTILS_SET_ERROR_MSG("@(msg_typename).@(member.name): nested parse_fields not available");
+          return RCUTILS_RET_ERROR;
+        }
+        auto _ret = _inner->parse_fields(parser);
+        if (_ret != RCUTILS_RET_OK) { return _ret; }
       }
-      auto _ret = _inner->parse_fields(parser);
-      if (_ret != RCUTILS_RET_OK) { return _ret; }
-    }
-    parser.end_parse_struct();
+      parser.end_parse_struct();
 @[    end if]@
-  parser.end_parse_sequence();
+    }
+    parser.end_parse_sequence();
+  }
 @[  end if]@
 @[elif isinstance(member.type, NamespacedType)]@
   parser.begin_parse_struct("@(member.name)");
@@ -861,7 +866,7 @@ get_message_class_@(msg_typename)()
 
 @[def generate_external_storage_field(member, index, msg_typename, is_experimental)]@
 @{ from rosidl_parser.definition import BasicType, AbstractString, AbstractWString, BoundedString, BoundedWString, Array, BoundedSequence, AbstractSequence, NamespacedType }@ @
-@{ from rosidl_typesupport_xcdr_cpython.template_helpers import get_message_type_name }@ @
+@{ from rosidl_typesupport_xcdr_cpython.template_helpers import get_cpp_type, get_message_type_name }@ @
 @[if isinstance(member.type, BasicType)]@
   {
     auto _slice = accessor[@(index)].slice();
@@ -936,8 +941,12 @@ _ns_name = _ns_parts[-1]
 @[elif isinstance(member.type, AbstractSequence)]@
 @[  if isinstance(member.type.value_type, BasicType)]@
   {
+    auto _seq = accessor[@(index)];
+    auto _count_result = _seq.size();
+    if (!_count_result) { return RCUTILS_RET_ERROR; }
     auto _slice = accessor[@(index)].slice();
-    auto _data = _slice.subspan(xcdr_buffers::kSequenceLengthPrefixSize);
+    auto _data = _slice.subspan(
+      xcdr_buffers::kSequenceLengthPrefixSize, *_count_result * sizeof(@(get_cpp_type(member.type.value_type))));
     py::object _buf = rosidl_typesupport_xcdr_cpython::raw_buffer_from_region(
       rosidl_memory_region_t{{const_cast<void *>(static_cast<const void *>(_data.data())), 0}, _data.size()});
     ext_storage.attr("members").attr("@(member.name)") = _buf;

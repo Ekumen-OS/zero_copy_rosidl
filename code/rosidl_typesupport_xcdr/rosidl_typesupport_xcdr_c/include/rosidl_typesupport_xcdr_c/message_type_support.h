@@ -152,6 +152,38 @@ typedef struct rosidl_message_xcdr_type_support_s
   rosidl_memory_region_t (*release_message)(
     void * message);
 
+  // -------------------------------------------------------------------
+  // Message ownership / lifetime contract
+  //
+  // Messages produced by `construct_message_at` and `cast_message_at`
+  // follow a strict handoff protocol.  Every language-specific typesupport
+  // must implement it:
+  //
+  // 1. The caller receives a fully usable message whose serialized
+  //    representation lives in the caller-provided storage region.
+  //    For zero-copy typesupports the message *views* that region: it must
+  //    not be accessed after the region is freed.
+  // 2. Exactly one of `destroy_message` or `release_message` must be called
+  //    on the message before the storage region is freed or reused.
+  //    Calling both, or calling either twice, is a contract violation
+  //    (double-free / use-after-free).
+  // 3. `destroy_message` only tears down the message; the storage region is
+  //    returned to the caller unchanged and may be reused.
+  // 4. `release_message` tears down the message and *returns* the backing
+  //    storage region to the caller in a single step.  It is the
+  //    complement of `construct_message_at` / `cast_message_at` used by
+  //    loan-return paths (e.g. rmw loans).  After it returns, the message
+  //    pointer must not be used again.
+  // 5. `get_backing_storage` is the non-consuming query counterpart of
+  //    `release_message`: it reports the region a message would release,
+  //    without invalidating the message.  Safe to call any number of times
+  //    between construction and destroy/release.
+  // 6. `destroy_message` is the only safe terminal call for messages that
+  //    were never loaned (no release is required); `release_message` on a
+  //    message with no external storage returns { {NULL, 0}, 0 } and still
+  //    consumes the message.
+  // -------------------------------------------------------------------
+
   /// Return the backing storage of a message without releasing it.
   /** Non-consuming counterpart of `release_message`.  Returns the same
    *  backing memory region that `release_message` would return, but does
