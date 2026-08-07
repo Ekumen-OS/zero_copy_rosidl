@@ -74,26 +74,29 @@ cpython_get_message_size(
 
   // Preferred: use generated size computation callback.  It touches the
   // Python message (reads container sizes / external storage), so the GIL
-  // must be held.
-  if (nullptr != impl->compute_serialized_size) {
+  // must be held and exceptions translated at this C-linkage boundary.
+  try {
     py::gil_scoped_acquire acquire;
-    return impl->compute_serialized_size(message, size);
-  }
+    if (nullptr != impl->compute_serialized_size) {
+      return impl->compute_serialized_size(message, size);
+    }
 
-  // Fallback: serialize to temporary writer and measure (migration path).
-  if (nullptr == impl->serialize_fields) {
-    RCUTILS_SET_ERROR_MSG("serialize_fields callback not available");
-    return RCUTILS_RET_ERROR;
+    // Fallback: serialize to temporary writer and measure (migration path).
+    if (nullptr == impl->serialize_fields) {
+      RCUTILS_SET_ERROR_MSG("serialize_fields callback not available");
+      return RCUTILS_RET_ERROR;
+    }
+    xcdr_buffers::XCdrWriter writer;
+    auto ret = impl->serialize_fields(const_cast<void *>(message), writer);
+    if (ret != RCUTILS_RET_OK) {
+      return RCUTILS_RET_ERROR;
+    }
+    auto buffer = writer.flush();
+    *size = buffer.size();
+    return RCUTILS_RET_OK;
+  } catch (const std::exception &) {
+    return translate_pybind_error("get_message_size");
   }
-  py::gil_scoped_acquire acquire;
-  xcdr_buffers::XCdrWriter writer;
-  auto ret = impl->serialize_fields(const_cast<void *>(message), writer);
-  if (ret != RCUTILS_RET_OK) {
-    return RCUTILS_RET_ERROR;
-  }
-  auto buffer = writer.flush();
-  *size = buffer.size();
-  return RCUTILS_RET_OK;
 }
 
 extern "C" rcutils_ret_t
@@ -111,9 +114,13 @@ cpython_construct_message_at(
     RCUTILS_SET_ERROR_MSG("construct_message callback not available");
     return RCUTILS_RET_ERROR;
   }
-  py::gil_scoped_acquire acquire;
-  rosidl_runtime_cpp::MemoryRegion<void> cpp_storage(storage);
-  return impl->construct_message(impl, cpp_storage, message);
+  try {
+    py::gil_scoped_acquire acquire;
+    rosidl_runtime_cpp::MemoryRegion<void> cpp_storage(storage);
+    return impl->construct_message(impl, cpp_storage, message);
+  } catch (const std::exception &) {
+    return translate_pybind_error("construct_message_at");
+  }
 }
 
 extern "C" rcutils_ret_t
@@ -131,9 +138,13 @@ cpython_cast_message_at(
     RCUTILS_SET_ERROR_MSG("cast_message callback not available");
     return RCUTILS_RET_ERROR;
   }
-  py::gil_scoped_acquire acquire;
-  rosidl_runtime_cpp::MemoryRegion<void> cpp_storage(storage);
-  return impl->cast_message(impl, cpp_storage, message);
+  try {
+    py::gil_scoped_acquire acquire;
+    rosidl_runtime_cpp::MemoryRegion<void> cpp_storage(storage);
+    return impl->cast_message(impl, cpp_storage, message);
+  } catch (const std::exception &) {
+    return translate_pybind_error("cast_message_at");
+  }
 }
 
 extern "C" rcutils_ret_t
@@ -151,19 +162,23 @@ cpython_serialize_message_into(
     RCUTILS_SET_ERROR_MSG("serialize_fields callback not available");
     return RCUTILS_RET_ERROR;
   }
-  py::gil_scoped_acquire acquire;
-  rosidl_runtime_cpp::MemoryRegion<void> cpp_storage(storage);
-  xcdr_buffers::XCdrWriter writer(
-    tcb::span<uint8_t>(static_cast<uint8_t *>(cpp_storage.data()), cpp_storage.size()));
-  auto ret = impl->serialize_fields(const_cast<void *>(message), writer);
-  if (ret != RCUTILS_RET_OK) {
-    return ret;
+  try {
+    py::gil_scoped_acquire acquire;
+    rosidl_runtime_cpp::MemoryRegion<void> cpp_storage(storage);
+    xcdr_buffers::XCdrWriter writer(
+      tcb::span<uint8_t>(static_cast<uint8_t *>(cpp_storage.data()), cpp_storage.size()));
+    auto ret = impl->serialize_fields(const_cast<void *>(message), writer);
+    if (ret != RCUTILS_RET_OK) {
+      return ret;
+    }
+    if (writer.has_error()) {
+      RCUTILS_SET_ERROR_MSG("XCdrWriter reported buffer overflow");
+      return RCUTILS_RET_ERROR;
+    }
+    return RCUTILS_RET_OK;
+  } catch (const std::exception &) {
+    return translate_pybind_error("serialize_message_into");
   }
-  if (writer.has_error()) {
-    RCUTILS_SET_ERROR_MSG("XCdrWriter reported buffer overflow");
-    return RCUTILS_RET_ERROR;
-  }
-  return RCUTILS_RET_OK;
 }
 
 extern "C" rcutils_ret_t
@@ -188,8 +203,12 @@ cpython_deserialize_message_from(
     RCUTILS_SET_ERROR_MSG("Failed to create XCdrReader");
     return RCUTILS_RET_ERROR;
   }
-  py::gil_scoped_acquire acquire;
-  return impl->deserialize_fields(*reader_result, message);
+  try {
+    py::gil_scoped_acquire acquire;
+    return impl->deserialize_fields(*reader_result, message);
+  } catch (const std::exception &) {
+    return translate_pybind_error("deserialize_message_from");
+  }
 }
 
 extern "C" void
@@ -246,7 +265,7 @@ cpython_create_constrained(
   }
   std::shared_ptr<xcdr_buffers::XCdrStructLayout> layout;
   std::shared_ptr<rosidl_message_type_constraints_t> owned;
-  {
+  try {
     py::gil_scoped_acquire acquire;
     layout = impl->build_constrained(constraints->type_specific);
     if (!layout) {
@@ -264,6 +283,9 @@ cpython_create_constrained(
       RCUTILS_SET_ERROR_MSG("Failed to clone constraints");
       return nullptr;
     }
+  } catch (const std::exception &) {
+    translate_pybind_error("create_constrained");
+    return nullptr;
   }
 
   // Create new inner struct with the constrained layout and owned constraints.
@@ -338,9 +360,13 @@ cpython_validate_message(
     return RCUTILS_RET_OK;
   }
   // Extract type_specific from constraints for the per-field callback.
-  py::gil_scoped_acquire acquire;
-  return impl->validate_fields(
-    constraints->type_specific, message, report_cb, user_data);
+  try {
+    py::gil_scoped_acquire acquire;
+    return impl->validate_fields(
+      constraints->type_specific, message, report_cb, user_data);
+  } catch (const std::exception &) {
+    return translate_pybind_error("validate_message");
+  }
 }
 
 extern "C" rosidl_memory_region_t

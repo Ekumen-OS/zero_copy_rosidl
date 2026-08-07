@@ -57,18 +57,30 @@ namespace rosidl_typesupport_xcdr_cpython
 // Error translation
 // ============================================================================
 
-/// Translate the pending Python exception into an rcutils error message.
+/// True while the Python interpreter is alive (initialised and not finalising).
 /**
- * Returns RCUTILS_RET_ERROR.  Clears the Python error state.
- * Safe to call with the GIL held.
+ * Safe to call from C-linkage callbacks that may run after Py_Finalize started
+ * (e.g. shared_ptr deleters on handles destroyed during shutdown): DECREFs
+ * must be skipped then, because acquiring the GIL would crash.
+ *
+ * The public ``Py_IsFinalizing`` name exists on Python >= 3.13; before that
+ * it is the private ``_Py_IsFinalizing``.
  */
-ROSIDL_TYPESUPPORT_XCDR_CPYTHON_PUBLIC
-rcutils_ret_t translate_python_error(const char * context);
+inline bool interpreter_alive()
+{
+#if PY_VERSION_HEX >= 0x030D0000
+  return Py_IsInitialized() != 0 && Py_IsFinalizing() == 0;
+#else
+  return Py_IsInitialized() != 0 && _Py_IsFinalizing() == 0;
+#endif
+}
 
-/// Same as translate_python_error but for use after a pybind11 exception.
+/// Translate an active pybind11 exception into an rcutils error message.
 /**
- * Catches any active py::error_already_set, extracts the message, sets an
- * rcutils error, and returns RCUTILS_RET_ERROR.
+ * Extracts the message, sets an rcutils error, and returns RCUTILS_RET_ERROR.
+ * The pending Python exception state is left intact: the caught
+ * py::error_already_set restores it on destruction, so rclpy can still
+ * propagate the original exception once control returns to Python.
  */
 ROSIDL_TYPESUPPORT_XCDR_CPYTHON_PUBLIC
 rcutils_ret_t translate_pybind_error(const char * context);
@@ -77,52 +89,29 @@ rcutils_ret_t translate_pybind_error(const char * context);
 // RawBuffer C API
 // ============================================================================
 
-/// Ensure the RawBuffer C API is imported from rosidl_runtime_cpython.
-/**
- * Idempotent and thread-safe (GIL held internally).  Must complete before
- * raw_buffer_from_region() is used.  Generated construct/cast callbacks
- * invoke this lazily.
- */
-ROSIDL_TYPESUPPORT_XCDR_CPYTHON_PUBLIC
-bool ensure_raw_buffer_capi();
-
 /// Wrap a rosidl_memory_region_t as a non-owning external RawBuffer.
 /**
  * The region must outlive the returned object.  Returns a new reference
- * owned by the caller.
+ * owned by the caller.  Delegates to the pybind11 wrapper that lives in
+ * rosidl_runtime_cpython (which owns RawBuffer).  Raises on failure.
  */
 ROSIDL_TYPESUPPORT_XCDR_CPYTHON_PUBLIC
 py::object raw_buffer_from_region(const rosidl_memory_region_t & region);
 
 // ============================================================================
-// Attribute helpers
+// Payload / string helpers
 // ============================================================================
 
-/// Read an attribute, returning a borrowed-reference py::object.
+/// Borrow a Python object from a type-erased payload pointer.
 /**
- * On failure, sets an rcutils error and returns a disengaged object
- * (call py::object::is_none() to check).  The returned object is a
- * temporary handle: it must not outlive the owning object.
+ * Generated code receives message payloads and constraints as ``void *`` /
+ * ``const void *`` (actually ``PyObject *``); this centralises the cast.
  */
-ROSIDL_TYPESUPPORT_XCDR_CPYTHON_PUBLIC
-py::object py_get_attr(py::handle obj, const char * name, const char * context);
-
-/// Write an attribute.  Returns RCUTILS_RET_OK on success.
-ROSIDL_TYPESUPPORT_XCDR_CPYTHON_PUBLIC
-rcutils_ret_t py_set_attr(
-  py::handle obj, const char * name, py::handle value, const char * context);
-
-// ============================================================================
-// Container accessors
-// ============================================================================
-
-/// Read a Scalar's value as a py::object (e.g. Python int / float / bool).
-ROSIDL_TYPESUPPORT_XCDR_CPYTHON_PUBLIC
-py::object scalar_get_value(py::handle scalar, const char * context);
-
-/// Write a Scalar's value from a py::object.
-ROSIDL_TYPESUPPORT_XCDR_CPYTHON_PUBLIC
-rcutils_ret_t scalar_set_value(py::handle scalar, py::handle value, const char * context);
+inline py::object py_borrow(const void * ptr)
+{
+  return py::reinterpret_borrow<py::object>(
+    static_cast<PyObject *>(const_cast<void *>(ptr)));
+}
 
 /// Assign raw bytes to a String / WString via its assign() method.
 /**
@@ -130,74 +119,41 @@ rcutils_ret_t scalar_set_value(py::handle scalar, py::handle value, const char *
  * \param[in] data     Bytes to assign (UTF-8 for String, UTF-16-LE for
  *                     WString; the container's assign() accepts bytes).
  * \param[in] size     Byte count.
+ *
+ * Raises on failure; the enclosing extern "C" callback translates it.
  */
 ROSIDL_TYPESUPPORT_XCDR_CPYTHON_PUBLIC
-rcutils_ret_t string_assign_bytes(
-  py::handle str_obj, const void * data, size_t size, const char * context);
-
-/// Return the live numpy view of a container (Scalar/String/Array/Sequence).
-/**
- * Uses the container's .numpy() method.  The view is live: writes through
- * it are reflected in the container and vice versa.
- */
-ROSIDL_TYPESUPPORT_XCDR_CPYTHON_PUBLIC
-py::array container_numpy(py::handle container, const char * context);
-
-/// Resize a primitive Sequence to *new_size* elements (via .resize()).
-ROSIDL_TYPESUPPORT_XCDR_CPYTHON_PUBLIC
-rcutils_ret_t sequence_resize(
-  py::handle seq, py::ssize_t new_size, const char * context);
+void string_assign_bytes(
+  py::handle str_obj, const void * data, size_t size);
 
 // ============================================================================
 // ExternalStorage construction
 // ============================================================================
 
-/// Create a Python ExternalStorage instance for a message class.
-/**
- * Calls `MsgClass.ExternalStorage()` and returns the new instance.
- */
-ROSIDL_TYPESUPPORT_XCDR_CPYTHON_PUBLIC
-py::object external_storage_new(py::handle msg_class, const char * context);
-
 /// Set `ext_storage.block` to an external RawBuffer over *region*.
-ROSIDL_TYPESUPPORT_XCDR_CPYTHON_PUBLIC
-rcutils_ret_t external_storage_set_block(
-  py::handle ext_storage, const rosidl_memory_region_t & region, const char * context);
-
-/// Set a single-member descriptor: `ext_storage.members.<name> = value`.
 /**
- * *value* must be a RawBuffer (or a list of RawBuffer/ExternalStorage for
- * complex members, prebuilt by the caller).  The caller passes the
- * already-constructed Python value.
+ * Raises on failure (see string_assign_bytes).
  */
 ROSIDL_TYPESUPPORT_XCDR_CPYTHON_PUBLIC
-rcutils_ret_t external_storage_set_member(
-  py::handle ext_storage, const char * name, py::handle value, const char * context);
-
-/// Get the `ext_storage.members` dataclass (borrowed handle into ext_storage).
-ROSIDL_TYPESUPPORT_XCDR_CPYTHON_PUBLIC
-py::object external_storage_members(py::handle ext_storage, const char * context);
+void external_storage_set_block(
+  py::handle ext_storage, const rosidl_memory_region_t & region);
 
 /// Construct a message instance: `MsgClass(_storage=ext_storage, _init=SKIP)`.
 /**
- * Returns a new reference to the constructed Python message, or a disengaged
- * object on failure (rcutils error set).
+ * Returns a new reference to the constructed Python message.  Raises on
+ * failure (see string_assign_bytes).
  */
 ROSIDL_TYPESUPPORT_XCDR_CPYTHON_PUBLIC
 py::object message_from_external_storage(
-  py::handle msg_class, py::handle ext_storage, const char * context);
+  py::handle msg_class, py::handle ext_storage);
 
-/// Construct a message instance with managed storage: `MsgClass()`.
-ROSIDL_TYPESUPPORT_XCDR_CPYTHON_PUBLIC
-py::object message_new(py::handle msg_class, const char * context);
-
-/// Return the cached `MessageInitialization.SKIP` enum value.
+/// Return the `MessageInitialization.SKIP` enum value.
 /**
- * The reference is owned by the process (deliberately leaked) and is valid
- * for the lifetime of the interpreter.
+ * Enum members are process-lifetime singletons, so a fresh attribute lookup
+ * each call returns the same object with no caching or reference leak.
  */
 ROSIDL_TYPESUPPORT_XCDR_CPYTHON_PUBLIC
-PyObject * message_initialization_skip();
+py::object message_initialization_skip();
 
 }  // namespace rosidl_typesupport_xcdr_cpython
 

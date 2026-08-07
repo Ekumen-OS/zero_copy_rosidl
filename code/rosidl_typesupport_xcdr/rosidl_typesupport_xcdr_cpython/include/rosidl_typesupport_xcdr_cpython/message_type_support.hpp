@@ -222,23 +222,6 @@ get_message_type_support_handle();
 
 }  // namespace rosidl_typesupport_xcdr_cpython
 
-// ============================================================================
-// Note on the public API surface
-// ============================================================================
-//
-// The message operations (serialize / deserialize / size / construct / cast /
-// destroy / release / backing storage / validate / compare / constrained
-// lifecycle) are intentionally NOT re-exported as C++ wrappers in this
-// package.  The C trampolines in rosidl_typesupport_xcdr_c
-// (rosidl_typesupport_xcdr_c_serialize_message_into, ...) are the universal,
-// language-agnostic API: they validate the handle, cast `data` to the outer
-// rosidl_message_xcdr_type_support_t, and dispatch to the per-language
-// callbacks installed there.  The CPython typesupport only supplies those
-// callbacks (the C-linkage functions in message_type_support.cpp) plus the
-// language-specific inner struct — duplicating the trampoline layer here
-// would just mirror rosidl_typesupport_xcdr_cpp's wrappers for no consumer.
-// ============================================================================
-
 // ---- Default fallback functions for generated dispatch handles ----
 // These return zero / null values when a message type does not provide
 // its own type hash, type description, or type description sources.

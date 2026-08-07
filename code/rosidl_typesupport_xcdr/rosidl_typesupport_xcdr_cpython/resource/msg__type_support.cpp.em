@@ -207,26 +207,16 @@ namespace @(msg_namespace)
 // (acquired by the outer table callbacks in the runtime library).
 // ============================================================================
 
-// Resolve the Python message class, caching it in a function-local static.
-// The reference is intentionally not released: the class object lives for
-// the process lifetime (it belongs to an imported module) and releasing it
-// at static destruction time could run after Python finalisation.
+// Resolve the Python message class from the module (fast: cached in
+// sys.modules after the first import; returns a borrowed reference, so no
+// INCREF / static-destruction risk).
 ROSIDL_TYPESUPPORT_XCDR_CPYTHON_PUBLIC_@(package_name.upper())
 py::object
 get_message_class_@(msg_typename)()
 {
-  static PyObject * cached = []() {
-    py::gil_scoped_acquire acquire;
-    py::object module = py::module_::import("@(py_module)");
-    if (module.is_none()) {
-      return static_cast<PyObject *>(nullptr);
-    }
-    py::object cls = module.attr("@(py_class)");
-    PyObject * raw = cls.ptr();
-    Py_INCREF(raw);  // deliberately leaked (see above)
-    return raw;
-  }();
-  return py::reinterpret_borrow<py::object>(cached);
+  // Import and attribute lookup raise on failure; the enclosing extern "C"
+  // callback translates the exception at the boundary.
+  return py::module_::import("@(py_module)").attr("@(py_class)");
 }
 
 // ============================================================================
@@ -239,15 +229,13 @@ get_message_class_@(msg_typename)()
 @[if isinstance(member.type, BasicType)]@
   {
     auto _f = @(msg_prefix).attr("@(member.name)");
-    auto _v = rosidl_typesupport_xcdr_cpython::scalar_get_value(_f, "@(msg_typename).@(member.name)");
-    if (_v.is_none()) { return RCUTILS_RET_ERROR; }
+    auto _v = _f.attr("value");
     writer.write(_v.cast<@(get_cpp_type(member.type))>());
   }
 @[elif isinstance(member.type, AbstractWString)]@
   {
     auto _f = @(msg_prefix).attr("@(member.name)");
-    py::array _arr = rosidl_typesupport_xcdr_cpython::container_numpy(_f, "@(msg_typename).@(member.name)");
-    if (!_arr) { return RCUTILS_RET_ERROR; }
+    py::array _arr = py::reinterpret_borrow<py::array>(_f.attr("numpy")());
     auto _info = _arr.request();
     writer.write(std::u16string_view(
       static_cast<const char16_t *>(_info.ptr), _info.size));
@@ -255,8 +243,7 @@ get_message_class_@(msg_typename)()
 @[elif isinstance(member.type, AbstractString)]@
   {
     auto _f = @(msg_prefix).attr("@(member.name)");
-    py::array _arr = rosidl_typesupport_xcdr_cpython::container_numpy(_f, "@(msg_typename).@(member.name)");
-    if (!_arr) { return RCUTILS_RET_ERROR; }
+    py::array _arr = py::reinterpret_borrow<py::array>(_f.attr("numpy")());
     auto _info = _arr.request();
     writer.write(std::string_view(
       static_cast<const char *>(_info.ptr), _info.size));
@@ -265,8 +252,7 @@ get_message_class_@(msg_typename)()
 @[  if isinstance(member.type.value_type, BasicType)]@
   {
     auto _f = @(msg_prefix).attr("@(member.name)");
-    py::array _arr = rosidl_typesupport_xcdr_cpython::container_numpy(_f, "@(msg_typename).@(member.name)");
-    if (!_arr) { return RCUTILS_RET_ERROR; }
+    py::array _arr = py::reinterpret_borrow<py::array>(_f.attr("numpy")());
     auto _info = _arr.request();
     writer.write_array(tcb::span<const @(get_cpp_type(member.type.value_type))>(
       static_cast<const @(get_cpp_type(member.type.value_type)) *>(_info.ptr), @(member.type.size)));
@@ -276,9 +262,8 @@ get_message_class_@(msg_typename)()
     auto _f = @(msg_prefix).attr("@(member.name)");
     for (size_t _i = 0; _i < @(member.type.size); ++_i) {
       auto _e = _f[py::int_(_i)];
-      py::array _arr = rosidl_typesupport_xcdr_cpython::container_numpy(_e, "@(msg_typename).@(member.name)");
-      if (!_arr) { return RCUTILS_RET_ERROR; }
-      auto _info = _arr.request();
+      py::array _arr = py::reinterpret_borrow<py::array>(_e.attr("numpy")());
+        auto _info = _arr.request();
 @[    if isinstance(member.type.value_type, AbstractWString)]@
       writer.write(std::u16string_view(
         static_cast<const char16_t *>(_info.ptr), _info.size));
@@ -305,8 +290,7 @@ get_message_class_@(msg_typename)()
 @[  if isinstance(member.type.value_type, BasicType)]@
   {
     auto _f = @(msg_prefix).attr("@(member.name)");
-    py::array _arr = rosidl_typesupport_xcdr_cpython::container_numpy(_f, "@(msg_typename).@(member.name)");
-    if (!_arr) { return RCUTILS_RET_ERROR; }
+    py::array _arr = py::reinterpret_borrow<py::array>(_f.attr("numpy")());
     auto _info = _arr.request();
     writer.write_sequence(tcb::span<const @(get_cpp_type(member.type.value_type))>(
       static_cast<const @(get_cpp_type(member.type.value_type)) *>(_info.ptr),
@@ -319,9 +303,8 @@ get_message_class_@(msg_typename)()
     writer.begin_write_sequence(_len);
     for (size_t _i = 0; _i < _len; ++_i) {
       auto _e = _f[py::int_(_i)];
-      py::array _arr = rosidl_typesupport_xcdr_cpython::container_numpy(_e, "@(msg_typename).@(member.name)");
-      if (!_arr) { return RCUTILS_RET_ERROR; }
-      auto _info = _arr.request();
+      py::array _arr = py::reinterpret_borrow<py::array>(_e.attr("numpy")());
+        auto _info = _arr.request();
 @[    if isinstance(member.type.value_type, AbstractWString)]@
       writer.write(std::u16string_view(
         static_cast<const char16_t *>(_info.ptr), _info.size));
@@ -370,27 +353,23 @@ get_message_class_@(msg_typename)()
     auto _r = reader.read<@(get_cpp_type(member.type))>();
     if (!_r) { return RCUTILS_RET_ERROR; }
     auto _f = @(msg_prefix).attr("@(member.name)");
-    auto _ret = rosidl_typesupport_xcdr_cpython::scalar_set_value(
-      _f, py::cast(*_r), "@(msg_typename).@(member.name)");
-    if (_ret != RCUTILS_RET_OK) { return _ret; }
+    _f.attr("value") = py::cast(*_r);
   }
 @[elif isinstance(member.type, AbstractWString)]@
   {
     auto _r = reader.read<std::u16string_view>();
     if (!_r) { return RCUTILS_RET_ERROR; }
     auto _f = @(msg_prefix).attr("@(member.name)");
-    auto _ret = rosidl_typesupport_xcdr_cpython::string_assign_bytes(
-      _f, _r->data(), _r->size() * sizeof(char16_t), "@(msg_typename).@(member.name)");
-    if (_ret != RCUTILS_RET_OK) { return _ret; }
+    rosidl_typesupport_xcdr_cpython::string_assign_bytes(
+      _f, _r->data(), _r->size() * sizeof(char16_t));
   }
 @[elif isinstance(member.type, AbstractString)]@
   {
     auto _r = reader.read<std::string_view>();
     if (!_r) { return RCUTILS_RET_ERROR; }
     auto _f = @(msg_prefix).attr("@(member.name)");
-    auto _ret = rosidl_typesupport_xcdr_cpython::string_assign_bytes(
-      _f, _r->data(), _r->size(), "@(msg_typename).@(member.name)");
-    if (_ret != RCUTILS_RET_OK) { return _ret; }
+    rosidl_typesupport_xcdr_cpython::string_assign_bytes(
+      _f, _r->data(), _r->size());
   }
 @[elif isinstance(member.type, Array)]@
 @[  if isinstance(member.type.value_type, BasicType)]@
@@ -398,8 +377,7 @@ get_message_class_@(msg_typename)()
     auto _r = reader.read<tcb::span<const @(get_cpp_type(member.type.value_type)), @(member.type.size)>>();
     if (!_r) { return RCUTILS_RET_ERROR; }
     auto _f = @(msg_prefix).attr("@(member.name)");
-    py::array _arr = rosidl_typesupport_xcdr_cpython::container_numpy(_f, "@(msg_typename).@(member.name)");
-    if (!_arr) { return RCUTILS_RET_ERROR; }
+    py::array _arr = py::reinterpret_borrow<py::array>(_f.attr("numpy")());
     auto _info = _arr.request();
     std::memcpy(_info.ptr, _r->data(),
       @(member.type.size) * sizeof(@(get_cpp_type(member.type.value_type))));
@@ -412,15 +390,14 @@ get_message_class_@(msg_typename)()
 @[    if isinstance(member.type.value_type, AbstractWString)]@
       auto _r = reader.read<std::u16string_view>();
       if (!_r) { return RCUTILS_RET_ERROR; }
-      auto _ret = rosidl_typesupport_xcdr_cpython::string_assign_bytes(
-        _e, _r->data(), _r->size() * sizeof(char16_t), "@(msg_typename).@(member.name)");
+      rosidl_typesupport_xcdr_cpython::string_assign_bytes(
+      _e, _r->data(), _r->size() * sizeof(char16_t));
 @[    else]@
       auto _r = reader.read<std::string_view>();
       if (!_r) { return RCUTILS_RET_ERROR; }
-      auto _ret = rosidl_typesupport_xcdr_cpython::string_assign_bytes(
-        _e, _r->data(), _r->size(), "@(msg_typename).@(member.name)");
+      rosidl_typesupport_xcdr_cpython::string_assign_bytes(
+      _e, _r->data(), _r->size());
 @[    end if]@
-      if (_ret != RCUTILS_RET_OK) { return _ret; }
     }
   }
 @[  else]@
@@ -442,11 +419,8 @@ get_message_class_@(msg_typename)()
     auto _r = reader.read<tcb::span<const @(get_cpp_type(member.type.value_type))>>();
     if (!_r) { return RCUTILS_RET_ERROR; }
     auto _f = @(msg_prefix).attr("@(member.name)");
-    auto _ret = rosidl_typesupport_xcdr_cpython::sequence_resize(
-      _f, _r->size(), "@(msg_typename).@(member.name)");
-    if (_ret != RCUTILS_RET_OK) { return _ret; }
-    py::array _arr = rosidl_typesupport_xcdr_cpython::container_numpy(_f, "@(msg_typename).@(member.name)");
-    if (!_arr) { return RCUTILS_RET_ERROR; }
+    _f.attr("resize")(_r->size());
+    py::array _arr = py::reinterpret_borrow<py::array>(_f.attr("numpy")());
     auto _info = _arr.request();
     std::memcpy(_info.ptr, _r->data(),
       _r->size() * sizeof(@(get_cpp_type(member.type.value_type))));
@@ -470,22 +444,21 @@ get_message_class_@(msg_typename)()
 @[      if isinstance(member.type.value_type, AbstractWString)]@
       auto _r = reader.read<std::u16string_view>();
       if (!_r) { return RCUTILS_RET_ERROR; }
-      auto _ret = rosidl_typesupport_xcdr_cpython::string_assign_bytes(
-        _elem, _r->data(), _r->size() * sizeof(char16_t), "@(msg_typename).@(member.name)");
+      rosidl_typesupport_xcdr_cpython::string_assign_bytes(
+      _elem, _r->data(), _r->size() * sizeof(char16_t));
 @[      else]@
       auto _r = reader.read<std::string_view>();
       if (!_r) { return RCUTILS_RET_ERROR; }
-      auto _ret = rosidl_typesupport_xcdr_cpython::string_assign_bytes(
-        _elem, _r->data(), _r->size(), "@(msg_typename).@(member.name)");
+      rosidl_typesupport_xcdr_cpython::string_assign_bytes(
+      _elem, _r->data(), _r->size());
 @[      end if]@
-      if (_ret != RCUTILS_RET_OK) { return _ret; }
       _f.attr("append")(_elem);
     }
 @[    else]@
     auto _ts = rosidl_typesupport_xcdr_cpython::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental))>();
     auto _outer = static_cast<const rosidl_message_xcdr_type_support_t *>(_ts->data);
     auto _inner = static_cast<const rosidl_typesupport_xcdr_cpython::rosidl_message_xcdr_cpython_type_support_t *>(_outer->inner);
-    py::object _skip = py::reinterpret_borrow<py::object>(rosidl_typesupport_xcdr_cpython::message_initialization_skip());
+    py::object _skip = rosidl_typesupport_xcdr_cpython::message_initialization_skip();
     py::object _cls = _f.attr("dtype");
     for (size_t _i = 0; _i < *_size; ++_i) {
       py::object _elem = _cls(py::arg("_init") = _skip);
@@ -520,8 +493,7 @@ get_message_class_@(msg_typename)()
 @[elif isinstance(member.type, AbstractWString)]@
   {
     auto _f = @(msg_prefix).attr("@(member.name)");
-    py::array _arr = rosidl_typesupport_xcdr_cpython::container_numpy(_f, "@(msg_typename).@(member.name)");
-    if (!_arr) { return RCUTILS_RET_ERROR; }
+    py::array _arr = py::reinterpret_borrow<py::array>(_f.attr("numpy")());
     auto _info = _arr.request();
     data_offset = xcdr_buffers::align_to(data_offset, xcdr_buffers::kStringLengthPrefixSize);
     data_offset += xcdr_buffers::kStringLengthPrefixSize;
@@ -531,8 +503,7 @@ get_message_class_@(msg_typename)()
 @[elif isinstance(member.type, AbstractString)]@
   {
     auto _f = @(msg_prefix).attr("@(member.name)");
-    py::array _arr = rosidl_typesupport_xcdr_cpython::container_numpy(_f, "@(msg_typename).@(member.name)");
-    if (!_arr) { return RCUTILS_RET_ERROR; }
+    py::array _arr = py::reinterpret_borrow<py::array>(_f.attr("numpy")());
     auto _info = _arr.request();
     data_offset = xcdr_buffers::align_to(data_offset, xcdr_buffers::kStringLengthPrefixSize);
     data_offset += xcdr_buffers::kStringLengthPrefixSize;
@@ -548,9 +519,8 @@ get_message_class_@(msg_typename)()
     auto _f = @(msg_prefix).attr("@(member.name)");
     for (size_t _i = 0; _i < @(member.type.size); ++_i) {
       auto _e = _f[py::int_(_i)];
-      py::array _arr = rosidl_typesupport_xcdr_cpython::container_numpy(_e, "@(msg_typename).@(member.name)");
-      if (!_arr) { return RCUTILS_RET_ERROR; }
-      auto _info = _arr.request();
+      py::array _arr = py::reinterpret_borrow<py::array>(_e.attr("numpy")());
+        auto _info = _arr.request();
       data_offset = xcdr_buffers::align_to(data_offset, xcdr_buffers::kStringLengthPrefixSize);
       data_offset += xcdr_buffers::kStringLengthPrefixSize;
 @[    if isinstance(member.type.value_type, AbstractWString)]@
@@ -595,9 +565,8 @@ get_message_class_@(msg_typename)()
     data_offset += xcdr_buffers::kSequenceLengthPrefixSize;
     for (size_t _i = 0; _i < _len; ++_i) {
       auto _e = _f[py::int_(_i)];
-      py::array _arr = rosidl_typesupport_xcdr_cpython::container_numpy(_e, "@(msg_typename).@(member.name)");
-      if (!_arr) { return RCUTILS_RET_ERROR; }
-      auto _info = _arr.request();
+      py::array _arr = py::reinterpret_borrow<py::array>(_e.attr("numpy")());
+        auto _info = _arr.request();
       data_offset = xcdr_buffers::align_to(data_offset, xcdr_buffers::kStringLengthPrefixSize);
       data_offset += xcdr_buffers::kStringLengthPrefixSize;
 @[    if isinstance(member.type.value_type, AbstractWString)]@
@@ -660,7 +629,7 @@ get_message_class_@(msg_typename)()
       RCUTILS_SET_ERROR_MSG("@(msg_typename).@(member.name): unbounded string requires constraints");
       return RCUTILS_RET_ERROR;
     }
-    auto _cs = py::reinterpret_borrow<py::object>(static_cast<PyObject *>(const_cast<void *>(constraints_ptr)));
+    auto _cs = rosidl_typesupport_xcdr_cpython::py_borrow(constraints_ptr);
 @[  if isinstance(member.type, AbstractWString)]@
     builder.allocate_string("@(member.name)", _cs.attr("@(member.name)").attr("size").cast<size_t>(), xcdr_buffers::XCdrCharKind::kChar16);
 @[  else]@
@@ -683,7 +652,7 @@ get_message_class_@(msg_typename)()
         RCUTILS_SET_ERROR_MSG("@(msg_typename).@(member.name): unbounded string element requires constraints");
         return RCUTILS_RET_ERROR;
       }
-      auto _cs = py::reinterpret_borrow<py::object>(static_cast<PyObject *>(const_cast<void *>(constraints_ptr)));
+      auto _cs = rosidl_typesupport_xcdr_cpython::py_borrow(constraints_ptr);
       builder.allocate_string(_cs.attr("@(member.name)").attr("element").attr("size").cast<size_t>(), xcdr_buffers::XCdrCharKind::kChar16);
     }
 @[      else]@
@@ -692,7 +661,7 @@ get_message_class_@(msg_typename)()
         RCUTILS_SET_ERROR_MSG("@(msg_typename).@(member.name): unbounded string element requires constraints");
         return RCUTILS_RET_ERROR;
       }
-      auto _cs = py::reinterpret_borrow<py::object>(static_cast<PyObject *>(const_cast<void *>(constraints_ptr)));
+      auto _cs = rosidl_typesupport_xcdr_cpython::py_borrow(constraints_ptr);
       builder.allocate_string(_cs.attr("@(member.name)").attr("element").attr("size").cast<size_t>());
     }
 @[      end if]@
@@ -723,7 +692,7 @@ get_message_class_@(msg_typename)()
       RCUTILS_SET_ERROR_MSG("@(msg_typename).@(member.name): unbounded sequence requires constraints");
       return RCUTILS_RET_ERROR;
     }
-    auto _cs = py::reinterpret_borrow<py::object>(static_cast<PyObject *>(const_cast<void *>(constraints_ptr)));
+    auto _cs = rosidl_typesupport_xcdr_cpython::py_borrow(constraints_ptr);
     builder.allocate_primitive_sequence("@(member.name)", @(get_xcdr_primitive_kind(member.type.value_type)), _cs.attr("@(member.name)").attr("size").cast<size_t>());
   }
 @[    end if]@
@@ -736,7 +705,7 @@ get_message_class_@(msg_typename)()
       RCUTILS_SET_ERROR_MSG("@(msg_typename).@(member.name): unbounded sequence requires constraints");
       return RCUTILS_RET_ERROR;
     }
-    auto _cs = py::reinterpret_borrow<py::object>(static_cast<PyObject *>(const_cast<void *>(constraints_ptr)));
+    auto _cs = rosidl_typesupport_xcdr_cpython::py_borrow(constraints_ptr);
     builder.begin_allocate_sequence("@(member.name)", _cs.attr("@(member.name)").attr("size").cast<size_t>());
   }
 @[    end if]@
@@ -751,7 +720,7 @@ get_message_class_@(msg_typename)()
         RCUTILS_SET_ERROR_MSG("@(msg_typename).@(member.name): unbounded string element requires constraints");
         return RCUTILS_RET_ERROR;
       }
-      auto _cs = py::reinterpret_borrow<py::object>(static_cast<PyObject *>(const_cast<void *>(constraints_ptr)));
+      auto _cs = rosidl_typesupport_xcdr_cpython::py_borrow(constraints_ptr);
       builder.allocate_string(_cs.attr("@(member.name)").attr("element").attr("size").cast<size_t>(), xcdr_buffers::XCdrCharKind::kChar16);
     }
 @[      else]@
@@ -760,7 +729,7 @@ get_message_class_@(msg_typename)()
         RCUTILS_SET_ERROR_MSG("@(msg_typename).@(member.name): unbounded string element requires constraints");
         return RCUTILS_RET_ERROR;
       }
-      auto _cs = py::reinterpret_borrow<py::object>(static_cast<PyObject *>(const_cast<void *>(constraints_ptr)));
+      auto _cs = rosidl_typesupport_xcdr_cpython::py_borrow(constraints_ptr);
       builder.allocate_string(_cs.attr("@(member.name)").attr("element").attr("size").cast<size_t>());
     }
 @[      end if]@
@@ -792,7 +761,7 @@ get_message_class_@(msg_typename)()
       return RCUTILS_RET_ERROR;
     }
     if (constraints_ptr) {
-      auto _cs = py::reinterpret_borrow<py::object>(static_cast<PyObject *>(const_cast<void *>(constraints_ptr)));
+      auto _cs = rosidl_typesupport_xcdr_cpython::py_borrow(constraints_ptr);
       auto _ret = _inner->build_layout_fields(builder, _cs.attr("@(member.name)").ptr());
       if (_ret != RCUTILS_RET_OK) { return _ret; }
     } else {
@@ -898,10 +867,7 @@ get_message_class_@(msg_typename)()
     auto _slice = accessor[@(index)].slice();
     py::object _buf = rosidl_typesupport_xcdr_cpython::raw_buffer_from_region(
       rosidl_memory_region_t{{const_cast<void *>(static_cast<const void *>(_slice.data())), 0}, _slice.size()});
-    if (_buf.is_none()) { return RCUTILS_RET_ERROR; }
-    auto _ret = rosidl_typesupport_xcdr_cpython::external_storage_set_member(
-      ext_storage, "@(member.name)", _buf, "@(msg_typename).@(member.name)");
-    if (_ret != RCUTILS_RET_OK) { return _ret; }
+    ext_storage.attr("members").attr("@(member.name)") = _buf;
   }
 @[elif isinstance(member.type, AbstractWString)]@
   {
@@ -913,10 +879,7 @@ get_message_class_@(msg_typename)()
       rosidl_memory_region_t{
         {const_cast<void *>(static_cast<const void *>(_data.data())), 0},
         _data.size() - xcdr_buffers::kWStringNullTerminatorSize});
-    if (_buf.is_none()) { return RCUTILS_RET_ERROR; }
-    auto _ret = rosidl_typesupport_xcdr_cpython::external_storage_set_member(
-      ext_storage, "@(member.name)", _buf, "@(msg_typename).@(member.name)");
-    if (_ret != RCUTILS_RET_OK) { return _ret; }
+    ext_storage.attr("members").attr("@(member.name)") = _buf;
   }
 @[elif isinstance(member.type, AbstractString)]@
   {
@@ -927,10 +890,7 @@ get_message_class_@(msg_typename)()
       rosidl_memory_region_t{
         {const_cast<void *>(static_cast<const void *>(_data.data())), 0},
         _data.size() - xcdr_buffers::kStringNullTerminatorSize});
-    if (_buf.is_none()) { return RCUTILS_RET_ERROR; }
-    auto _ret = rosidl_typesupport_xcdr_cpython::external_storage_set_member(
-      ext_storage, "@(member.name)", _buf, "@(msg_typename).@(member.name)");
-    if (_ret != RCUTILS_RET_OK) { return _ret; }
+    ext_storage.attr("members").attr("@(member.name)") = _buf;
   }
 @[elif isinstance(member.type, Array)]@
 @[  if isinstance(member.type.value_type, BasicType)]@
@@ -938,10 +898,7 @@ get_message_class_@(msg_typename)()
     auto _slice = accessor[@(index)].slice();
     py::object _buf = rosidl_typesupport_xcdr_cpython::raw_buffer_from_region(
       rosidl_memory_region_t{{const_cast<void *>(static_cast<const void *>(_slice.data())), 0}, _slice.size()});
-    if (_buf.is_none()) { return RCUTILS_RET_ERROR; }
-    auto _ret = rosidl_typesupport_xcdr_cpython::external_storage_set_member(
-      ext_storage, "@(member.name)", _buf, "@(msg_typename).@(member.name)");
-    if (_ret != RCUTILS_RET_OK) { return _ret; }
+    ext_storage.attr("members").attr("@(member.name)") = _buf;
   }
 @[  else]@
   {
@@ -955,8 +912,7 @@ get_message_class_@(msg_typename)()
         rosidl_memory_region_t{
           {const_cast<void *>(static_cast<const void *>(_elem_data.data())), 0},
           _elem_data.size() - xcdr_buffers::kStringNullTerminatorSize});
-      if (_buf.is_none()) { return RCUTILS_RET_ERROR; }
-      _bufs.append(_buf);
+        _bufs.append(_buf);
     }
 @[    elif isinstance(member.type.value_type, NamespacedType)]@
 @{
@@ -967,17 +923,14 @@ _ns_name = _ns_parts[-1]
 }@
     py::object _nested_cls = @(_ns_ns)::get_message_class_@(_ns_name)();
     for (size_t _j = 0; _j < @(member.type.size); ++_j) {
-      py::object _sub = rosidl_typesupport_xcdr_cpython::external_storage_new(_nested_cls, "@(msg_typename).@(member.name)");
-      if (_sub.is_none()) { return RCUTILS_RET_ERROR; }
+      py::object _sub = _nested_cls.attr("ExternalStorage")();
       _sub.attr("prepopulated") = py::bool_(_prepopulated);
       auto _ret = @(_ns_ns)::populate_external_storage_@(_ns_name)(_arr[_j], _sub.ptr());
       if (_ret != RCUTILS_RET_OK) { return _ret; }
       _bufs.append(_sub);
     }
 @[    end if]@
-    auto _ret = rosidl_typesupport_xcdr_cpython::external_storage_set_member(
-      ext_storage, "@(member.name)", _bufs, "@(msg_typename).@(member.name)");
-    if (_ret != RCUTILS_RET_OK) { return _ret; }
+    ext_storage.attr("members").attr("@(member.name)") = _bufs;
   }
 @[  end if]@
 @[elif isinstance(member.type, AbstractSequence)]@
@@ -987,10 +940,7 @@ _ns_name = _ns_parts[-1]
     auto _data = _slice.subspan(xcdr_buffers::kSequenceLengthPrefixSize);
     py::object _buf = rosidl_typesupport_xcdr_cpython::raw_buffer_from_region(
       rosidl_memory_region_t{{const_cast<void *>(static_cast<const void *>(_data.data())), 0}, _data.size()});
-    if (_buf.is_none()) { return RCUTILS_RET_ERROR; }
-    auto _ret = rosidl_typesupport_xcdr_cpython::external_storage_set_member(
-      ext_storage, "@(member.name)", _buf, "@(msg_typename).@(member.name)");
-    if (_ret != RCUTILS_RET_OK) { return _ret; }
+    ext_storage.attr("members").attr("@(member.name)") = _buf;
   }
 @[  else]@
   {
@@ -1007,8 +957,7 @@ _ns_name = _ns_parts[-1]
         rosidl_memory_region_t{
           {const_cast<void *>(static_cast<const void *>(_elem_data.data())), 0},
           _elem_data.size() - xcdr_buffers::kStringNullTerminatorSize});
-      if (_buf.is_none()) { return RCUTILS_RET_ERROR; }
-      _bufs.append(_buf);
+        _bufs.append(_buf);
     }
 @[    elif isinstance(member.type.value_type, NamespacedType)]@
 @{
@@ -1019,17 +968,14 @@ _ns_name = _ns_parts[-1]
 }@
     py::object _nested_cls = @(_ns_ns)::get_message_class_@(_ns_name)();
     for (size_t _j = 0; _j < _size; ++_j) {
-      py::object _sub = rosidl_typesupport_xcdr_cpython::external_storage_new(_nested_cls, "@(msg_typename).@(member.name)");
-      if (_sub.is_none()) { return RCUTILS_RET_ERROR; }
+      py::object _sub = _nested_cls.attr("ExternalStorage")();
       _sub.attr("prepopulated") = py::bool_(_prepopulated);
       auto _ret = @(_ns_ns)::populate_external_storage_@(_ns_name)(_seq[_j], _sub.ptr());
       if (_ret != RCUTILS_RET_OK) { return _ret; }
       _bufs.append(_sub);
     }
 @[    end if]@
-    auto _ret = rosidl_typesupport_xcdr_cpython::external_storage_set_member(
-      ext_storage, "@(member.name)", _bufs, "@(msg_typename).@(member.name)");
-    if (_ret != RCUTILS_RET_OK) { return _ret; }
+    ext_storage.attr("members").attr("@(member.name)") = _bufs;
   }
 @[  end if]@
 @[elif isinstance(member.type, NamespacedType)]@
@@ -1041,14 +987,11 @@ _ns_name = _ns_parts[-1]
 }@
   {
     py::object _nested_cls = @(_ns_ns)::get_message_class_@(_ns_name)();
-    py::object _sub = rosidl_typesupport_xcdr_cpython::external_storage_new(_nested_cls, "@(msg_typename).@(member.name)");
-    if (_sub.is_none()) { return RCUTILS_RET_ERROR; }
+    py::object _sub = _nested_cls.attr("ExternalStorage")();
     _sub.attr("prepopulated") = py::bool_(_prepopulated);
     auto _ret = @(_ns_ns)::populate_external_storage_@(_ns_name)(accessor[@(index)], _sub.ptr());
     if (_ret != RCUTILS_RET_OK) { return _ret; }
-    auto _ret2 = rosidl_typesupport_xcdr_cpython::external_storage_set_member(
-      ext_storage, "@(member.name)", _sub, "@(msg_typename).@(member.name)");
-    if (_ret2 != RCUTILS_RET_OK) { return _ret2; }
+    ext_storage.attr("members").attr("@(member.name)") = _sub;
   }
 @[else]@
   // TODO: External storage @(member.name)
@@ -1281,8 +1224,7 @@ serialize_fields_into_writer_@(msg_typename)(
     RCUTILS_SET_ERROR_MSG("@(msg_typename): message is nullptr");
     return RCUTILS_RET_ERROR;
   }
-  auto msg = py::reinterpret_borrow<py::object>(static_cast<PyObject *>(message_ptr));
-  try {
+  auto msg = rosidl_typesupport_xcdr_cpython::py_borrow(message_ptr);
 @[  for member in message.structure.members]@
 @[    if len(message.structure.members) == 1 and member.name == EMPTY_STRUCTURE_REQUIRED_MEMBER_NAME]@
 @[      continue]@
@@ -1290,10 +1232,6 @@ serialize_fields_into_writer_@(msg_typename)(
 @(generate_writer_field(member, is_experimental, 'msg', msg_typename))
 @[  end for]@
     return RCUTILS_RET_OK;
-  } catch (const py::error_already_set &) {
-    return rosidl_typesupport_xcdr_cpython::translate_pybind_error(
-      "serialize @(msg_typename)");
-  }
 }
 
 // Private: Deserialize message fields from existing reader (no XCDR header).
@@ -1306,8 +1244,7 @@ deserialize_fields_from_reader_@(msg_typename)(
     RCUTILS_SET_ERROR_MSG("@(msg_typename): message is nullptr");
     return RCUTILS_RET_ERROR;
   }
-  auto msg = py::reinterpret_borrow<py::object>(static_cast<PyObject *>(message_ptr));
-  try {
+  auto msg = rosidl_typesupport_xcdr_cpython::py_borrow(message_ptr);
 @[  for member in message.structure.members]@
 @[    if len(message.structure.members) == 1 and member.name == EMPTY_STRUCTURE_REQUIRED_MEMBER_NAME]@
 @[      continue]@
@@ -1315,10 +1252,6 @@ deserialize_fields_from_reader_@(msg_typename)(
 @(generate_reader_field(member, is_experimental, 'msg', msg_typename))
 @[  end for]@
     return RCUTILS_RET_OK;
-  } catch (const py::error_already_set &) {
-    return rosidl_typesupport_xcdr_cpython::translate_pybind_error(
-      "deserialize @(msg_typename)");
-  }
 }
 
 // Compute serialized size.
@@ -1331,8 +1264,7 @@ compute_serialized_size_@(msg_typename)(
     RCUTILS_SET_ERROR_MSG("@(msg_typename): message or size is nullptr");
     return RCUTILS_RET_ERROR;
   }
-  auto msg = py::reinterpret_borrow<py::object>(static_cast<PyObject *>(const_cast<void *>(message_ptr)));
-  try {
+  auto msg = rosidl_typesupport_xcdr_cpython::py_borrow(message_ptr);
     // Fast path: external storage already knows the size.
     py::object ext = msg.attr("_external_storage");
     if (!ext.is_none()) {
@@ -1352,10 +1284,6 @@ compute_serialized_size_@(msg_typename)(
 @[  end for]@
     *size = xcdr_buffers::kXCdrHeaderSize + data_offset;
     return RCUTILS_RET_OK;
-  } catch (const py::error_already_set &) {
-    return rosidl_typesupport_xcdr_cpython::translate_pybind_error(
-      "compute_serialized_size @(msg_typename)");
-  }
 }
 
 @[if not has_constraints]@
@@ -1424,20 +1352,14 @@ construct_message_@(msg_typename)(
     return RCUTILS_RET_ERROR;
   }
   py::object msg_class = get_message_class_@(msg_typename)();
-  if (msg_class.is_none()) { return RCUTILS_RET_ERROR; }
-  py::object ext_storage = rosidl_typesupport_xcdr_cpython::external_storage_new(
-    msg_class, "@(msg_typename)");
-  if (ext_storage.is_none()) { return RCUTILS_RET_ERROR; }
-  auto _ret = rosidl_typesupport_xcdr_cpython::external_storage_set_block(
+  py::object ext_storage = msg_class.attr("ExternalStorage")();
+  rosidl_typesupport_xcdr_cpython::external_storage_set_block(
     ext_storage,
-    rosidl_memory_region_t{{storage.data(), 0}, impl->cached_layout->total_size()},
-    "@(msg_typename)");
-  if (_ret != RCUTILS_RET_OK) { return _ret; }
-  _ret = populate_external_storage_@(msg_typename)(*accessor_result, ext_storage.ptr());
+    rosidl_memory_region_t{{storage.data(), 0}, impl->cached_layout->total_size()});
+  auto _ret = populate_external_storage_@(msg_typename)(*accessor_result, ext_storage.ptr());
   if (_ret != RCUTILS_RET_OK) { return _ret; }
   py::object msg = rosidl_typesupport_xcdr_cpython::message_from_external_storage(
-    msg_class, ext_storage, "@(msg_typename)");
-  if (msg.is_none()) { return RCUTILS_RET_ERROR; }
+    msg_class, ext_storage);
   *message_ptr = msg.release().ptr();   // new reference, owned by the caller
   return RCUTILS_RET_OK;
 }
@@ -1453,8 +1375,7 @@ populate_external_storage_@(msg_typename)(
     RCUTILS_SET_ERROR_MSG("@(msg_typename): ext_storage is nullptr");
     return RCUTILS_RET_ERROR;
   }
-  auto ext_storage = py::reinterpret_borrow<py::object>(static_cast<PyObject *>(ext_storage_ptr));
-  try {
+  auto ext_storage = rosidl_typesupport_xcdr_cpython::py_borrow(ext_storage_ptr);
     // The construct path leaves this false; the cast path sets it true before
     // calling populate, so nested ExternalStorage objects get the same flag.
     bool _prepopulated = py::cast<bool>(ext_storage.attr("prepopulated"));
@@ -1465,10 +1386,6 @@ populate_external_storage_@(msg_typename)(
 @(generate_external_storage_field(member, idx, msg_typename, is_experimental))
 @[  end for]@
     return RCUTILS_RET_OK;
-  } catch (const py::error_already_set &) {
-    return rosidl_typesupport_xcdr_cpython::translate_pybind_error(
-      "populate_external_storage @(msg_typename)");
-  }
 }
 
 // Parse layout fields from buffer (zero-copy receiver side).
@@ -1518,24 +1435,18 @@ cast_message_@(msg_typename)(
     return RCUTILS_RET_ERROR;
   }
   py::object msg_class = get_message_class_@(msg_typename)();
-  if (msg_class.is_none()) { return RCUTILS_RET_ERROR; }
-  py::object ext_storage = rosidl_typesupport_xcdr_cpython::external_storage_new(
-    msg_class, "@(msg_typename)");
-  if (ext_storage.is_none()) { return RCUTILS_RET_ERROR; }
-  auto _ret = rosidl_typesupport_xcdr_cpython::external_storage_set_block(
+  py::object ext_storage = msg_class.attr("ExternalStorage")();
+  rosidl_typesupport_xcdr_cpython::external_storage_set_block(
     ext_storage,
-    rosidl_memory_region_t{{const_cast<void *>(storage.data()), 0}, storage.size()},
-    "@(msg_typename)");
-  if (_ret != RCUTILS_RET_OK) { return _ret; }
+    rosidl_memory_region_t{{const_cast<void *>(storage.data()), 0}, storage.size()});
   // Zero-copy cast: containers expose the sizes already present in the wire
   // buffer (the Python analog of C++ prepopulated == true).  Set before
   // populate so nested ExternalStorage objects get the same flag.
   ext_storage.attr("prepopulated") = py::bool_(true);
-  _ret = populate_external_storage_@(msg_typename)(*accessor_result, ext_storage.ptr());
+  auto _ret = populate_external_storage_@(msg_typename)(*accessor_result, ext_storage.ptr());
   if (_ret != RCUTILS_RET_OK) { return _ret; }
   py::object msg = rosidl_typesupport_xcdr_cpython::message_from_external_storage(
-    msg_class, ext_storage, "@(msg_typename)");
-  if (msg.is_none()) { return RCUTILS_RET_ERROR; }
+    msg_class, ext_storage);
   // Validate against constraints if the handle carries owned constraint state
   // (rmw creates a per-loan constrained handle to enforce upper bounds).
   if (impl && impl->owned_constraints && impl->owned_constraints->type_specific &&
@@ -1553,52 +1464,71 @@ cast_message_@(msg_typename)(
 
 @[if is_experimental]@
 // Release a message and return its backing storage (consumes the message).
-// Defined only for the experimental variant to avoid C-linkage symbol
-// collisions between the standard and experimental TUs of the same message.
-extern "C" rosidl_memory_region_t
-release_message_@(msg_typename)(void * message_ptr)
+// Implementation (no exception handling): Python failures raise and are
+// translated by the extern "C" wrapper.  Defined only for the experimental
+// variant to avoid C-linkage symbol collisions between the standard and
+// experimental TUs of the same message.
+rosidl_memory_region_t
+release_message_@(msg_typename)_impl(void * message_ptr)
 {
   rosidl_memory_region_t null_region = {{nullptr, 0}, 0};
   if (nullptr == message_ptr) { return null_region; }
-  try {
-    auto msg = py::reinterpret_borrow<py::object>(static_cast<PyObject *>(message_ptr));
-    py::object ext = msg.attr("_external_storage");
-    rosidl_memory_region_t region = null_region;
-    if (!ext.is_none()) {
-      py::object block = ext.attr("block");
-      if (!block.is_none()) {
-        region = rosidl_memory_region_t{
-          {reinterpret_cast<void *>(block.attr("address").cast<uintptr_t>()), 0},
-          block.attr("size").cast<size_t>()};
-      }
+  auto msg = rosidl_typesupport_xcdr_cpython::py_borrow(message_ptr);
+  py::object ext = msg.attr("_external_storage");
+  rosidl_memory_region_t region = null_region;
+  if (!ext.is_none()) {
+    py::object block = ext.attr("block");
+    if (!block.is_none()) {
+      region = rosidl_memory_region_t{
+        {reinterpret_cast<void *>(block.attr("address").cast<uintptr_t>()), 0},
+        block.attr("size").cast<size_t>()};
     }
-    Py_DECREF(static_cast<PyObject *>(message_ptr));
-    return region;
-  } catch (const py::error_already_set &) {
+  }
+  Py_DECREF(static_cast<PyObject *>(message_ptr));
+  return region;
+}
+
+extern "C" rosidl_memory_region_t
+release_message_@(msg_typename)(void * message_ptr)
+{
+  // The C trampoline does not hold the GIL; the guard also covers the catch
+  // block so the caught py::error_already_set restores the pending exception
+  // safely.
+  py::gil_scoped_acquire acquire;
+  try {
+    return release_message_@(msg_typename)_impl(message_ptr);
+  } catch (const std::exception &) {
     rosidl_typesupport_xcdr_cpython::translate_pybind_error("release @(msg_typename)");
-    return null_region;
+    return rosidl_memory_region_t{{nullptr, 0}, 0};
   }
 }
 
 // Return the backing storage of a message without releasing it.
-extern "C" rosidl_memory_region_t
-get_backing_storage_@(msg_typename)(const void * message_ptr)
+// Implementation (no exception handling): see release_message_@(msg_typename).
+rosidl_memory_region_t
+get_backing_storage_@(msg_typename)_impl(const void * message_ptr)
 {
   rosidl_memory_region_t null_region = {{nullptr, 0}, 0};
   if (nullptr == message_ptr) { return null_region; }
+  auto msg = rosidl_typesupport_xcdr_cpython::py_borrow(message_ptr);
+  py::object ext = msg.attr("_external_storage");
+  if (ext.is_none()) { return null_region; }
+  py::object block = ext.attr("block");
+  if (block.is_none()) { return null_region; }
+  return rosidl_memory_region_t{
+    {reinterpret_cast<void *>(block.attr("address").cast<uintptr_t>()), 0},
+    block.attr("size").cast<size_t>()};
+}
+
+extern "C" rosidl_memory_region_t
+get_backing_storage_@(msg_typename)(const void * message_ptr)
+{
+  py::gil_scoped_acquire acquire;
   try {
-    auto msg = py::reinterpret_borrow<py::object>(
-      static_cast<PyObject *>(const_cast<void *>(message_ptr)));
-    py::object ext = msg.attr("_external_storage");
-    if (ext.is_none()) { return null_region; }
-    py::object block = ext.attr("block");
-    if (block.is_none()) { return null_region; }
-    return rosidl_memory_region_t{
-      {reinterpret_cast<void *>(block.attr("address").cast<uintptr_t>()), 0},
-      block.attr("size").cast<size_t>()};
-  } catch (const py::error_already_set &) {
+    return get_backing_storage_@(msg_typename)_impl(message_ptr);
+  } catch (const std::exception &) {
     rosidl_typesupport_xcdr_cpython::translate_pybind_error("get_backing_storage @(msg_typename)");
-    return null_region;
+    return rosidl_memory_region_t{{nullptr, 0}, 0};
   }
 }
 @[end if]@
@@ -1638,13 +1568,19 @@ clone_constraints_@(msg_typename)(const rosidl_message_type_constraints_t * src)
   clone->max_total_size = src->max_total_size;
   clone->strict = src->strict;
   if (src->type_specific) {
-    // Keep the Python Constraints alive for the handle lifetime.  Like the
-    // message class cache, the reference is deliberately leaked: releasing at
-    // destruction could run after Python finalisation.
+    // Keep the Python Constraints alive for the handle lifetime.  The deleter
+    // below DECREFs it while the interpreter is alive; during finalisation it
+    // is deliberately leaked (unreachable at that point anyway).
     Py_INCREF(static_cast<PyObject *>(src->type_specific));
   }
   return std::shared_ptr<rosidl_message_type_constraints_t>(
-    clone, [](rosidl_message_type_constraints_t * p) { delete p; });
+    clone, [](rosidl_message_type_constraints_t * p) {
+      if (rosidl_typesupport_xcdr_cpython::interpreter_alive()) {
+        py::gil_scoped_acquire acquire;
+        Py_DECREF(static_cast<PyObject *>(p->type_specific));
+      }
+      delete p;
+    });
 }
 
 // Validate a message instance against its Python Constraints.
@@ -1660,11 +1596,8 @@ validate_message_@(msg_typename)(
     RCUTILS_SET_ERROR_MSG("@(msg_typename): constraints or message is nullptr");
     return RCUTILS_RET_ERROR;
   }
-  try {
-    auto _cs = py::reinterpret_borrow<py::object>(
-      static_cast<PyObject *>(const_cast<void *>(type_specific)));
-    auto msg = py::reinterpret_borrow<py::object>(
-      static_cast<PyObject *>(const_cast<void *>(message_ptr)));
+    auto _cs = rosidl_typesupport_xcdr_cpython::py_borrow(type_specific);
+    auto msg = rosidl_typesupport_xcdr_cpython::py_borrow(message_ptr);
 @[  for member in message.structure.members]@
 @[    if len(message.structure.members) == 1 and member.name == EMPTY_STRUCTURE_REQUIRED_MEMBER_NAME]@
 @[      continue]@
@@ -1674,10 +1607,6 @@ validate_message_@(msg_typename)(
 @[    end if]@
 @[  end for]@
     return RCUTILS_RET_OK;
-  } catch (const py::error_already_set &) {
-    return rosidl_typesupport_xcdr_cpython::translate_pybind_error(
-      "validate @(msg_typename)");
-  }
 }
 
 // Compare two Python Constraints instances (candidate vs baseline).
@@ -1689,11 +1618,13 @@ compare_type_specific_constraints_@(msg_typename)(
   if (nullptr == lhs || nullptr == rhs) {
     return false;
   }
+  // The C trampoline does not hold the GIL; the guard also covers the catch
+  // block so the caught py::error_already_set restores the pending exception
+  // safely.
   py::gil_scoped_acquire acquire;
-  auto _cand = py::reinterpret_borrow<py::object>(
-    static_cast<PyObject *>(const_cast<void *>(lhs)));
-  auto _base = py::reinterpret_borrow<py::object>(
-    static_cast<PyObject *>(const_cast<void *>(rhs)));
+  try {
+    auto _cand = rosidl_typesupport_xcdr_cpython::py_borrow(lhs);
+    auto _base = rosidl_typesupport_xcdr_cpython::py_borrow(rhs);
 @[  for member in message.structure.members]@
 @[    if len(message.structure.members) == 1 and member.name == EMPTY_STRUCTURE_REQUIRED_MEMBER_NAME]@
 @[      continue]@
@@ -1702,7 +1633,12 @@ compare_type_specific_constraints_@(msg_typename)(
 @(generate_compare_field(member, msg_typename, is_experimental))
 @[    end if]@
 @[  end for]@
-  return true;
+    return true;
+  } catch (const std::exception &) {
+    rosidl_typesupport_xcdr_cpython::translate_pybind_error(
+      "compare_type_specific_constraints @(msg_typename)");
+    return false;
+  }
 }
 @[end if]@
 
