@@ -969,6 +969,7 @@ _ns_name = _ns_parts[-1]
     for (size_t _j = 0; _j < @(member.type.size); ++_j) {
       py::object _sub = rosidl_typesupport_xcdr_cpython::external_storage_new(_nested_cls, "@(msg_typename).@(member.name)");
       if (_sub.is_none()) { return RCUTILS_RET_ERROR; }
+      _sub.attr("prepopulated") = py::bool_(_prepopulated);
       auto _ret = @(_ns_ns)::populate_external_storage_@(_ns_name)(_arr[_j], _sub.ptr());
       if (_ret != RCUTILS_RET_OK) { return _ret; }
       _bufs.append(_sub);
@@ -1020,6 +1021,7 @@ _ns_name = _ns_parts[-1]
     for (size_t _j = 0; _j < _size; ++_j) {
       py::object _sub = rosidl_typesupport_xcdr_cpython::external_storage_new(_nested_cls, "@(msg_typename).@(member.name)");
       if (_sub.is_none()) { return RCUTILS_RET_ERROR; }
+      _sub.attr("prepopulated") = py::bool_(_prepopulated);
       auto _ret = @(_ns_ns)::populate_external_storage_@(_ns_name)(_seq[_j], _sub.ptr());
       if (_ret != RCUTILS_RET_OK) { return _ret; }
       _bufs.append(_sub);
@@ -1041,6 +1043,7 @@ _ns_name = _ns_parts[-1]
     py::object _nested_cls = @(_ns_ns)::get_message_class_@(_ns_name)();
     py::object _sub = rosidl_typesupport_xcdr_cpython::external_storage_new(_nested_cls, "@(msg_typename).@(member.name)");
     if (_sub.is_none()) { return RCUTILS_RET_ERROR; }
+    _sub.attr("prepopulated") = py::bool_(_prepopulated);
     auto _ret = @(_ns_ns)::populate_external_storage_@(_ns_name)(accessor[@(index)], _sub.ptr());
     if (_ret != RCUTILS_RET_OK) { return _ret; }
     auto _ret2 = rosidl_typesupport_xcdr_cpython::external_storage_set_member(
@@ -1452,6 +1455,9 @@ populate_external_storage_@(msg_typename)(
   }
   auto ext_storage = py::reinterpret_borrow<py::object>(static_cast<PyObject *>(ext_storage_ptr));
   try {
+    // The construct path leaves this false; the cast path sets it true before
+    // calling populate, so nested ExternalStorage objects get the same flag.
+    bool _prepopulated = py::cast<bool>(ext_storage.attr("prepopulated"));
 @[  for idx, member in enumerate(message.structure.members)]@
 @[    if len(message.structure.members) == 1 and member.name == EMPTY_STRUCTURE_REQUIRED_MEMBER_NAME]@
 @[      continue]@
@@ -1521,11 +1527,12 @@ cast_message_@(msg_typename)(
     rosidl_memory_region_t{{const_cast<void *>(storage.data()), 0}, storage.size()},
     "@(msg_typename)");
   if (_ret != RCUTILS_RET_OK) { return _ret; }
+  // Zero-copy cast: containers expose the sizes already present in the wire
+  // buffer (the Python analog of C++ prepopulated == true).  Set before
+  // populate so nested ExternalStorage objects get the same flag.
+  ext_storage.attr("prepopulated") = py::bool_(true);
   _ret = populate_external_storage_@(msg_typename)(*accessor_result, ext_storage.ptr());
   if (_ret != RCUTILS_RET_OK) { return _ret; }
-  // Zero-copy cast: containers expose the sizes already present in the wire
-  // buffer (the Python analog of C++ prepopulated == true).
-  ext_storage.attr("prepopulated") = py::bool_(true);
   py::object msg = rosidl_typesupport_xcdr_cpython::message_from_external_storage(
     msg_class, ext_storage, "@(msg_typename)");
   if (msg.is_none()) { return RCUTILS_RET_ERROR; }
