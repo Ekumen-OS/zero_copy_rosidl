@@ -491,19 +491,24 @@ XCdrAccessor::Iterator XCdrAccessor::end()
 
 tcb::span<uint8_t> XCdrAccessor::slice()
 {
-  // Calculate the size of this value
+  // Calculate the size of this value.  Each layout object knows its own
+  // byte size, so delegate to size() rather than recomputing it here.
   size_t value_size = 0;
 
   if (std::holds_alternative<XCdrPrimitiveLayout>(*layout_)) {
     const auto & prim = std::get<XCdrPrimitiveLayout>(*layout_);
-    value_size = get_primitive_size(prim.kind());
+    value_size = prim.size();
   } else if (std::holds_alternative<XCdrStringLayout>(*layout_)) {
     const auto & str = std::get<XCdrStringLayout>(*layout_);
-    value_size = kStringLengthPrefixSize + str.actual_length() + kStringNullTerminatorSize;
+    // str.size() is char-kind aware (prefix + actual_length * char_size +
+    // char-appropriate null terminator); the naive char8 formula would
+    // under-size char16 strings by half.
+    value_size = str.size();
   } else if (std::holds_alternative<XCdrStructLayout>(*layout_)) {
     const auto & st = std::get<XCdrStructLayout>(*layout_);
-    // For struct, use the total size minus the header (since base_offset already accounts for it)
-    value_size = st.total_size() - kXCdrHeaderSize;
+    // The struct size includes the XCDR header, but base_offset already
+    // accounts for it, so subtract it here.
+    value_size = st.size() - kXCdrHeaderSize;
   } else {
     // For arrays and sequences, we need to compute the total size
     // This is complex, so for now just return from base_offset to end of buffer
@@ -519,18 +524,18 @@ tcb::span<uint8_t> XCdrAccessor::slice()
 
 tcb::span<const uint8_t> XCdrAccessor::slice() const
 {
-  // Same logic as mutable version
+  // Same logic as mutable version.
   size_t value_size = 0;
 
   if (std::holds_alternative<XCdrPrimitiveLayout>(*layout_)) {
     const auto & prim = std::get<XCdrPrimitiveLayout>(*layout_);
-    value_size = get_primitive_size(prim.kind());
+    value_size = prim.size();
   } else if (std::holds_alternative<XCdrStringLayout>(*layout_)) {
     const auto & str = std::get<XCdrStringLayout>(*layout_);
-    value_size = kStringLengthPrefixSize + str.actual_length() + kStringNullTerminatorSize;
+    value_size = str.size();
   } else if (std::holds_alternative<XCdrStructLayout>(*layout_)) {
     const auto & st = std::get<XCdrStructLayout>(*layout_);
-    value_size = st.total_size() - kXCdrHeaderSize;
+    value_size = st.size() - kXCdrHeaderSize;
   } else {
     return buffer_.subspan(base_offset_);
   }

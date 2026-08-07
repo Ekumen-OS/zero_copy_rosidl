@@ -110,7 +110,8 @@ void XCdrLayoutBuilder::allocate_string(
       ctx.element_layouts.push_back(XCdrStringLayout(actual_length, char_kind, memory_resource_));
 #pragma GCC diagnostic pop
       ctx.element_offsets.push_back(elem_offset);
-      current_offset_ += kStringLengthPrefixSize + actual_length + kStringNullTerminatorSize;
+      // The layout object we just pushed knows its own byte size.
+      current_offset_ += std::get<XCdrStringLayout>(ctx.element_layouts.back()).size();
       return;
     }
   }
@@ -118,8 +119,9 @@ void XCdrLayoutBuilder::allocate_string(
   // Top-level field
   align_current_offset(kStringLengthPrefixSize);  // Strings align to prefix size
   size_t field_offset = current_offset_;
-  add_field(name, field_offset, XCdrStringLayout(actual_length, char_kind, memory_resource_));
-  current_offset_ += kStringLengthPrefixSize + actual_length + kStringNullTerminatorSize;
+  XCdrStringLayout string_layout(actual_length, char_kind, memory_resource_);
+  add_field(name, field_offset, string_layout);
+  current_offset_ += string_layout.size();
 }
 
 void XCdrLayoutBuilder::begin_allocate_array(std::string_view name, size_t count)
