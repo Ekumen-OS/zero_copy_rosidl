@@ -51,17 +51,14 @@ target_link_libraries(${PROJECT_NAME}
     rosidl_runtime_cpp::rosidl_runtime_cpp
     rosidl_typesupport_interface::rosidl_typesupport_interface
     rosidl_typesupport_xcdr_c::rosidl_typesupport_xcdr_c
-    xcdr_buffers::xcdr_buffers
-    pybind11::pybind11
-)
-
-# python_helpers.cpp touches Python objects and uses pybind11; make sure the
-# interpreter and headers are visible.  The Python3::Python link is a build-
-# time only dependency of this library (the symbols are resolved from the
-# linked interpreter at load time); gate it behind BUILD_INTERFACE so the
-# exported target does not reference Python3::Python, which consumers would
-# need to resolve with find_package(Python3 COMPONENTS Development).
+    xcdr_buffers::xcdr_buffers)
+# pybind11 is an implementation detail of this library: python_helpers.cpp uses
+# it, but consumers link the compiled ABI and do not need pybind11 headers or
+# symbols.  Gate both the pybind11 and Python3 links behind BUILD_INTERFACE so
+# the exported target carries no pybind11/Python3 reference that consumers
+# would need to find_package.
 target_link_libraries(${PROJECT_NAME} PRIVATE
+  $<BUILD_INTERFACE:pybind11::pybind11>
   $<BUILD_INTERFACE:Python3::Python>
 )
 
@@ -116,10 +113,9 @@ install(
 )
 
 # Register as rosidl typesupport
+# pybind11/Python3 are NOT exported: they are implementation details (linked
+# PRIVATE), so no consumer of this package's exported targets needs them.
 ament_export_dependencies(
-  pybind11_vendor
-  pybind11
-  Python3
   rosidl_runtime_c
   rosidl_runtime_cpp
   rosidl_typesupport_interface
