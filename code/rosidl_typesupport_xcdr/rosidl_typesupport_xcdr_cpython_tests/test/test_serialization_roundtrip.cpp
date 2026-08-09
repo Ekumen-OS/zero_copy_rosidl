@@ -29,8 +29,13 @@
 #include "rosidl_runtime_c/message_type_support_struct.h"
 #include "rosidl_runtime_cpp/experimental/memory.hpp"
 #include "rosidl_typesupport_interface/macros.h"
+#include "rosidl_typesupport_c/type_support_map.h"
 #include "rosidl_typesupport_xcdr_c/message_type_support.h"
+#include "rosidl_typesupport_cpython/identifier.hpp"
+#include "rosidl_typesupport_cpython/message_type_support.hpp"
+#include "rosidl_typesupport_xcdr_cpython/identifier.hpp"
 #include "rosidl_typesupport_xcdr_cpython/message_type_support.hpp"
+#include "rosidl_typesupport_xcdr_cpp/message_type_support.hpp"
 
 // Experimental C++ message types (used only as template arguments for the
 // generated typesupport handle specializations).
@@ -1054,4 +1059,77 @@ m = r
     get_message_type_support_handle<
     rosidl_typesupport_xcdr_cpython_tests::msg::experimental::Containers>();
   roundtrip(ts, msg);
+}
+
+// ============================================================================
+// Phase 8: CPython typesupport dispatch
+// ============================================================================
+
+// The generic dispatch API resolves the dispatch handle for a Python message
+// class.  The handle carries a type_support_map_t over the available CPython
+// typesupport implementations; the language-agnostic XCDR lookup resolves the
+// concrete xcdr_cpython handle from it.
+TEST_F(EmbeddedPython, DispatchResolvesExperimentalMessage)
+{
+  py::object msg_class = build_message(
+    R"(
+from rosidl_typesupport_xcdr_cpython_tests.msg.experimental._containers import Containers
+m = Containers
+m
+)");
+
+  const auto * handle = rosidl_typesupport_cpython::get_message_typesupport_handle(msg_class);
+  ASSERT_NE(handle, nullptr);
+  ASSERT_STREQ(
+    handle->typesupport_identifier,
+    rosidl_typesupport_cpython::typesupport_identifier);
+
+  // The dispatch handle's data is a type_support_map_t listing the available
+  // CPython typesupport implementations.
+  const auto * map = static_cast<const type_support_map_t *>(handle->data);
+  ASSERT_NE(map, nullptr);
+  ASSERT_GT(map->size, 0u);
+
+  // The map must contain the xcdr_cpython implementation identifier.
+  bool found_cpython = false;
+  for (size_t i = 0; i < map->size; ++i) {
+    if (strcmp(map->typesupport_identifier[i], "rosidl_typesupport_xcdr_cpython") == 0) {
+      found_cpython = true;
+      break;
+    }
+  }
+  ASSERT_TRUE(found_cpython) << "map does not list rosidl_typesupport_xcdr_cpython";
+
+  // The language-agnostic wildcard lookup resolves the concrete handle from
+  // the dispatch map without hardcoding any language identifier.
+  const auto * xcdr = get_message_typesupport_handle(handle, "rosidl_typesupport_xcdr*");
+  ASSERT_NE(xcdr, nullptr);
+  ASSERT_STREQ(xcdr->typesupport_identifier, rosidl_typesupport_xcdr_cpython__identifier);
+
+  // The resolved concrete handle is the one our cpython typesupport generates.
+  const auto * expected = get_message_type_support_handle<
+    rosidl_typesupport_xcdr_cpython_tests::msg::experimental::Containers>();
+  ASSERT_EQ(xcdr, expected);
+}
+
+// Dispatch also works for standard (non-experimental) message namespaces when a
+// CPython typesupport was generated for them.
+TEST_F(EmbeddedPython, DispatchResolvesStandardMessage)
+{
+  py::object msg_class = build_message(
+    R"(
+from rosidl_typesupport_xcdr_cpython_tests.msg._containers import Containers
+m = Containers
+m
+)");
+
+  const auto * handle = rosidl_typesupport_cpython::get_message_typesupport_handle(msg_class);
+  ASSERT_NE(handle, nullptr);
+  ASSERT_STREQ(
+    handle->typesupport_identifier,
+    rosidl_typesupport_cpython::typesupport_identifier);
+
+  const auto * xcdr = get_message_typesupport_handle(handle, "rosidl_typesupport_xcdr*");
+  ASSERT_NE(xcdr, nullptr);
+  ASSERT_STREQ(xcdr->typesupport_identifier, rosidl_typesupport_xcdr_cpython__identifier);
 }

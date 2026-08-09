@@ -13,6 +13,7 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
+find_package(rosidl_typesupport_cpython REQUIRED)
 find_package(rosidl_typesupport_xcdr_cpython REQUIRED)
 find_package(rosidl_typesupport_xcdr_c REQUIRED)
 find_package(rosidl_runtime_cpython REQUIRED)
@@ -72,8 +73,10 @@ if(BUILD_TESTING)
     )
     if(TARGET test_serialization_roundtrip)
       target_link_libraries(test_serialization_roundtrip
+        rosidl_typesupport_cpython::rosidl_typesupport_cpython
         rosidl_typesupport_xcdr_cpython::rosidl_typesupport_xcdr_cpython
         rosidl_typesupport_xcdr_c::rosidl_typesupport_xcdr_c
+        rosidl_typesupport_xcdr_cpp::rosidl_typesupport_xcdr_cpp
         xcdr_buffers::xcdr_buffers
         pybind11::pybind11
         pybind11::embed

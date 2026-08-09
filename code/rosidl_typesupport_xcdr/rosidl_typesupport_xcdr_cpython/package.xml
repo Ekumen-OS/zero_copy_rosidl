@@ -29,6 +29,8 @@
   <depend>rosidl_typesupport_xcdr_c</depend>
   <depend>xcdr_buffers</depend>
 
+  <build_export_depend>python3-dev</build_export_depend>
+
   <buildtool_export_depend>ament_cmake</buildtool_export_depend>
   <buildtool_export_depend>rosidl_cmake</buildtool_export_depend>
 

@@ -56,9 +56,13 @@ target_link_libraries(${PROJECT_NAME}
 )
 
 # python_helpers.cpp touches Python objects and uses pybind11; make sure the
-# interpreter and headers are visible.
+# interpreter and headers are visible.  The Python3::Python link is a build-
+# time only dependency of this library (the symbols are resolved from the
+# linked interpreter at load time); gate it behind BUILD_INTERFACE so the
+# exported target does not reference Python3::Python, which consumers would
+# need to resolve with find_package(Python3 COMPONENTS Development).
 target_link_libraries(${PROJECT_NAME} PRIVATE
-  Python3::Python
+  $<BUILD_INTERFACE:Python3::Python>
 )
 
 # rosidl_runtime_cpython has no exported CMake target (pure Python + module),
@@ -113,6 +117,9 @@ install(
 
 # Register as rosidl typesupport
 ament_export_dependencies(
+  pybind11_vendor
+  pybind11
+  Python3
   rosidl_runtime_c
   rosidl_runtime_cpp
   rosidl_typesupport_interface
@@ -124,8 +131,13 @@ ament_export_include_directories(include/${PROJECT_NAME})
 ament_export_libraries(${PROJECT_NAME})
 ament_export_targets(${PROJECT_NAME})
 
-# Register this typesupport implementation
-ament_index_register_resource("rosidl_typesupport_cpp")
+# Register this typesupport implementation with the CPython dispatch layer.
+# NOTE: NOT registered as "rosidl_typesupport_cpp" — the CPython typesupport is
+# a language-specific implementation of the CPython dispatch mechanism and must
+# not appear in the C++ dispatch list.  Middleware resolves it from the
+# CPython dispatch handle's type_support_map via the language-agnostic XCDR
+# lookup helper.
+ament_index_register_resource("rosidl_typesupport_cpython")
 
 # Register as experimental-capable (supports experimental message namespaces)
 ament_index_register_resource("available_experimental_typesupports")

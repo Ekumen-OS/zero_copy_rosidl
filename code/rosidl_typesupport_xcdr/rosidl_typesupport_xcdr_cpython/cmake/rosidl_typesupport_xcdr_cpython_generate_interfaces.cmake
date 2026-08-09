@@ -171,9 +171,17 @@ target_link_libraries(${rosidl_generate_interfaces_TARGET}${_target_suffix} PUBL
   rosidl_typesupport_interface::rosidl_typesupport_interface
   rosidl_typesupport_xcdr_c::rosidl_typesupport_xcdr_c
   rosidl_typesupport_xcdr_cpython::rosidl_typesupport_xcdr_cpython
-  xcdr_buffers::xcdr_buffers
-  pybind11::pybind11)
-
+  xcdr_buffers::xcdr_buffers)
+# pybind11 is NOT linked here: the generated TUs use python_helpers.hpp, whose
+# include dirs and pybind11 linkage propagate transitively from
+# rosidl_typesupport_xcdr_cpython (which links pybind11::pybind11 PUBLIC).
+# Keeping it out of this library's interface avoids leaking pybind11 into the
+# exported ${pkg}_TARGETS consumed by middleware and tests.
+#
+# Python3::Python is a PRIVATE build-time dependency: the generated TUs include
+# <Python.h> (via python_helpers.hpp) and link against the interpreter.  PRIVATE
+# keeps it out of INTERFACE_LINK_LIBRARIES; the residual IMPORTED_LINK_DEPENDENT
+# hint in the export is non-fatal and does not require consumers to resolve it.
 target_link_libraries(${rosidl_generate_interfaces_TARGET}${_target_suffix} PRIVATE
   Python3::Python)
 
