@@ -345,6 +345,312 @@ get_message_class_@(msg_typename)()
 @[end if]@
 @[end def]@
 
+@#====================================================================@
+@# generate_compact_field — single member of the recursive compact workhorse.
+@# Mirrors generate_writer_field but writes actual-size data only from the
+@# first undersized field (emit flag); fields at their constraint maximum are
+@# skipped (their bound-sized slots are already in the loaned buffer).
+@#====================================================================@
+@[def generate_compact_field(member, i, is_experimental, msg_typename)]@
+@{ from rosidl_parser.definition import BasicType, AbstractString, AbstractWString, BoundedString, BoundedWString, Array, BoundedSequence, AbstractSequence, NamespacedType }@ @
+@{ from rosidl_typesupport_xcdr_cpython.template_helpers import get_cpp_type, get_message_type_name }@ @
+@[if isinstance(member.type, BasicType)]@
+  {
+    auto _f = msg.attr("@(member.name)");
+    if (emit) {
+      writer.write(_f.attr("value").cast<@(get_cpp_type(member.type))>());
+    } else {
+      writer.skip<@(get_cpp_type(member.type))>();
+    }
+  }
+@[elif isinstance(member.type, AbstractWString)]@
+@[  if isinstance(member.type, BoundedWString)]@
+@# Bounded wstring: always at max — skip or write at actual size
+  {
+    auto _f = msg.attr("@(member.name)");
+    py::array _arr = py::reinterpret_borrow<py::array>(_f.attr("numpy")());
+    auto _info = _arr.request();
+    if (emit) {
+      writer.write(std::u16string_view(
+        static_cast<const char16_t *>(_info.ptr), _info.size));
+    } else {
+      writer.skip_wstring(_info.size);
+    }
+  }
+@[  else]@
+@# Unbounded wstring: check bound from layout
+  {
+    auto _f = msg.attr("@(member.name)");
+    py::array _arr = py::reinterpret_borrow<py::array>(_f.attr("numpy")());
+    auto _info = _arr.request();
+    auto _actual_sz = static_cast<size_t>(_info.size);
+    auto _bound = std::get<xcdr_buffers::XCdrStringLayout>(
+      layout.get_member(@(i))->get().layout()).actual_length();
+    if (_actual_sz > _bound) { return RCUTILS_RET_ERROR; }
+    if (!emit && _actual_sz < _bound) { emit = true; }
+    if (emit) {
+      writer.write(std::u16string_view(
+        static_cast<const char16_t *>(_info.ptr), _actual_sz));
+    } else {
+      writer.skip_wstring(_actual_sz);
+    }
+  }
+@[  end if]@
+@[elif isinstance(member.type, AbstractString)]@
+@[  if isinstance(member.type, BoundedString)]@
+@# Bounded string: always at max — skip or write at actual size
+  {
+    auto _f = msg.attr("@(member.name)");
+    py::array _arr = py::reinterpret_borrow<py::array>(_f.attr("numpy")());
+    auto _info = _arr.request();
+    if (emit) {
+      writer.write(std::string_view(
+        static_cast<const char *>(_info.ptr), _info.size));
+    } else {
+      writer.skip_string(_info.size);
+    }
+  }
+@[  else]@
+@# Unbounded string: check bound from layout
+  {
+    auto _f = msg.attr("@(member.name)");
+    py::array _arr = py::reinterpret_borrow<py::array>(_f.attr("numpy")());
+    auto _info = _arr.request();
+    auto _actual_sz = static_cast<size_t>(_info.size);
+    auto _bound = std::get<xcdr_buffers::XCdrStringLayout>(
+      layout.get_member(@(i))->get().layout()).actual_length();
+    if (_actual_sz > _bound) { return RCUTILS_RET_ERROR; }
+    if (!emit && _actual_sz < _bound) { emit = true; }
+    if (emit) {
+      writer.write(std::string_view(
+        static_cast<const char *>(_info.ptr), _actual_sz));
+    } else {
+      writer.skip_string(_actual_sz);
+    }
+  }
+@[  end if]@
+@[elif isinstance(member.type, Array)]@
+@[  if isinstance(member.type.value_type, BasicType)]@
+@# Array of primitives: fixed size, no constraint check
+  {
+    auto _f = msg.attr("@(member.name)");
+    py::array _arr = py::reinterpret_borrow<py::array>(_f.attr("numpy")());
+    auto _info = _arr.request();
+    if (emit) {
+      writer.write_array(tcb::span<const @(get_cpp_type(member.type.value_type))>(
+        static_cast<const @(get_cpp_type(member.type.value_type)) *>(_info.ptr), @(member.type.size)));
+    } else {
+      writer.skip_array<@(get_cpp_type(member.type.value_type))>(@(member.type.size));
+    }
+  }
+@[  elif isinstance(member.type.value_type, AbstractWString)]@
+@# Array of wstrings
+  {
+    auto _f = msg.attr("@(member.name)");
+    for (size_t _j = 0; _j < @(member.type.size); ++_j) {
+      auto _e = _f[py::int_(_j)];
+      py::array _arr = py::reinterpret_borrow<py::array>(_e.attr("numpy")());
+      auto _info = _arr.request();
+      if (emit) {
+        writer.write(std::u16string_view(
+          static_cast<const char16_t *>(_info.ptr), _info.size));
+      } else {
+        writer.skip_wstring(_info.size);
+      }
+    }
+  }
+@[  elif isinstance(member.type.value_type, AbstractString)]@
+@# Array of strings
+  {
+    auto _f = msg.attr("@(member.name)");
+    for (size_t _j = 0; _j < @(member.type.size); ++_j) {
+      auto _e = _f[py::int_(_j)];
+      py::array _arr = py::reinterpret_borrow<py::array>(_e.attr("numpy")());
+      auto _info = _arr.request();
+      if (emit) {
+        writer.write(std::string_view(
+          static_cast<const char *>(_info.ptr), _info.size));
+      } else {
+        writer.skip_string(_info.size);
+      }
+    }
+  }
+@[  else]@
+@# Array of nested messages: recurse to propagate emit
+@{
+nested_ts_arr = get_message_type_name(member.type.value_type, experimental_context=is_experimental)
+}@
+  {
+    auto _f = msg.attr("@(member.name)");
+    auto _ts = rosidl_typesupport_xcdr_cpython::get_message_type_support_handle<@(nested_ts_arr)>();
+    auto _outer = static_cast<const rosidl_message_xcdr_type_support_t *>(_ts->data);
+    auto _inner = static_cast<const rosidl_typesupport_xcdr_cpython::rosidl_message_xcdr_cpython_type_support_t *>(_outer->inner);
+    const auto & _arr_layout = std::get<xcdr_buffers::XCdrArrayLayout>(
+      layout.get_member(@(i))->get().layout());
+    for (size_t _j = 0; _j < @(member.type.size); ++_j) {
+      auto _e = _f[py::int_(_j)];
+      const auto & _elem_layout = std::get<xcdr_buffers::XCdrStructLayout>(
+        _arr_layout.element_layout(_j)->get());
+      if (emit) {
+        auto _ret = _inner->serialize_fields(_e.ptr(), writer);
+        if (_ret != RCUTILS_RET_OK) { return _ret; }
+      } else {
+        auto _ret = _inner->compact_fields_recursive(
+          _e.ptr(), _elem_layout, writer, emit);
+        if (_ret != RCUTILS_RET_OK) { return _ret; }
+      }
+    }
+  }
+@[  end if]@
+@[elif isinstance(member.type, AbstractSequence)]@
+@# Sequence: count bound check only for unbounded sequences
+@[  if not isinstance(member.type, BoundedSequence)]@
+@[    if isinstance(member.type.value_type, BasicType)]@
+  {
+    auto _f = msg.attr("@(member.name)");
+    size_t _actual_cnt = static_cast<size_t>(py::len(_f));
+    size_t _bound = std::get<xcdr_buffers::XCdrPrimitiveSequenceLayout>(
+      layout.get_member(@(i))->get().layout()).actual_count();
+    if (_actual_cnt > _bound) { return RCUTILS_RET_ERROR; }
+    if (!emit && _actual_cnt < _bound) { emit = true; }
+  }
+@[    else]@
+  {
+    auto _f = msg.attr("@(member.name)");
+    size_t _actual_cnt = static_cast<size_t>(py::len(_f));
+    size_t _bound = std::get<xcdr_buffers::XCdrSequenceLayout>(
+      layout.get_member(@(i))->get().layout()).actual_count();
+    if (_actual_cnt > _bound) { return RCUTILS_RET_ERROR; }
+    if (!emit && _actual_cnt < _bound) { emit = true; }
+  }
+@[    end if]@
+@[  end if]@
+@[  if isinstance(member.type.value_type, BasicType)]@
+@# Primitive sequence
+  {
+    auto _f = msg.attr("@(member.name)");
+    py::array _arr = py::reinterpret_borrow<py::array>(_f.attr("numpy")());
+    auto _info = _arr.request();
+    if (emit) {
+      writer.write_sequence(tcb::span<const @(get_cpp_type(member.type.value_type))>(
+        static_cast<const @(get_cpp_type(member.type.value_type)) *>(_info.ptr), _info.size));
+    } else {
+      writer.skip_sequence<@(get_cpp_type(member.type.value_type))>(_info.size);
+    }
+  }
+@[  elif isinstance(member.type.value_type, AbstractWString)]@
+@# Sequence of wstrings
+  {
+    auto _f = msg.attr("@(member.name)");
+    auto _len = static_cast<size_t>(py::len(_f));
+    if (emit) {
+      writer.begin_write_sequence(_len);
+      for (size_t _j = 0; _j < _len; ++_j) {
+        auto _e = _f[py::int_(_j)];
+        py::array _arr = py::reinterpret_borrow<py::array>(_e.attr("numpy")());
+        auto _info = _arr.request();
+        writer.write(std::u16string_view(
+          static_cast<const char16_t *>(_info.ptr), _info.size));
+      }
+      writer.end_write_sequence();
+    } else {
+      writer.begin_skip_sequence(_len);
+      for (size_t _j = 0; _j < _len; ++_j) {
+        auto _e = _f[py::int_(_j)];
+        py::array _arr = py::reinterpret_borrow<py::array>(_e.attr("numpy")());
+        auto _info = _arr.request();
+        writer.skip_wstring(_info.size);
+      }
+      writer.end_write_sequence();
+    }
+  }
+@[  elif isinstance(member.type.value_type, AbstractString)]@
+@# Sequence of strings
+  {
+    auto _f = msg.attr("@(member.name)");
+    auto _len = static_cast<size_t>(py::len(_f));
+    if (emit) {
+      writer.begin_write_sequence(_len);
+      for (size_t _j = 0; _j < _len; ++_j) {
+        auto _e = _f[py::int_(_j)];
+        py::array _arr = py::reinterpret_borrow<py::array>(_e.attr("numpy")());
+        auto _info = _arr.request();
+        writer.write(std::string_view(
+          static_cast<const char *>(_info.ptr), _info.size));
+      }
+      writer.end_write_sequence();
+    } else {
+      writer.begin_skip_sequence(_len);
+      for (size_t _j = 0; _j < _len; ++_j) {
+        auto _e = _f[py::int_(_j)];
+        py::array _arr = py::reinterpret_borrow<py::array>(_e.attr("numpy")());
+        auto _info = _arr.request();
+        writer.skip_string(_info.size);
+      }
+      writer.end_write_sequence();
+    }
+  }
+@[  else]@
+@# Sequence of nested messages: recurse to propagate emit
+@{
+nested_ts_seq = get_message_type_name(member.type.value_type, experimental_context=is_experimental)
+}@
+  {
+    auto _f = msg.attr("@(member.name)");
+    auto _len = static_cast<size_t>(py::len(_f));
+    auto _ts = rosidl_typesupport_xcdr_cpython::get_message_type_support_handle<@(nested_ts_seq)>();
+    auto _outer = static_cast<const rosidl_message_xcdr_type_support_t *>(_ts->data);
+    auto _inner = static_cast<const rosidl_typesupport_xcdr_cpython::rosidl_message_xcdr_cpython_type_support_t *>(_outer->inner);
+    const auto & _seq_layout = std::get<xcdr_buffers::XCdrSequenceLayout>(
+      layout.get_member(@(i))->get().layout());
+    if (emit) {
+      writer.begin_write_sequence(_len);
+      for (size_t _j = 0; _j < _len; ++_j) {
+        auto _e = _f[py::int_(_j)];
+        auto _ret = _inner->serialize_fields(_e.ptr(), writer);
+        if (_ret != RCUTILS_RET_OK) { return _ret; }
+      }
+      writer.end_write_sequence();
+    } else {
+      writer.begin_skip_sequence(_len);
+      for (size_t _j = 0; _j < _len; ++_j) {
+        auto _e = _f[py::int_(_j)];
+        const auto & _elem_layout = std::get<xcdr_buffers::XCdrStructLayout>(
+          _seq_layout.element_layout(_j)->get());
+        auto _ret = _inner->compact_fields_recursive(
+          _e.ptr(), _elem_layout, writer, emit);
+        if (_ret != RCUTILS_RET_OK) { return _ret; }
+      }
+      writer.end_write_sequence();
+    }
+  }
+@[  end if]@
+@[elif isinstance(member.type, NamespacedType)]@
+@# Nested message member: recurse to propagate emit
+@{
+nested_ts = get_message_type_name(member.type, experimental_context=is_experimental)
+}@
+  {
+    auto _f = msg.attr("@(member.name)");
+    const auto & _nested_layout = std::get<xcdr_buffers::XCdrStructLayout>(
+      layout.get_member(@(i))->get().layout());
+    auto _ts = rosidl_typesupport_xcdr_cpython::get_message_type_support_handle<@(nested_ts)>();
+    auto _outer = static_cast<const rosidl_message_xcdr_type_support_t *>(_ts->data);
+    auto _inner = static_cast<const rosidl_typesupport_xcdr_cpython::rosidl_message_xcdr_cpython_type_support_t *>(_outer->inner);
+    if (emit) {
+      auto _ret = _inner->serialize_fields(_f.ptr(), writer);
+      if (_ret != RCUTILS_RET_OK) { return _ret; }
+    } else {
+      auto _ret = _inner->compact_fields_recursive(
+        _f.ptr(), _nested_layout, writer, emit);
+      if (_ret != RCUTILS_RET_OK) { return _ret; }
+    }
+  }
+@[else]@
+  // TODO: Compact @(member.name) of type @(member.type)
+@[end if]@
+@[end def]@
+
 @[def generate_reader_field(member, is_experimental, msg_prefix='msg', msg_typename='msg')]@
 @{ from rosidl_parser.definition import BasicType, AbstractString, AbstractWString, BoundedString, BoundedWString, Array, BoundedSequence, AbstractSequence, NamespacedType }@ @
 @{ from rosidl_typesupport_xcdr_cpython.template_helpers import get_cpp_type, get_message_type_name, get_python_string_class }@ @
@@ -643,42 +949,48 @@ get_message_class_@(msg_typename)()
   builder.begin_allocate_array("@(member.name)", @(member.type.size));
 @[    if isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
 @[      if isinstance(member.type.value_type, BoundedWString)]@
-    builder.allocate_string(@(member.type.value_type.maximum_size), xcdr_buffers::XCdrCharKind::kChar16);
+    for (size_t _ei = 0; _ei < @(member.type.size); ++_ei) {
+      builder.allocate_string(@(member.type.value_type.maximum_size), xcdr_buffers::XCdrCharKind::kChar16);
+    }
 @[      elif isinstance(member.type.value_type, BoundedString)]@
-    builder.allocate_string(@(member.type.value_type.maximum_size));
+    for (size_t _ei = 0; _ei < @(member.type.size); ++_ei) {
+      builder.allocate_string(@(member.type.value_type.maximum_size));
+    }
 @[      elif isinstance(member.type.value_type, AbstractWString)]@
-    {
+    for (size_t _ei = 0; _ei < @(member.type.size); ++_ei) {
       if (nullptr == constraints_ptr) {
         RCUTILS_SET_ERROR_MSG("@(msg_typename).@(member.name): unbounded string element requires constraints");
         return RCUTILS_RET_ERROR;
       }
       auto _cs = rosidl_typesupport_xcdr_cpython::py_borrow(constraints_ptr);
-      builder.allocate_string(_cs.attr("@(member.name)").attr("element").attr("size").cast<size_t>(), xcdr_buffers::XCdrCharKind::kChar16);
+      builder.allocate_string(_cs.attr("@(member.name)").attr("size").cast<size_t>(), xcdr_buffers::XCdrCharKind::kChar16);
     }
 @[      else]@
-    {
+    for (size_t _ei = 0; _ei < @(member.type.size); ++_ei) {
       if (nullptr == constraints_ptr) {
         RCUTILS_SET_ERROR_MSG("@(msg_typename).@(member.name): unbounded string element requires constraints");
         return RCUTILS_RET_ERROR;
       }
       auto _cs = rosidl_typesupport_xcdr_cpython::py_borrow(constraints_ptr);
-      builder.allocate_string(_cs.attr("@(member.name)").attr("element").attr("size").cast<size_t>());
+      builder.allocate_string(_cs.attr("@(member.name)").attr("size").cast<size_t>());
     }
 @[      end if]@
 @[    elif isinstance(member.type.value_type, NamespacedType)]@
-    builder.begin_allocate_struct();
-    {
-      auto _ts = rosidl_typesupport_xcdr_cpython::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental))>();
-      auto _outer = static_cast<const rosidl_message_xcdr_type_support_t *>(_ts->data);
-      auto _inner = static_cast<const rosidl_typesupport_xcdr_cpython::rosidl_message_xcdr_cpython_type_support_t *>(_outer->inner);
-      if (nullptr == _inner->build_layout_fields) {
-        RCUTILS_SET_ERROR_MSG("@(msg_typename).@(member.name): nested build_layout_fields not available");
-        return RCUTILS_RET_ERROR;
+    for (size_t _ei = 0; _ei < @(member.type.size); ++_ei) {
+      builder.begin_allocate_struct();
+      {
+        auto _ts = rosidl_typesupport_xcdr_cpython::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental))>();
+        auto _outer = static_cast<const rosidl_message_xcdr_type_support_t *>(_ts->data);
+        auto _inner = static_cast<const rosidl_typesupport_xcdr_cpython::rosidl_message_xcdr_cpython_type_support_t *>(_outer->inner);
+        if (nullptr == _inner->build_layout_fields) {
+          RCUTILS_SET_ERROR_MSG("@(msg_typename).@(member.name): nested build_layout_fields not available");
+          return RCUTILS_RET_ERROR;
+        }
+        auto _ret = _inner->build_layout_fields(builder, nullptr);
+        if (_ret != RCUTILS_RET_OK) { return _ret; }
       }
-      auto _ret = _inner->build_layout_fields(builder, nullptr);
-      if (_ret != RCUTILS_RET_OK) { return _ret; }
+      builder.end_allocate_struct();
     }
-    builder.end_allocate_struct();
 @[    end if]@
   builder.end_allocate_array();
 @[  end if]@
@@ -1030,7 +1342,7 @@ _ns_name = _ns_parts[-1]
 @[    else]@
   {
     auto _field = msg.attr("@(member.name)");
-    auto _elem_bound = _cs.attr("@(member.name)").attr("element").attr("size").cast<size_t>();
+    auto _elem_bound = _cs.attr("@(member.name)").attr("size").cast<size_t>();
     for (size_t _j = 0; _j < @(member.type.size); ++_j) {
       auto _val = py::len(_field[py::int_(_j)]);
       if (static_cast<size_t>(_val) > _elem_bound) {
@@ -1149,8 +1461,8 @@ _ns_name = _ns_parts[-1]
 @[elif isinstance(member.type, Array)]@
 @[  if isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
 @[    if not isinstance(member.type.value_type, (BoundedString, BoundedWString))]@
-  if (_cand.attr("@(member.name)").attr("element").attr("size").cast<size_t>() >
-      _base.attr("@(member.name)").attr("element").attr("size").cast<size_t>()) {
+  if (_cand.attr("@(member.name)").attr("size").cast<size_t>() >
+      _base.attr("@(member.name)").attr("size").cast<size_t>()) {
     return false;
   }
 @[    end if]@
@@ -1201,8 +1513,8 @@ _nc_name = _nc_parts[-1]
   {
     auto _nested_compare = @(_nc_ns)::compare_type_specific_constraints_@(_nc_name);
     if (!_nested_compare(
-          _cand.attr("@(member.name)").attr("element").ptr(),
-          _base.attr("@(member.name)").attr("element").ptr())) {
+          _cand.attr("@(member.name)").ptr(),
+          _base.attr("@(member.name)").ptr())) {
       return false;
     }
   }
@@ -1242,6 +1554,115 @@ serialize_fields_into_writer_@(msg_typename)(
 @[  end for]@
     return RCUTILS_RET_OK;
 }
+
+@[if is_experimental]@
+// Forward declaration (defined below): the fast path of compact_message
+// releases the existing blob when every field is at its constraint maximum.
+extern "C" rosidl_memory_region_t
+release_message_@(msg_typename)(void * message_ptr);
+
+// compact_fields — internal recursive workhorse (layout-driven).
+// Single-pass traversal: while emit==false, skip fields that match their
+// constraint maximum and set emit=true on the first undersized field.
+// After emit==true, serialize all remaining fields through the writer.
+// Returns error if any field violates its constraint bound.
+// ============================================================================
+rcutils_ret_t
+compact_fields_@(msg_typename)(
+  const void * message_ptr,
+  const xcdr_buffers::XCdrStructLayout & layout,
+  xcdr_buffers::XCdrWriter & writer,
+  bool & emit)
+{
+  if (nullptr == message_ptr) {
+    RCUTILS_SET_ERROR_MSG("@(msg_typename): message is nullptr");
+    return RCUTILS_RET_ERROR;
+  }
+  auto msg = rosidl_typesupport_xcdr_cpython::py_borrow(message_ptr);
+@[  for i, member in enumerate(message.structure.members)]@
+@[    if len(message.structure.members) == 1 and member.name == EMPTY_STRUCTURE_REQUIRED_MEMBER_NAME]@
+@[      continue]@
+@[    end if]@
+@(generate_compact_field(member, i, is_experimental, msg_typename))
+@[  end for]@
+    return RCUTILS_RET_OK;
+}
+
+// Consume a message view by compacting it in-place (layout-driven).
+// Uses the cached constrained layout for per-field maximum bounds, rewrites a
+// compact (actual-size) XCDR encoding into the message's own backing buffer
+// using an offset writer (data area after the CDR header), and destroys the
+// message view.  On success returns a region whose .location.address is the
+// blob pointer and .size is the compacted payload byte count.
+extern "C" rosidl_memory_region_t
+compact_message_@(msg_typename)(
+  void * message_ptr,
+  const xcdr_buffers::XCdrStructLayout * cached_layout)
+{
+  rosidl_memory_region_t null_region = {{nullptr, 0}, 0};
+
+  if (nullptr == message_ptr) {
+    RCUTILS_SET_ERROR_MSG("@(msg_typename): message_ptr is nullptr");
+    return null_region;
+  }
+  if (nullptr == cached_layout) {
+    RCUTILS_SET_ERROR_MSG("@(msg_typename): cached layout not available for compaction");
+    return null_region;
+  }
+
+  auto msg = rosidl_typesupport_xcdr_cpython::py_borrow(message_ptr);
+  py::object ext = msg.attr("_external_storage");
+  if (ext.is_none()) {
+    RCUTILS_SET_ERROR_MSG("@(msg_typename): no external storage to compact");
+    return null_region;
+  }
+  py::object block = ext.attr("block");
+  if (block.is_none()) {
+    RCUTILS_SET_ERROR_MSG("@(msg_typename): external storage block is None");
+    return null_region;
+  }
+  void * blob = reinterpret_cast<void *>(block.attr("address").cast<uintptr_t>());
+  size_t block_size = block.attr("size").cast<size_t>();
+
+  constexpr size_t kHeaderSize = xcdr_buffers::kXCdrHeaderSize;
+  if (block_size <= kHeaderSize) {
+    RCUTILS_SET_ERROR_MSG("@(msg_typename): backing buffer too small for CDR header");
+    return null_region;
+  }
+
+  auto buffer_span = tcb::span<uint8_t>(
+    static_cast<uint8_t *>(blob), block_size);
+
+  // Single-pass traversal: start with emit=false, one writer at the data
+  // offset (the XCDR CDR header at block[0..4] is already in place).
+  xcdr_buffers::XCdrWriter writer(buffer_span, kHeaderSize);
+  bool emit = false;
+
+  auto ret = compact_fields_@(msg_typename)(message_ptr, *cached_layout, writer, emit);
+  if (ret != RCUTILS_RET_OK) {
+    // Layout-bound violation — message is NOT consumed.
+    return null_region;
+  }
+
+  if (!emit) {
+    // All fields at constraint maximum — fast path: release existing blob.
+    return release_message_@(msg_typename)(message_ptr);
+  }
+
+  // Rewrite path: compacted data was written into the buffer.
+  if (writer.has_error()) {
+    RCUTILS_SET_ERROR_MSG("@(msg_typename): XCdrWriter overflow during compaction rewrite");
+    return null_region;
+  }
+
+  size_t compacted_size = writer.bytes_written();
+  // Consume the message view (DECREF the PyObject).
+  Py_DECREF(static_cast<PyObject *>(message_ptr));
+
+  rosidl_memory_region_t result = {{blob, 0}, compacted_size};
+  return result;
+}
+@[end if]@
 
 // Private: Deserialize message fields from existing reader (no XCDR header).
 rcutils_ret_t
@@ -1676,6 +2097,8 @@ inline const rosidl_message_xcdr_cpython_type_support_t & get_inner_@(msg_typena
     tmp.build_constrained = &@(msg_namespace)::build_constrained_@(msg_typename);
     tmp.clone_constraints = &@(msg_namespace)::clone_constraints_@(msg_typename);
     tmp.validate_fields = &@(msg_namespace)::validate_message_@(msg_typename);
+    tmp.compact_fields = &@(msg_namespace)::compact_message_@(msg_typename);
+    tmp.compact_fields_recursive = &@(msg_namespace)::compact_fields_@(msg_typename);
 @[end if]@
 @[if not has_constraints]@
     tmp.cached_layout = @(msg_namespace)::get_layout_@(msg_typename)();

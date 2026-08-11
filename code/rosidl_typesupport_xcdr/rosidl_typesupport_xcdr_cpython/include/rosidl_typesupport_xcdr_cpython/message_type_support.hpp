@@ -207,6 +207,26 @@ struct rosidl_message_xcdr_cpython_type_support_t
     void * message,
     const xcdr_buffers::XCdrStructLayout * cached_layout) = nullptr;
 
+  /// Per-type recursive compact fields helper (internal recursion, layout-driven).
+  /**
+   * Non-consuming recursive workhorse shared across nested messages.
+   * Uses a shared writer and write-mode flag; the flag tunnels through
+   * the call stack so a mismatch deep in a nested message flips write
+   * mode for the entire remaining traversal.
+   * Derives per-field maximum bounds from the provided layout.
+   *
+   * \param[in]  message      Message to compact (untyped; a PyObject *).
+   * \param[in]  layout       Struct layout with member metadata.
+   * \param[in]  writer       Shared writer.
+   * \param[out] emit         Write-mode flag (set to true on first undersized field).
+   * \return RCUTILS_RET_OK on success, RCUTILS_RET_ERROR on constraint violation.
+   */
+  rcutils_ret_t (*compact_fields_recursive)(
+    const void * message,
+    const xcdr_buffers::XCdrStructLayout & layout,
+    xcdr_buffers::XCdrWriter & writer,
+    bool & emit) = nullptr;
+
   /// Populate a Python ExternalStorage instance from an accessor.
   /**
    * Walks the accessor fields and sets the corresponding RawBuffer /
