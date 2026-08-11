@@ -140,25 +140,62 @@ XCdrPrimitiveSequenceLayout::XCdrPrimitiveSequenceLayout(
 XCdrSequenceLayout::XCdrSequenceLayout(
   std::pmr::vector<Element> elements,
   std::pmr::memory_resource * mr)
-: elements_(std::move(elements)), memory_resource_(mr ? mr : std::pmr::new_delete_resource())
+: elements_(std::move(elements)),
+  actual_count_(elements_.size()),
+  memory_resource_(mr ? mr : std::pmr::new_delete_resource())
 {
+}
+
+XCdrSequenceLayout::XCdrSequenceLayout(
+  std::pmr::vector<Element> elements,
+  size_t actual_count,
+  std::pmr::memory_resource * mr)
+: elements_(std::move(elements)),
+  actual_count_(actual_count),
+  memory_resource_(mr ? mr : std::pmr::new_delete_resource())
+{
+}
+
+size_t XCdrSequenceLayout::element_stride() const
+{
+  if (elements_.empty()) {
+    return 0;
+  }
+  const auto & first = elements_.front();
+  size_t elem_size = std::visit([](auto && layout) -> size_t {
+        return layout.size();
+  }, *first.layout);
+  size_t elem_alignment = std::visit([](auto && layout) -> size_t {
+        return layout.alignment();
+  }, *first.layout);
+  // Consecutive identical elements: each starts aligned to the element
+  // alignment after the previous element's region.
+  return align_to(elem_size, elem_alignment);
 }
 
 XCdrResult<size_t> XCdrSequenceLayout::element_offset(size_t index) const
 {
-  if (index >= elements_.size()) {
+  if (index >= actual_count_) {
     return error("Sequence element index " + std::to_string(index) + " out of range");
   }
-  return ok(elements_[index].offset);
+  if (index < elements_.size()) {
+    return ok(elements_[index].offset);
+  }
+  // Uniform element template: derive the offset from the first element's
+  // offset and the element stride.
+  return ok(elements_.front().offset + index * element_stride());
 }
 
 XCdrResult<std::reference_wrapper<const XCdrLayout>> XCdrSequenceLayout::element_layout(
   size_t index) const
 {
-  if (index >= elements_.size()) {
+  if (index >= actual_count_) {
     return error("Sequence element index " + std::to_string(index) + " out of range");
   }
-  return ok(std::cref(*elements_[index].layout));
+  if (index < elements_.size()) {
+    return ok(std::cref(*elements_[index].layout));
+  }
+  return ok(std::cref(*elements_.front().layout));
 }
 
 size_t XCdrSequenceLayout::size() const
@@ -170,7 +207,13 @@ size_t XCdrSequenceLayout::size() const
   size_t last_size = std::visit([](auto && layout) -> size_t {
         return layout.size();
   }, *last.layout);
-  return kSequenceLengthPrefixSize + last.offset + last_size;
+  // For a uniform sequence built from a single element template, the total
+  // region covers all actual_count elements (the constraint bound).
+  size_t stored_span = last.offset + last_size;
+  if (actual_count_ > elements_.size()) {
+    stored_span = element_stride() * actual_count_;
+  }
+  return kSequenceLengthPrefixSize + stored_span;
 }
 
 // ============================================================================

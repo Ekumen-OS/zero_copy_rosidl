@@ -173,13 +173,16 @@ void XCdrLayoutBuilder::end_allocate_array()
     });
   }
 
+  XCdrArrayLayout array_layout(std::move(elements), memory_resource_);
   if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
     context_stack_.back().nested_builder->add_field(
-      ctx.field_name, ctx.start_offset, XCdrArrayLayout(std::move(elements), memory_resource_));
+      ctx.field_name, ctx.start_offset, array_layout);
   } else {
-    add_field(ctx.field_name, ctx.start_offset,
-        XCdrArrayLayout(std::move(elements), memory_resource_));
+    add_field(ctx.field_name, ctx.start_offset, array_layout);
   }
+  // Advance past the array's true span (accounts for inter-element alignment
+  // padding that per-element size accumulation under-counts).
+  current_offset_ = ctx.start_offset + array_layout.size();
 }
 
 void XCdrLayoutBuilder::begin_allocate_sequence(std::string_view name, size_t actual_count)
@@ -237,14 +240,16 @@ void XCdrLayoutBuilder::end_allocate_sequence()
     });
   }
 
+  XCdrSequenceLayout sequence_layout(std::move(elements), ctx.element_count, memory_resource_);
   if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
     context_stack_.back().nested_builder->add_field(
-      ctx.field_name, ctx.start_offset,
-        XCdrSequenceLayout(std::move(elements), memory_resource_));
+      ctx.field_name, ctx.start_offset, sequence_layout);
   } else {
-    add_field(ctx.field_name, ctx.start_offset,
-        XCdrSequenceLayout(std::move(elements), memory_resource_));
+    add_field(ctx.field_name, ctx.start_offset, sequence_layout);
   }
+  // Advance past the sequence's true span (includes the length prefix and
+  // inter-element alignment padding).
+  current_offset_ = ctx.start_offset + sequence_layout.size();
 }
 
 void XCdrLayoutBuilder::begin_allocate_struct()
