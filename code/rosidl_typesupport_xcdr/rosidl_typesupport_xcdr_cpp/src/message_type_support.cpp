@@ -48,8 +48,12 @@ cpp_get_expected_size(
   }
   auto * impl = static_cast<const rosidl_message_xcdr_cpp_type_support_t *>(xcdr->inner);
   if (nullptr == impl->cached_layout) {
-    RCUTILS_SET_ERROR_MSG("cached_layout not available");
-    return RCUTILS_RET_ERROR;
+    // No cached layout means the expected size is not statically known
+    // (unbounded type, or an unconstrained handle).  Report 0 instead of
+    // failing: callers use 0 to mean "we don't know" (not plain, not
+    // bounded) rather than an error.
+    *size = 0;
+    return RCUTILS_RET_OK;
   }
   *size = impl->cached_layout->total_size();
   return RCUTILS_RET_OK;
@@ -259,9 +263,9 @@ cpp_create_constrained(
   new_handle->typesupport_identifier = rosidl_typesupport_xcdr_cpp__identifier;
   new_handle->data = new_xcdr;
   new_handle->func = nullptr;
-  new_handle->get_type_hash_func = nullptr;
-  new_handle->get_type_description_func = nullptr;
-  new_handle->get_type_description_sources_func = nullptr;
+  new_handle->get_type_hash_func = xcdr_default_get_type_hash;
+  new_handle->get_type_description_func = xcdr_default_get_type_description;
+  new_handle->get_type_description_sources_func = xcdr_default_get_type_description_sources;
 
   return new_handle;
 }
@@ -366,6 +370,29 @@ cpp_get_constraints(const rosidl_message_xcdr_type_support_t * xcdr)
   return nullptr;
 }
 
+// ---- Default fallbacks for type hash / type description ----
+// These are used by the generated dispatch handle when the message type
+// does not provide its own functions (e.g., experimental XCDR-only types).
+
+extern "C" const rosidl_type_hash_t *
+xcdr_default_get_type_hash(const rosidl_message_type_support_t * /*type_support*/)
+{
+  static const rosidl_type_hash_t zero_hash = {ROSIDL_TYPE_HASH_VERSION_UNSET, {0}};
+  return &zero_hash;
+}
+
+extern "C" const rosidl_runtime_c__type_description__TypeDescription *
+xcdr_default_get_type_description(const rosidl_message_type_support_t * /*type_support*/)
+{
+  return nullptr;
+}
+
+extern "C" const rosidl_runtime_c__type_description__TypeSource__Sequence *
+xcdr_default_get_type_description_sources(const rosidl_message_type_support_t * /*type_support*/)
+{
+  return nullptr;
+}
+
 }  // anonymous namespace
 
 // ============================================================================
@@ -393,6 +420,8 @@ get_xcdr_cpp_type_support_prototype()
     cpp_get_constraints,
     cpp_destroy_inner,
     cpp_compact_message_in_place,
+    nullptr,                      // message_namespace (set by codegen callers)
+    nullptr,                      // message_name (set by codegen callers)
   };
   return &prototype;
 }

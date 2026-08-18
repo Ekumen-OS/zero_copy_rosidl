@@ -126,13 +126,9 @@ TEST_F(WriterParserIntegrationTest, PrimitiveArrays)
   // Parse the layout (implicit top-level struct)
   XCdrLayoutParser parser(buffer);
 
-  ASSERT_TRUE(parser.begin_parse_array(5));
-  ASSERT_TRUE(parser.parse_primitive(XCdrPrimitiveKind::kUint32));
-  ASSERT_TRUE(parser.end_parse_array());
-
-  ASSERT_TRUE(parser.begin_parse_array(3));
-  ASSERT_TRUE(parser.parse_primitive(XCdrPrimitiveKind::kDouble));
-  ASSERT_TRUE(parser.end_parse_array());
+  // Primitive array shortcut
+  ASSERT_TRUE(parser.parse_primitive_array(XCdrPrimitiveKind::kUint32, 5));
+  ASSERT_TRUE(parser.parse_primitive_array(XCdrPrimitiveKind::kDouble, 3));
 
   auto layout_result = parser.finalize();
   ASSERT_TRUE(layout_result);
@@ -352,9 +348,14 @@ TEST_F(WriterParserIntegrationTest, EmptySequences)
 
   const auto & layout = *layout_result;
 
-  // Note: Empty sequences are skipped by the builder (no type information for elements)
-  // So even though we wrote 2 sequences, the layout has 0 members
-  EXPECT_EQ(layout.member_count(), 0);
+  // The empty primitive sequence IS representable (the element kind is known
+  // via the one-shot shortcut), so it becomes one member.  The empty general
+  // sequence (no element type information) is skipped by the builder.
+  EXPECT_EQ(layout.member_count(), 1);
+  auto field0 = layout.get_member(0);
+  ASSERT_TRUE(field0);
+  ASSERT_TRUE(std::holds_alternative<XCdrPrimitiveSequenceLayout>(field0->get().layout()));
+  EXPECT_EQ(std::get<XCdrPrimitiveSequenceLayout>(field0->get().layout()).actual_count(), 0);
 }
 
 int main(int argc, char ** argv)

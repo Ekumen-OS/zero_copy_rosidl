@@ -140,6 +140,8 @@ for member in message.structure.members:
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <memory_resource>
+#include <new>
 #include <string>
 #include <vector>
 
@@ -280,7 +282,7 @@ for member in message.structure.members:
 @[end if]@
 @[end def]@
 
-@[def generate_parser_field(member)]@
+@[def generate_parser_field(member, is_experimental=False)]@
 @{ from rosidl_parser.definition import BasicType, AbstractString, AbstractWString, BoundedString, BoundedWString, Array, BoundedSequence, AbstractSequence, NamespacedType }@ @
 @{ from rosidl_typesupport_xcdr_cpp.template_helpers import get_xcdr_primitive_kind, get_cpp_type, get_message_type_name }@ @
 @[if isinstance(member.type, BasicType)]@
@@ -296,23 +298,59 @@ for member in message.structure.members:
     parser.parse_string();
 @[    elif isinstance(member.type.value_type, NamespacedType)]@
     parser.begin_parse_struct();
+    {
+      auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental))>();
+      auto nested_outer_@(member.name) = static_cast<const rosidl_message_xcdr_type_support_t *>(nested_ts_@(member.name)->data);
+      auto nested_inner_@(member.name) = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(nested_outer_@(member.name)->inner);
+      if (nullptr == nested_inner_@(member.name)->parse_fields) {
+        return RCUTILS_RET_ERROR;
+      }
+      auto _ret_@(member.name) = nested_inner_@(member.name)->parse_fields(parser);
+      if (RCUTILS_RET_OK != _ret_@(member.name)) { return _ret_@(member.name); }
+    }
     parser.end_parse_struct();
 @[    end if]@
   parser.end_parse_array();
 @[  end if]@
 @[elif isinstance(member.type, AbstractSequence)]@
-  auto @(member.name)_size = parser.begin_parse_sequence();
 @[  if isinstance(member.type.value_type, BasicType)]@
-    parser.parse_primitive(@(get_xcdr_primitive_kind(member.type.value_type)));
-@[  elif isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
+@[    if isinstance(member.type, BoundedSequence)]@
+  parser.parse_primitive_sequence(@(get_xcdr_primitive_kind(member.type.value_type)), @(member.type.maximum_size));
+@[    else]@
+  parser.parse_primitive_sequence(@(get_xcdr_primitive_kind(member.type.value_type)));
+@[    end if]@
+@[  else]@
+  auto @(member.name)_size = parser.begin_parse_sequence();
+@[    if isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
     parser.parse_string();
-@[  elif isinstance(member.type.value_type, NamespacedType)]@
+@[    elif isinstance(member.type.value_type, NamespacedType)]@
     parser.begin_parse_struct();
+    {
+      auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental))>();
+      auto nested_outer_@(member.name) = static_cast<const rosidl_message_xcdr_type_support_t *>(nested_ts_@(member.name)->data);
+      auto nested_inner_@(member.name) = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(nested_outer_@(member.name)->inner);
+      if (nullptr == nested_inner_@(member.name)->parse_fields) {
+        return RCUTILS_RET_ERROR;
+      }
+      auto _ret_@(member.name) = nested_inner_@(member.name)->parse_fields(parser);
+      if (RCUTILS_RET_OK != _ret_@(member.name)) { return _ret_@(member.name); }
+    }
     parser.end_parse_struct();
-@[  end if]@
+@[    end if]@
   parser.end_parse_sequence();
+@[  end if]@
 @[elif isinstance(member.type, NamespacedType)]@
-  parser.begin_parse_struct();
+  parser.begin_parse_struct("@(member.name)");
+  {
+    auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type, experimental_context=is_experimental))>();
+    auto nested_outer_@(member.name) = static_cast<const rosidl_message_xcdr_type_support_t *>(nested_ts_@(member.name)->data);
+    auto nested_inner_@(member.name) = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(nested_outer_@(member.name)->inner);
+    if (nullptr == nested_inner_@(member.name)->parse_fields) {
+      return RCUTILS_RET_ERROR;
+    }
+    auto _ret_@(member.name) = nested_inner_@(member.name)->parse_fields(parser);
+    if (RCUTILS_RET_OK != _ret_@(member.name)) { return _ret_@(member.name); }
+  }
   parser.end_parse_struct();
 @[else]@
   // TODO: Parse @(member.name)
@@ -460,14 +498,13 @@ for member in message.structure.members:
 @[elif isinstance(member.type, Array)]@
 @[  if isinstance(member.type.value_type, BasicType)]@
   {
-    auto @(member.name)_result = reader.read<std::array<@(get_cpp_type(member.type.value_type)), @(member.type.size)> >();
+    // Zero-copy fixed-extent span view + bulk copy: one memcpy into the
+    // member (the std::array path materialized + copied the array).  The
+    // span read is a non-owning view and rejects mismatched endianness.
+    auto @(member.name)_result = reader.read<tcb::span<const @(get_cpp_type(member.type.value_type)), @(member.type.size)> >();
     if (!@(member.name)_result) { return RCUTILS_RET_ERROR; }
-    auto @(member.name)_array = *@(member.name)_result;
-@[    if is_experimental]@
-    std::copy(@(member.name)_array.begin(), @(member.name)_array.end(), @(msg_prefix).@(member.name).begin());
-@[    else]@
-    @(msg_prefix).@(member.name) = @(member.name)_array;
-@[    end if]@
+    std::memcpy(@(msg_prefix).@(member.name).data(), @(member.name)_result->data(),
+      @(member.type.size) * sizeof(@(get_cpp_type(member.type.value_type))));
   }
 @[  else]@
   reader.begin_read_array(@(member.type.size));
@@ -501,12 +538,29 @@ for member in message.structure.members:
 @[  end if]@
 @[elif isinstance(member.type, AbstractSequence)]@
 @[  if isinstance(member.type.value_type, BasicType)]@
+@[    if get_cpp_type(member.type.value_type) != 'bool']@
   {
-    auto @(member.name)_result = reader.read<std::vector<@(get_cpp_type(member.type.value_type))>>();
+    // Zero-copy span view + bulk copy: resize (one pass) + memcpy (one pass),
+    // matching FastCDR's resize + deserialize_array.  Avoids materializing a
+    // std::vector and converting it into the target sequence (4 passes over
+    // the payload).  The span read is a non-owning view and rejects
+    // mismatched endianness (the XCDR backend is little-endian only).
+    auto @(member.name)_result = reader.read<tcb::span<const @(get_cpp_type(member.type.value_type))>>();
     if (!@(member.name)_result) { return RCUTILS_RET_ERROR; }
-    auto @(member.name)_vec = *@(member.name)_result;
-    @(msg_prefix).@(member.name) = std::move(@(member.name)_vec);
+    auto @(member.name)_span = *@(member.name)_result;
+    @(msg_prefix).@(member.name).resize(@(member.name)_span.size());
+    std::memcpy(@(msg_prefix).@(member.name).data(), @(member.name)_span.data(),
+      @(member.name)_span.size() * sizeof(@(get_cpp_type(member.type.value_type))));
   }
+@[    else]@
+  {
+    // bool sequences: the generated container has no data() (bit-packed
+    // storage), so fall back to the element-wise vector read.
+    auto @(member.name)_result = reader.read<std::vector<bool>>();
+    if (!@(member.name)_result) { return RCUTILS_RET_ERROR; }
+    @(msg_prefix).@(member.name) = std::move(*@(member.name)_result);
+  }
+@[    end if]@
 @[  else]@
   {
     auto @(member.name)_size_result = reader.begin_read_sequence();
@@ -910,7 +964,7 @@ nested_fn_arr = get_message_type_name(member.type.value_type, experimental_conte
     auto _nested_ts = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(nested_fn_arr)>();
     auto _nested_outer = static_cast<const rosidl_message_xcdr_type_support_t *>(_nested_ts->data);
     auto _nested_inner = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(_nested_outer->inner);
-    const auto & _arr_layout = std::get<xcdr_buffers::XCdrStructLayout>(
+    const auto & _arr_layout = std::get<xcdr_buffers::XCdrArrayLayout>(
       layout.get_member(@(i))->get().layout());
     for (size_t _j = 0; _j < @(member.type.size); ++_j) {
       const auto & _elem_layout = std::get<xcdr_buffers::XCdrStructLayout>(
@@ -1061,6 +1115,22 @@ populate_external_storage_@(msg_typename)(
   return RCUTILS_RET_OK;
 }
 
+// Parse layout fields from buffer (zero-copy receiver side)
+//
+// Recurses into nested struct members via the nested type's own parse_fields
+// callback, so variable-length members anywhere in the message tree get
+// correctly inferred offsets from the wire data.
+rcutils_ret_t
+parse_fields_@(msg_typename)(
+  xcdr_buffers::XCdrLayoutParser & parser)
+{
+@[  for member in message.structure.members]@
+@(generate_parser_field(member, is_experimental))
+@[  end for]@
+
+  return RCUTILS_RET_OK;
+}
+
 // Cast message at storage (zero-copy receiver side)
 rcutils_ret_t
 cast_message_at_@(msg_typename)(
@@ -1073,10 +1143,25 @@ cast_message_at_@(msg_typename)(
     static_cast<const uint8_t*>(storage.data()),
     storage.size());
 
-  xcdr_buffers::XCdrLayoutParser parser(buffer_span);
-@[  for member in message.structure.members]@
-@(generate_parser_field(member))
-@[  end for]@
+  // Stack-backed pool for the temporary layout: every layout allocation
+  // (member vectors, shared_ptr control blocks, nested builders, names) is
+  // served from this monotonic buffer instead of the heap. The layout and
+  // accessor are ephemeral (tossed at function exit), so the pool releases
+  // everything in one stack unwind. If a message's layout ever outgrows the
+  // buffer, the pool silently falls back to the heap.
+  alignas(std::max_align_t) std::byte _cast_pool_buffer[8192];
+  std::pmr::monotonic_buffer_resource _cast_pool(
+    _cast_pool_buffer, sizeof(_cast_pool_buffer));
+
+  xcdr_buffers::XCdrLayoutParser parser(buffer_span, &_cast_pool);
+  if (nullptr == impl || nullptr == impl->parse_fields) {
+    RCUTILS_SET_ERROR_MSG("parse_fields callback not available");
+    return RCUTILS_RET_ERROR;
+  }
+  auto _parse_ret = impl->parse_fields(parser);
+  if (RCUTILS_RET_OK != _parse_ret) {
+    return _parse_ret;
+  }
 
   auto layout_result = parser.finalize();
   if (!layout_result) {
@@ -1392,8 +1477,11 @@ compact_fields_@(msg_typename)(
   }
 
 @[    elif isinstance(member.type.value_type, NamespacedType)]@
-@# Array of nested messages
-@[      if 'experimental' in member.type.value_type.namespaces]@
+@# Array of nested messages.
+@# We are generating an experimental variant (is_experimental), so the nested
+@# element type has an experimental variant with compact_fields_recursive: use
+@# it to propagate emit (see the nested struct member comment above).
+@[      if is_experimental]@
 @{
 nested_ns_arr = '::'.join(member.type.value_type.namespaces)
 nested_short_arr = member.type.value_type.name
@@ -1403,7 +1491,7 @@ nested_ts_name_arr = get_message_type_name(member.type.value_type, experimental_
     auto _nested_ts_arr = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(nested_ts_name_arr)>();
     auto _nested_outer_arr = static_cast<const rosidl_message_xcdr_type_support_t *>(_nested_ts_arr->data);
     auto _nested_inner_arr = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(_nested_outer_arr->inner);
-    const auto & _arr_layout = std::get<xcdr_buffers::XCdrStructLayout>(
+    const auto & _arr_layout = std::get<xcdr_buffers::XCdrArrayLayout>(
       layout.get_member(@(i))->get().layout());
     for (size_t _j = 0; _j < @(member.type.size); ++_j) {
       const auto & _elem_layout = std::get<xcdr_buffers::XCdrStructLayout>(
@@ -1506,8 +1594,11 @@ nested_ts_name_arr = get_message_type_name(member.type.value_type, experimental_
   }
 
 @[    elif isinstance(member.type.value_type, NamespacedType)]@
-@# Sequence of nested messages
-@[      if 'experimental' in member.type.value_type.namespaces]@
+@# Sequence of nested messages.
+@# We are generating an experimental variant (is_experimental), so the nested
+@# element type has an experimental variant with compact_fields_recursive: use
+@# it to propagate emit (see the nested struct member comment above).
+@[      if is_experimental]@
 @{
 nested_ns_seq = '::'.join(member.type.value_type.namespaces)
 nested_short_seq = member.type.value_type.name
@@ -1555,8 +1646,13 @@ nested_ts_name_seq = get_message_type_name(member.type.value_type, experimental_
 @[    end if]@
 
 @[  elif isinstance(member.type, NamespacedType)]@
-@# Nested message member
-@[    if 'experimental' in member.type.namespaces]@
+@# Nested message member.
+@# We are generating an experimental variant (is_experimental), so every nested
+@# message type also has an experimental variant with compact_fields_recursive:
+@# use it to propagate emit — an undersized variable-length field anywhere in the
+@# nested tree must force the compact rewrite, otherwise the released raw view
+@# (bound-sized slots with a compacted nested header) desyncs the wire parser.
+@[    if is_experimental]@
 @{
 nested_ns = '::'.join(member.type.namespaces)
 nested_short = member.type.name
@@ -1762,6 +1858,7 @@ inline const rosidl_message_xcdr_cpp_type_support_t & get_inner_@(msg_typename)(
     tmp.build_layout_fields = &@(msg_namespace)::build_layout_fields_@(msg_typename);
     tmp.serialize_fields = &@(msg_namespace)::serialize_fields_into_writer_@(msg_typename);
     tmp.deserialize_fields = &@(msg_namespace)::deserialize_fields_from_reader_@(msg_typename);
+    tmp.parse_fields = &@(msg_namespace)::parse_fields_@(msg_typename);
     tmp.construct_message = [](const rosidl_message_xcdr_cpp_type_support_t * impl,
                                 rosidl_runtime_cpp::MemoryRegion<void> & s, void ** m) {
       return @(msg_namespace)::construct_message_at_@(msg_typename)(impl, s, m);
@@ -1788,6 +1885,7 @@ inline const rosidl_message_xcdr_cpp_type_support_t & get_inner_@(msg_typename)(
     tmp.build_layout_fields = &@(msg_namespace)::build_layout_fields_@(msg_typename);
     tmp.serialize_fields = &@(msg_namespace)::serialize_fields_into_writer_@(msg_typename);
     tmp.deserialize_fields = &@(msg_namespace)::deserialize_fields_from_reader_@(msg_typename);
+    tmp.parse_fields = &@(msg_namespace)::parse_fields_@(msg_typename);
     tmp.construct_message = [](const rosidl_message_xcdr_cpp_type_support_t * impl,
                                 rosidl_runtime_cpp::MemoryRegion<void> & s, void ** m) {
       return @(msg_namespace)::construct_message_at_@(msg_typename)(impl, s, m);
@@ -1832,6 +1930,8 @@ get_message_type_support_handle<@(full_msg_typename)>()
   static const rosidl_message_xcdr_type_support_t outer = []() {
     auto tmp = *rosidl_typesupport_xcdr_cpp::get_xcdr_cpp_type_support_prototype();
     tmp.inner = const_cast<rosidl_message_xcdr_cpp_type_support_t *>(&inner);
+    tmp.message_namespace = "@(msg_namespace)";
+    tmp.message_name = "@(msg_typename)";
 @[if is_experimental]@
     tmp.destroy_message = &@(msg_namespace)::destroy_message_@(msg_typename);
     tmp.release_message = &@(msg_namespace)::release_message_@(msg_typename);
@@ -1847,9 +1947,9 @@ get_message_type_support_handle<@(full_msg_typename)>()
     rosidl_typesupport_xcdr_cpp__identifier,
     &outer,
     get_message_typesupport_handle_function,
-    nullptr,  // get_type_hash_func
-    nullptr,  // get_type_description_func
-    nullptr,  // get_type_description_sources_func
+    xcdr_default_get_type_hash,            // safe fallback (returns zero hash)
+    xcdr_default_get_type_description,     // safe fallback (returns nullptr)
+    xcdr_default_get_type_description_sources,  // safe fallback (returns nullptr)
   };
 
   return &handle;

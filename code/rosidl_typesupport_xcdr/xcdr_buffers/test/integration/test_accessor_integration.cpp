@@ -155,9 +155,7 @@ TEST_F(AccessorIntegrationTest, ComplexNestedStructureWithArrays)
   ASSERT_TRUE(parser.parse_primitive(XCdrPrimitiveKind::kDouble));
   ASSERT_TRUE(parser.parse_primitive(XCdrPrimitiveKind::kDouble));
   ASSERT_TRUE(parser.end_parse_struct());
-  ASSERT_TRUE(parser.begin_parse_array(3));
-  ASSERT_TRUE(parser.parse_primitive(XCdrPrimitiveKind::kUint32));
-  ASSERT_TRUE(parser.end_parse_array());
+  ASSERT_TRUE(parser.parse_primitive_array(XCdrPrimitiveKind::kUint32, 3));
   auto layout = *parser.finalize();
 
   // Access nested structure and array

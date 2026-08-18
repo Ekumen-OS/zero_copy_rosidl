@@ -43,12 +43,13 @@ using InnerValue = rosidl_typesupport_xcdr_cpp_tests::msg::experimental::InnerVa
 using NestedContainers = rosidl_typesupport_xcdr_cpp_tests::msg::experimental::NestedContainers;
 
 // Forward-declare the per-type populate functions (defined in generated .cpp).
-namespace rosidl_typesupport_xcdr_cpp_tests::msg::experimental {
+namespace rosidl_typesupport_xcdr_cpp_tests::msg::experimental
+{
 rcutils_ret_t populate_external_storage_InnerValue(
   const xcdr_buffers::XCdrConstAccessor & accessor, void * ext_storage_ptr);
 rcutils_ret_t populate_external_storage_NestedContainers(
   const xcdr_buffers::XCdrConstAccessor & accessor, void * ext_storage_ptr);
-}  // namespace
+}  // namespace rosidl_typesupport_xcdr_cpp_tests::msg::experimental
 
 // ============================================================================
 // Helper: obtain a struct layout for any message type
@@ -60,9 +61,9 @@ static std::shared_ptr<xcdr_buffers::XCdrStructLayout> get_shared_layout(
   auto * outer = static_cast<const rosidl_message_xcdr_type_support_t *>(ts->data);
   auto * inner =
     static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(
-      outer->inner);
+    outer->inner);
 
-  if (inner->cached_layout) return inner->cached_layout;
+  if (inner->cached_layout) {return inner->cached_layout;}
 
   // Constrained message: build from constraints.
   EXPECT_NE(nullptr, inner->build_constrained);
@@ -93,7 +94,8 @@ TEST(TestExternalStorageRecursion, InnerValue)
 
   InnerValue::ExternalStorage ext;
   ext.block = rosidl_runtime_cpp::MemoryRegion<void>(buf.data(), buf.size());
-  auto ret = rosidl_typesupport_xcdr_cpp_tests::msg::experimental::populate_external_storage_InnerValue(
+  auto ret =
+    rosidl_typesupport_xcdr_cpp_tests::msg::experimental::populate_external_storage_InnerValue(
     accessor, &ext);
   EXPECT_EQ(RCUTILS_RET_OK, ret);
 
@@ -128,7 +130,9 @@ TEST(TestExternalStorageRecursion, SingleNested)
 
   NestedContainers::ExternalStorage ext;
   ext.block = rosidl_runtime_cpp::MemoryRegion<void>(buf.data(), buf.size());
-  auto ret = rosidl_typesupport_xcdr_cpp_tests::msg::experimental::populate_external_storage_NestedContainers(
+  auto ret =
+    rosidl_typesupport_xcdr_cpp_tests::msg::experimental::populate_external_storage_NestedContainers
+    (
     accessor, &ext);
   EXPECT_EQ(RCUTILS_RET_OK, ret);
 

@@ -16,10 +16,12 @@
 #define XCDR_BUFFERS__LAYOUT__LAYOUT_HPP_
 
 #include <cstddef>
+#include <functional>
 #include <map>
 #include <memory>
 #include <memory_resource>
 #include <string>
+#include <string_view>
 #include <variant>
 #include <vector>
 #include <utility>
@@ -238,15 +240,15 @@ public:
   class Member
   {
 public:
-    Member(std::string name, size_t offset, std::shared_ptr<XCdrLayout> layout)
+    Member(std::pmr::string name, size_t offset, std::shared_ptr<XCdrLayout> layout)
     : name_(std::move(name)), offset_(offset), layout_(std::move(layout)) {}
 
-    const std::string & name() const {return name_;}
+    const std::pmr::string & name() const {return name_;}
     size_t offset() const {return offset_;}
     const XCdrLayout & layout() const {return *layout_;}
 
 private:
-    std::string name_;
+    std::pmr::string name_;
     size_t offset_;
     std::shared_ptr<XCdrLayout> layout_;
   };
@@ -256,7 +258,7 @@ private:
 
   XCdrStructLayout(
     std::pmr::vector<Member> members,
-    std::pmr::map<std::string, size_t> name_to_index,
+    std::pmr::map<std::pmr::string, size_t, std::less<>> name_to_index,
     size_t total_size,
     size_t max_alignment,
     XCdrEndianness endianness,
@@ -286,7 +288,7 @@ private:
 
 private:
   std::pmr::vector<Member> members_;
-  std::pmr::map<std::string, size_t> name_to_index_;
+  std::pmr::map<std::pmr::string, size_t, std::less<>> name_to_index_;
   size_t total_size_;
   size_t max_alignment_;
   XCdrEndianness endianness_;

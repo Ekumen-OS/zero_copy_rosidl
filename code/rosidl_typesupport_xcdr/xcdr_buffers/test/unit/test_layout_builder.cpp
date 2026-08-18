@@ -21,16 +21,16 @@ using namespace xcdr_buffers;  // NOLINT(build/namespaces)
 
 TEST(LayoutBuilderTest, AllocateSinglePrimitive) {
   XCdrLayoutBuilder builder;
-  builder.allocate_primitive(XCdrPrimitiveKind::kUint32);
+  builder.allocate_primitive("a", XCdrPrimitiveKind::kUint32);
   auto layout = builder.finalize();
 
-  // Should have 1 member with auto-generated name
+  // Should have 1 member with the given name
   EXPECT_EQ(layout.member_count(), 1);
 
   auto member_result = layout.get_member(0);
   ASSERT_TRUE(member_result);
   const auto & member = member_result->get();
-  EXPECT_EQ(member.name(), "field_0");
+  EXPECT_EQ(member.name(), "a");
 
   // Total size = header (4) + uint32 (4)
   EXPECT_EQ(layout.total_size(), kXCdrHeaderSize + 4);
@@ -38,24 +38,24 @@ TEST(LayoutBuilderTest, AllocateSinglePrimitive) {
 
 TEST(LayoutBuilderTest, AllocateMultiplePrimitives) {
   XCdrLayoutBuilder builder;
-  builder.allocate_primitive(XCdrPrimitiveKind::kUint32);
-  builder.allocate_primitive(XCdrPrimitiveKind::kDouble);
-  builder.allocate_primitive(XCdrPrimitiveKind::kUint8);
+  builder.allocate_primitive("a", XCdrPrimitiveKind::kUint32);
+  builder.allocate_primitive("b", XCdrPrimitiveKind::kDouble);
+  builder.allocate_primitive("c", XCdrPrimitiveKind::kUint8);
   auto layout = builder.finalize();
 
   EXPECT_EQ(layout.member_count(), 3);
 
   auto m0 = layout.get_member(0);
   ASSERT_TRUE(m0);
-  EXPECT_EQ(m0->get().name(), "field_0");
+  EXPECT_EQ(m0->get().name(), "a");
 
   auto m1 = layout.get_member(1);
   ASSERT_TRUE(m1);
-  EXPECT_EQ(m1->get().name(), "field_1");
+  EXPECT_EQ(m1->get().name(), "b");
 
   auto m2 = layout.get_member(2);
   ASSERT_TRUE(m2);
-  EXPECT_EQ(m2->get().name(), "field_2");
+  EXPECT_EQ(m2->get().name(), "c");
 
   // With CDR data-relative alignment:
   // Total size = header (4) + uint32 at offset 0 (4) + double
@@ -82,14 +82,14 @@ TEST(LayoutBuilderTest, AllocateNamedFields) {
 
 TEST(LayoutBuilderTest, AllocateString) {
   XCdrLayoutBuilder builder;
-  builder.allocate_string(10);
+  builder.allocate_string("s", 10);
   auto layout = builder.finalize();
 
   EXPECT_EQ(layout.member_count(), 1);
 
   auto member_result = layout.get_member(0);
   ASSERT_TRUE(member_result);
-  EXPECT_EQ(member_result->get().name(), "field_0");
+  EXPECT_EQ(member_result->get().name(), "s");
 
   // Total size = header (4) + length prefix (4) + string (10) + null (1)
   EXPECT_EQ(layout.total_size(), kXCdrHeaderSize + 4 + 10 + 1);
@@ -97,14 +97,14 @@ TEST(LayoutBuilderTest, AllocateString) {
 
 TEST(LayoutBuilderTest, AllocatePrimitiveArray) {
   XCdrLayoutBuilder builder;
-  builder.allocate_primitive_array(XCdrPrimitiveKind::kUint32, 5);
+  builder.allocate_primitive_array("arr", XCdrPrimitiveKind::kUint32, 5);
   auto layout = builder.finalize();
 
   EXPECT_EQ(layout.member_count(), 1);
 
   auto member_result = layout.get_member(0);
   ASSERT_TRUE(member_result);
-  EXPECT_EQ(member_result->get().name(), "field_0");
+  EXPECT_EQ(member_result->get().name(), "arr");
 
   // Total size = header (4) + 5 * uint32 (20)
   EXPECT_EQ(layout.total_size(), kXCdrHeaderSize + 5 * 4);
@@ -124,7 +124,7 @@ TEST(LayoutBuilderTest, AllocateNamedArray) {
 
 TEST(LayoutBuilderTest, AllocateStringArray) {
   XCdrLayoutBuilder builder;
-  builder.begin_allocate_array(3);
+  builder.begin_allocate_array("arr", 3);
   builder.allocate_string(5);
   builder.allocate_string(5);
   builder.allocate_string(5);
@@ -132,6 +132,10 @@ TEST(LayoutBuilderTest, AllocateStringArray) {
   auto layout = builder.finalize();
 
   EXPECT_EQ(layout.member_count(), 1);
+
+  auto member_result = layout.get_member(0);
+  ASSERT_TRUE(member_result);
+  EXPECT_EQ(member_result->get().name(), "arr");
 
   // Total size = header (4) + first string (10) + padding (2) + second
   // string (10) + padding (2) + third string (10)
@@ -176,10 +180,10 @@ TEST(LayoutBuilderTest, AllocateNestedStruct) {
   EXPECT_EQ(layout.total_size(), 28);
 }
 
-TEST(LayoutBuilderTest, FieldCounterResets) {
+TEST(LayoutBuilderTest, UnnamedFieldsHaveEmptyNames) {
   XCdrLayoutBuilder builder;
 
-  // First build
+  // Unnamed fields are not registered in the name-to-index map
   builder.allocate_primitive(XCdrPrimitiveKind::kUint32);
   builder.allocate_primitive(XCdrPrimitiveKind::kUint32);
   auto layout1 = builder.finalize();
@@ -187,28 +191,31 @@ TEST(LayoutBuilderTest, FieldCounterResets) {
   EXPECT_EQ(layout1.member_count(), 2);
   auto m0 = layout1.get_member(0);
   ASSERT_TRUE(m0);
-  EXPECT_EQ(m0->get().name(), "field_0");
+  EXPECT_EQ(m0->get().name(), "");
 
   auto m1 = layout1.get_member(1);
   ASSERT_TRUE(m1);
-  EXPECT_EQ(m1->get().name(), "field_1");
+  EXPECT_EQ(m1->get().name(), "");
 
-  // Second build - field counter should reset
+  // Unnamed fields cannot be looked up by name
+  EXPECT_FALSE(layout1.get_member("a"));
+
+  // Reuse the builder for a second layout
   builder.allocate_primitive(XCdrPrimitiveKind::kUint32);
   auto layout2 = builder.finalize();
 
   EXPECT_EQ(layout2.member_count(), 1);
   auto m0_2 = layout2.get_member(0);
   ASSERT_TRUE(m0_2);
-  EXPECT_EQ(m0_2->get().name(), "field_0");  // Should restart at field_0
+  EXPECT_EQ(m0_2->get().name(), "");
 }
 
 TEST(LayoutBuilderTest, MixNamedAndUnnamed) {
   XCdrLayoutBuilder builder;
   builder.allocate_primitive("id", XCdrPrimitiveKind::kUint32);
-  builder.allocate_primitive(XCdrPrimitiveKind::kDouble);  // Auto-named
+  builder.allocate_primitive(XCdrPrimitiveKind::kDouble);  // Unnamed
   builder.allocate_string("name", 10);
-  builder.allocate_primitive(XCdrPrimitiveKind::kUint8);  // Auto-named
+  builder.allocate_primitive(XCdrPrimitiveKind::kUint8);  // Unnamed
   auto layout = builder.finalize();
 
   EXPECT_EQ(layout.member_count(), 4);
@@ -219,7 +226,7 @@ TEST(LayoutBuilderTest, MixNamedAndUnnamed) {
 
   auto m1 = layout.get_member(1);
   ASSERT_TRUE(m1);
-  EXPECT_EQ(m1->get().name(), "field_1");  // Auto-generated
+  EXPECT_EQ(m1->get().name(), "");  // Unnamed
 
   auto m2 = layout.get_member(2);
   ASSERT_TRUE(m2);
@@ -227,7 +234,13 @@ TEST(LayoutBuilderTest, MixNamedAndUnnamed) {
 
   auto m3 = layout.get_member(3);
   ASSERT_TRUE(m3);
-  EXPECT_EQ(m3->get().name(), "field_3");  // Auto-generated
+  EXPECT_EQ(m3->get().name(), "");  // Unnamed
+
+  // Only named members are reachable by name
+  EXPECT_TRUE(layout.get_member("id"));
+  EXPECT_TRUE(layout.get_member("name"));
+  EXPECT_FALSE(layout.get_member("field_1"));
+  EXPECT_FALSE(layout.get_member("field_3"));
 }
 
 TEST(LayoutBuilderTest, ApplyLayoutToBuffer) {

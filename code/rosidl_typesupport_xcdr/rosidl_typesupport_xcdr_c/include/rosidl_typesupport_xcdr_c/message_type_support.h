@@ -265,6 +265,14 @@ typedef struct rosidl_message_xcdr_type_support_s
   rosidl_memory_region_t (*compact_message_in_place)(
     const struct rosidl_message_xcdr_type_support_s * type_support,
     void * message);
+
+  /// ROS message namespace (e.g. "sensor_msgs::msg" or "sensor_msgs::msg::experimental").
+  /** Populated by the code generator. May be NULL for constrained or synthetic handles. */
+  const char * message_namespace;
+
+  /// ROS message name (e.g. "Image").
+  /** Populated by the code generator. May be NULL for constrained or synthetic handles. */
+  const char * message_name;
 } rosidl_message_xcdr_type_support_t;
 
 // ============================================================================

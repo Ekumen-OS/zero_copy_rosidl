@@ -209,6 +209,8 @@ static rosidl_message_xcdr_type_support_t mock_outer = {
   mock_get_constraints,
   mock_destroy_inner,
   nullptr,  // compact_message_in_place (not used by these tests)
+  "test_ns",   // message_namespace
+  "TestMsg",   // message_name
 };
 
 /// Build a minimal valid rosidl_message_type_support_t wrapping mock_outer.

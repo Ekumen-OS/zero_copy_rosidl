@@ -27,6 +27,7 @@
 
 // xcdr_buffers headers needed by the inner struct definition
 #include "xcdr_buffers/layout/layout.hpp"
+#include "xcdr_buffers/layout/layout_parser.hpp"
 
 // Forward declare remaining xcdr_buffers types
 namespace xcdr_buffers
@@ -121,6 +122,26 @@ struct rosidl_message_xcdr_cpp_type_support_t
     const void * message,
     rosidl_typesupport_xcdr_c_constraint_report_callback_t report_cb,
     void * user_data) = nullptr;
+
+  /// Per-type layout-field parser (cast path).
+  /**
+   * Walks the buffer with the given layout parser, emitting the parse calls
+   * for this message's own members.  Nested struct members recurse into the
+   * nested type's own parse_fields callback (mirroring how serialize_fields
+   * and build_layout_fields recurse), so the layout parser can infer the
+   * offsets of variable-length members from the wire data.
+   *
+   * Generated for EVERY message (experimental and non-experimental alike),
+   * because a non-experimental type can be nested inside an experimental
+   * message that is cast.  Only experimental messages expose cast_message
+   * (they are the only messages backed by typed views).
+   *
+   * \param[in,out] parser  Layout parser positioned after this struct's
+   *                        context has been opened (begin_parse_struct).
+   * \return RCUTILS_RET_OK on success, RCUTILS_RET_ERROR on parse failure.
+   */
+  rcutils_ret_t (*parse_fields)(
+    xcdr_buffers::XCdrLayoutParser & parser) = nullptr;
 
   /// Per-type consume-and-compact callback (layout-driven).
   /**
@@ -385,4 +406,33 @@ compare_constraints(
   rosidl_runtime_cpp::ConstraintReportCallback report_cb = nullptr);
 
 }  // namespace rosidl_typesupport_xcdr_cpp
+
+// ---- Default fallback functions for generated dispatch handles ----
+// These return zero / null values when a message type does not provide
+// its own type hash, type description, or type description sources
+// (e.g., XCDR-only experimental messages).  Using these instead of
+// nullptr prevents null-function-pointer crashes in callers that
+// unconditionally dereference the handle's function pointers.
+
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
+ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC
+const rosidl_type_hash_t *
+xcdr_default_get_type_hash(const rosidl_message_type_support_t * type_support);
+
+ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC
+const rosidl_runtime_c__type_description__TypeDescription *
+xcdr_default_get_type_description(const rosidl_message_type_support_t * type_support);
+
+ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC
+const rosidl_runtime_c__type_description__TypeSource__Sequence *
+xcdr_default_get_type_description_sources(const rosidl_message_type_support_t * type_support);
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif  // ROSIDL_TYPESUPPORT_XCDR_CPP__MESSAGE_TYPE_SUPPORT_HPP_
