@@ -1112,9 +1112,10 @@ m
   ASSERT_EQ(xcdr, expected);
 }
 
-// Dispatch also works for standard (non-experimental) message namespaces when a
-// CPython typesupport was generated for them.
-TEST_F(EmbeddedPython, DispatchResolvesStandardMessage)
+// The CPython dispatch only represents experimental (container-API) message
+// classes: standard message namespaces resolve through the legacy C
+// typesupport instead, so the dispatch handle is not resolvable for them.
+TEST_F(EmbeddedPython, DispatchDoesNotResolveStandardMessage)
 {
   py::object msg_class = build_message(
     R"(
@@ -1124,12 +1125,5 @@ m
 )");
 
   const auto * handle = rosidl_typesupport_cpython::get_message_typesupport_handle(msg_class);
-  ASSERT_NE(handle, nullptr);
-  ASSERT_STREQ(
-    handle->typesupport_identifier,
-    rosidl_typesupport_cpython::typesupport_identifier);
-
-  const auto * xcdr = get_message_typesupport_handle(handle, "rosidl_typesupport_xcdr*");
-  ASSERT_NE(xcdr, nullptr);
-  ASSERT_STREQ(xcdr->typesupport_identifier, rosidl_typesupport_xcdr_cpython__identifier);
+  ASSERT_EQ(handle, nullptr);
 }

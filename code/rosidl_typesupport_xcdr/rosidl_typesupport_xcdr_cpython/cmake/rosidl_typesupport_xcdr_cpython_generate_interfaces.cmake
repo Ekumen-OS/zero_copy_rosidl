@@ -37,6 +37,10 @@ set(_output_path "${CMAKE_CURRENT_BINARY_DIR}/rosidl_typesupport_xcdr_cpython/${
 # The rosidl_adapter converts .msg files to .idl files, stripping any
 # 'experimental' path component.  Both standard and experimental messages
 # end up directly in msg/ or srv/, so _parent_folder is always 'msg' or 'srv'.
+# Only experimental entries are generated: the XCDR CPython typesupport
+# describes the experimental Python message classes (containers from
+# rosidl_runtime_cpython).  Standard messages keep resolving through the C
+# typesupport.
 set(_generated_files "")
 foreach(_abs_idl_file ${rosidl_generate_interfaces_ABS_IDL_FILES})
   get_filename_component(_parent_folder "${_abs_idl_file}" DIRECTORY)
@@ -45,9 +49,6 @@ foreach(_abs_idl_file ${rosidl_generate_interfaces_ABS_IDL_FILES})
   # Turn idl name into file names
   string_camel_case_to_lower_case_underscore("${_idl_name}" _header_name)
   list(APPEND _generated_files
-    # Standard (non-experimental) typesupport
-    "${_output_path}/${_parent_folder}/detail/xcdr/${_header_name}__type_support.cpp"
-    "${_output_path}/${_parent_folder}/detail/${_header_name}__rosidl_typesupport_xcdr_cpython.hpp"
     # Experimental typesupport (goes to experimental/ subdirectory)
     "${_output_path}/${_parent_folder}/experimental/detail/xcdr/${_header_name}__type_support.cpp"
     "${_output_path}/${_parent_folder}/experimental/detail/${_header_name}__rosidl_typesupport_xcdr_cpython.hpp"
@@ -72,9 +73,7 @@ endforeach()
 set(target_dependencies
   "${rosidl_typesupport_xcdr_cpython_BIN}"
   ${rosidl_typesupport_xcdr_cpython_GENERATOR_FILES}
-  "${rosidl_typesupport_xcdr_cpython_TEMPLATE_DIR}/idl__rosidl_typesupport_xcdr_cpython.hpp.em"
   "${rosidl_typesupport_xcdr_cpython_TEMPLATE_DIR}/idl__experimental_rosidl_typesupport_xcdr_cpython.hpp.em"
-  "${rosidl_typesupport_xcdr_cpython_TEMPLATE_DIR}/idl__type_support.cpp.em"
   "${rosidl_typesupport_xcdr_cpython_TEMPLATE_DIR}/idl__experimental_type_support.cpp.em"
   "${rosidl_typesupport_xcdr_cpython_TEMPLATE_DIR}/msg__rosidl_typesupport_xcdr_cpython.hpp.em"
   "${rosidl_typesupport_xcdr_cpython_TEMPLATE_DIR}/msg__type_support.cpp.em"

@@ -24,6 +24,7 @@ from rosidl_typesupport_xcdr_cpython.template_helpers import (
     get_xcdr_primitive_kind,
     get_cpp_type,
     needs_constraints,
+    get_message_shape,
     get_message_type_name,
     get_nested_typesupport_include,
     get_python_module_path,
@@ -40,6 +41,11 @@ except NameError:
 # Check if this is an experimental message
 is_experimental = force_experimental or 'experimental' in '/'.join(message.structure.namespaced_type.namespaces)
 
+# Shape flags used by the generated callbacks below to suppress unused
+# parameter warnings when a message shape does not consume them.
+_has_members, _has_unbounded, _has_nested_message = get_message_shape(
+    message.structure.members)
+
 # Determine namespace (includes 'experimental' when forced)
 msg_typename = message.structure.namespaced_type.name
 msg_namespace_parts = list(message.structure.namespaced_type.namespaces)
@@ -47,6 +53,11 @@ if force_experimental and 'experimental' not in msg_namespace_parts:
     msg_namespace_parts.append('experimental')
 msg_namespace = '::'.join(msg_namespace_parts)
 full_msg_typename = '::'.join(msg_namespace_parts + [msg_typename])
+# DDS type identity: experimental messages are alternate runtime
+# representations of the same payload as their standard counterparts, so the
+# the XCDR handle message_namespace (which feeds the DDS type name) must NOT
+# carry the experimental namespace component.
+dds_namespace = '::'.join(message.structure.namespaced_type.namespaces)
 # Effective parent parts for C symbol names and include paths
 effective_parent_parts = list(interface_path.parents[0].parts)
 if force_experimental:
@@ -1397,7 +1408,7 @@ _ns_name = _ns_parts[-1]
     }
 @[    if not isinstance(member.type, BoundedSequence)]@
     auto _elem_bound = _cs.attr("@(member.name)").attr("element").attr("size").cast<size_t>();
-    for (py::ssize_t _j = 0; _j < _count; ++_j) {
+    for (size_t _j = 0; _j < _count; ++_j) {
       auto _val = py::len(_field[py::int_(_j)]);
       if (static_cast<size_t>(_val) > _elem_bound) {
         if (report_cb) {
@@ -1426,7 +1437,7 @@ _ns_name = _ns_parts[-1]
       return RCUTILS_RET_ERROR;
     }
     auto _nested_cs = _cs.attr("@(member.name)").attr("element");
-    for (py::ssize_t _j = 0; _j < _count; ++_j) {
+    for (size_t _j = 0; _j < _count; ++_j) {
       auto _ret = _nested_inner->validate_fields(_nested_cs.ptr(), _field[py::int_(_j)].ptr(), report_cb, user_data);
       if (_ret != RCUTILS_RET_OK) { return _ret; }
     }
@@ -1545,6 +1556,9 @@ serialize_fields_into_writer_@(msg_typename)(
     RCUTILS_SET_ERROR_MSG("@(msg_typename): message is nullptr");
     return RCUTILS_RET_ERROR;
   }
+@[  if not _has_members]@
+  (void)writer;
+@[  end if]@
   auto msg = rosidl_typesupport_xcdr_cpython::py_borrow(message_ptr);
 @[  for member in message.structure.members]@
 @[    if len(message.structure.members) == 1 and member.name == EMPTY_STRUCTURE_REQUIRED_MEMBER_NAME]@
@@ -1578,6 +1592,13 @@ compact_fields_@(msg_typename)(
     RCUTILS_SET_ERROR_MSG("@(msg_typename): message is nullptr");
     return RCUTILS_RET_ERROR;
   }
+@[  if not _has_unbounded]@
+  (void)layout;
+@[  end if]@
+@[  if not _has_members]@
+  (void)writer;
+  (void)emit;
+@[  end if]@
   auto msg = rosidl_typesupport_xcdr_cpython::py_borrow(message_ptr);
 @[  for i, member in enumerate(message.structure.members)]@
 @[    if len(message.structure.members) == 1 and member.name == EMPTY_STRUCTURE_REQUIRED_MEMBER_NAME]@
@@ -1674,6 +1695,9 @@ deserialize_fields_from_reader_@(msg_typename)(
     RCUTILS_SET_ERROR_MSG("@(msg_typename): message is nullptr");
     return RCUTILS_RET_ERROR;
   }
+@[  if not _has_members]@
+  (void)reader;
+@[  end if]@
   auto msg = rosidl_typesupport_xcdr_cpython::py_borrow(message_ptr);
 @[  for member in message.structure.members]@
 @[    if len(message.structure.members) == 1 and member.name == EMPTY_STRUCTURE_REQUIRED_MEMBER_NAME]@
@@ -1744,6 +1768,12 @@ build_layout_fields_@(msg_typename)(
   xcdr_buffers::XCdrLayoutBuilder & builder,
   const void * constraints_ptr)
 {
+@[  if not _has_members]@
+  (void)builder;
+@[  end if]@
+@[  if not _has_unbounded]@
+  (void)constraints_ptr;
+@[  end if]@
 @[  for member in message.structure.members]@
 @[    if len(message.structure.members) == 1 and member.name == EMPTY_STRUCTURE_REQUIRED_MEMBER_NAME]@
 @[      continue]@
@@ -1806,9 +1836,15 @@ populate_external_storage_@(msg_typename)(
     return RCUTILS_RET_ERROR;
   }
   auto ext_storage = rosidl_typesupport_xcdr_cpython::py_borrow(ext_storage_ptr);
+@[  if not _has_members]@
+  (void)accessor;
+  (void)ext_storage;
+@[  end if]@
+@[  if _has_nested_message]@
     // The construct path leaves this false; the cast path sets it true before
     // calling populate, so nested ExternalStorage objects get the same flag.
     bool _prepopulated = py::cast<bool>(ext_storage.attr("prepopulated"));
+@[  end if]@
 @[  for idx, member in enumerate(message.structure.members)]@
 @[    if len(message.structure.members) == 1 and member.name == EMPTY_STRUCTURE_REQUIRED_MEMBER_NAME]@
 @[      continue]@
@@ -1826,6 +1862,9 @@ rcutils_ret_t
 parse_fields_@(msg_typename)(
   xcdr_buffers::XCdrLayoutParser & parser)
 {
+@[  if not _has_members]@
+  (void)parser;
+@[  end if]@
 @[  for member in message.structure.members]@
 @[    if len(message.structure.members) == 1 and member.name == EMPTY_STRUCTURE_REQUIRED_MEMBER_NAME]@
 @[      continue]@
@@ -2028,6 +2067,10 @@ validate_message_@(msg_typename)(
   }
     auto _cs = rosidl_typesupport_xcdr_cpython::py_borrow(type_specific);
     auto msg = rosidl_typesupport_xcdr_cpython::py_borrow(message_ptr);
+@[  if not _has_unbounded]@
+    (void)report_cb;
+    (void)user_data;
+@[  end if]@
 @[  for member in message.structure.members]@
 @[    if len(message.structure.members) == 1 and member.name == EMPTY_STRUCTURE_REQUIRED_MEMBER_NAME]@
 @[      continue]@
@@ -2121,7 +2164,7 @@ get_message_type_support_handle<@(full_msg_typename)>()
   static const rosidl_message_xcdr_type_support_t outer = []() {
     auto tmp = *rosidl_typesupport_xcdr_cpython::get_xcdr_cpython_type_support_prototype();
     tmp.inner = const_cast<rosidl_message_xcdr_cpython_type_support_t *>(&inner);
-    tmp.message_namespace = "@(msg_namespace)";
+    tmp.message_namespace = "@(dds_namespace)";
     tmp.message_name = "@(msg_typename)";
 @[if is_experimental]@
     // Generated overrides: return the external-storage block on release /

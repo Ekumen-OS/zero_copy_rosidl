@@ -18,16 +18,14 @@ from rosidl_pycommon import generate_files
 
 
 def generate_cpython(generator_arguments_file):
-    """Generate XCDR CPython typesupport code."""
+    """Generate XCDR CPython typesupport code.
+
+    Only experimental message entries are emitted: the XCDR CPython
+    typesupport describes the experimental Python message classes (containers
+    from rosidl_runtime_cpython).  Standard messages keep resolving through
+    the C typesupport, whose dispatch is unchanged.
+    """
     mapping = {
-        # Standard (non-experimental) typesupport
-        'idl__rosidl_typesupport_xcdr_cpython.hpp.em':
-        'detail/%s__rosidl_typesupport_xcdr_cpython.hpp',
-        'idl__type_support.cpp.em':
-        'detail/xcdr/%s__type_support.cpp',
-        # Experimental message variants — always generated alongside standard
-        # ones.  The output path goes under experimental/ to match the
-        # expected namespace (msg::experimental::MessageName).
         'idl__experimental_rosidl_typesupport_xcdr_cpython.hpp.em':
         'experimental/detail/%s__rosidl_typesupport_xcdr_cpython.hpp',
         'idl__experimental_type_support.cpp.em':

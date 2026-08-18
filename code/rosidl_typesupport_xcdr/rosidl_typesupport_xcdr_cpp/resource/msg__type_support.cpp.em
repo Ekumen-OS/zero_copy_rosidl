@@ -43,6 +43,11 @@ if force_experimental and 'experimental' not in msg_namespace_parts:
     msg_namespace_parts.append('experimental')
 msg_namespace = '::'.join(msg_namespace_parts)
 full_msg_typename = '::'.join(msg_namespace_parts + [msg_typename])
+# DDS type identity: experimental messages are alternate runtime
+# representations of the same payload as their standard counterparts, so the
+# the XCDR handle message_namespace (which feeds the DDS type name) must NOT
+# carry the experimental namespace component.
+dds_namespace = '::'.join(message.structure.namespaced_type.namespaces)
 # Effective parent parts for C symbol names and include paths
 effective_parent_parts = list(interface_path.parents[0].parts)
 if force_experimental:
@@ -1930,7 +1935,7 @@ get_message_type_support_handle<@(full_msg_typename)>()
   static const rosidl_message_xcdr_type_support_t outer = []() {
     auto tmp = *rosidl_typesupport_xcdr_cpp::get_xcdr_cpp_type_support_prototype();
     tmp.inner = const_cast<rosidl_message_xcdr_cpp_type_support_t *>(&inner);
-    tmp.message_namespace = "@(msg_namespace)";
+    tmp.message_namespace = "@(dds_namespace)";
     tmp.message_name = "@(msg_typename)";
 @[if is_experimental]@
     tmp.destroy_message = &@(msg_namespace)::destroy_message_@(msg_typename);

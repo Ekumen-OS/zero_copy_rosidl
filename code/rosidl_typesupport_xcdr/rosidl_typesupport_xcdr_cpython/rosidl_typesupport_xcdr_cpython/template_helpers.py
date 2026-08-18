@@ -15,6 +15,7 @@
 """Helper functions for rosidl_typesupport_xcdr_cpython templates."""
 
 from rosidl_parser.definition import (
+    AbstractNestedType,
     AbstractSequence,
     AbstractString,
     AbstractWString,
@@ -22,6 +23,7 @@ from rosidl_parser.definition import (
     BoundedSequence,
     BoundedString,
     BoundedWString,
+    EMPTY_STRUCTURE_REQUIRED_MEMBER_NAME,
     NamespacedType,
 )
 
@@ -86,6 +88,33 @@ def needs_constraints(member_type):
         # Nested messages might have constraints - be conservative
         return True
     return False
+
+
+def get_message_shape(members):
+    """Return (has_members, has_unbounded, has_nested_message) for a message.
+
+    The generated callbacks use these flags to emit (void) casts that
+    suppress unused parameter warnings when a message shape does not consume
+    a given parameter.  has_unbounded reports whether any member needs
+    constraints (see needs_constraints).  has_nested_message reports whether
+    any member is, or contains, a nested message.
+    """
+    real_members = [
+        m for m in members
+        if not (len(members) == 1 and m.name == EMPTY_STRUCTURE_REQUIRED_MEMBER_NAME)
+    ]
+    has_members = len(real_members) > 0
+    has_unbounded = any(needs_constraints(m.type) for m in real_members)
+
+    def contains_message_type(member_type):
+        if isinstance(member_type, NamespacedType):
+            return True
+        if isinstance(member_type, AbstractNestedType):
+            return contains_message_type(member_type.value_type)
+        return False
+
+    has_nested_message = any(contains_message_type(m.type) for m in real_members)
+    return (has_members, has_unbounded, has_nested_message)
 
 
 def get_message_type_name(namespaced_type, experimental_context=False):
