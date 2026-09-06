@@ -164,13 +164,33 @@ void XCdrLayoutBuilder::end_allocate_array()
 
   // Non-primitive array (strings, structs, nested composites) - use unified XCdrArrayLayout
   std::pmr::vector<XCdrArrayLayout::Element> elements(memory_resource_);
-  for (size_t i = 0; i < ctx.element_layouts.size(); ++i) {
-    elements.push_back({
-        ctx.element_offsets[i],
-        std::allocate_shared<XCdrLayout>(
-          std::pmr::polymorphic_allocator<XCdrLayout>(memory_resource_),
-          std::move(ctx.element_layouts[i]))
-    });
+
+  // Homogeneous arrays: the generator emits a single allocate_* call for the
+  // element type; replicate it element_count times.  Each element may sit at a
+  // different offset due to alignment padding.
+  if (ctx.element_layouts.size() == 1 && ctx.element_count > 1) {
+    const auto & elem_layout = ctx.element_layouts[0];
+    size_t elem_size = std::visit([](const auto & l) { return l.size(); }, elem_layout);
+    size_t elem_align = std::visit([](const auto & l) { return l.alignment(); }, elem_layout);
+    size_t offset = ctx.element_offsets[0];
+    for (size_t i = 0; i < ctx.element_count; ++i) {
+      elements.push_back({
+          offset,
+          std::allocate_shared<XCdrLayout>(
+            std::pmr::polymorphic_allocator<XCdrLayout>(memory_resource_),
+            elem_layout)  // copy: the layout is shared by all elements
+      });
+      offset = align_to(offset + elem_size, elem_align);
+    }
+  } else {
+    for (size_t i = 0; i < ctx.element_layouts.size(); ++i) {
+      elements.push_back({
+          ctx.element_offsets[i],
+          std::allocate_shared<XCdrLayout>(
+            std::pmr::polymorphic_allocator<XCdrLayout>(memory_resource_),
+            std::move(ctx.element_layouts[i]))
+      });
+    }
   }
 
   XCdrArrayLayout array_layout(std::move(elements), memory_resource_);
