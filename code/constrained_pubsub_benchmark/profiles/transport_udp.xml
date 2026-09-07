@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  UDP-only transport profile for constrained_pubsub_benchmark.
+
+  Disables the shared-memory transport entirely (builtin transports off,
+  custom UDPv4 descriptor only) and forces data sharing off on all
+  endpoints.  Use with RMW_FASTRTPS_USE_QOS_FROM_XML=1 so rmw_fastrtps
+  honors the endpoint data_sharing QoS instead of its middleware defaults.
+-->
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <profiles>
+    <transport_descriptors>
+      <transport_descriptor>
+        <transport_id>benchmark_udp_transport</transport_id>
+        <type>UDPv4</type>
+      </transport_descriptor>
+    </transport_descriptors>
+
+    <participant profile_name="benchmark_udp_participant" is_default_profile="true">
+      <rtps>
+        <useBuiltinTransports>false</useBuiltinTransports>
+        <userTransports>
+          <transport_id>benchmark_udp_transport</transport_id>
+        </userTransports>
+      </rtps>
+    </participant>
+
+    <data_writer profile_name="benchmark_udp_writer" is_default_profile="true">
+      <qos>
+        <data_sharing>
+          <kind>OFF</kind>
+        </data_sharing>
+      </qos>
+    </data_writer>
+
+    <data_reader profile_name="benchmark_udp_reader" is_default_profile="true">
+      <qos>
+        <data_sharing>
+          <kind>OFF</kind>
+        </data_sharing>
+      </qos>
+    </data_reader>
+  </profiles>
+</dds>

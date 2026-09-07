@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  Shared memory plus data-sharing profile for constrained_pubsub_benchmark.
+
+  SHM-only transport (no UDP).  Data sharing is AUTO everywhere, never ON:
+  a writer with data sharing ON and DYNAMIC_REUSABLE is a configuration
+  failure, while AUTO lets such a writer gracefully skip data sharing.
+  The DEFAULT writer profile uses DYNAMIC_REUSABLE so ROS internal
+  endpoints (parameter events, rosout) always construct; the DEFAULT
+  reader keeps data sharing OFF and PREALLOCATED_WITH_REALLOC.
+  The orchestrator renders per-step, per-role copies of this file with
+  additional topic-scoped data_writer/data_reader profiles carrying data
+  sharing AUTO for the benchmark topic only (see render_topic_profile):
+  the publishing role gets a PREALLOCATED_WITH_REALLOC writer
+  (data-sharing capable), the receiving role DYNAMIC_REUSABLE on both
+  reader and writer.
+
+  Use with RMW_FASTRTPS_USE_QOS_FROM_XML=1 so rmw_fastrtps honors the
+  endpoint QoS instead of its middleware defaults.
+-->
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <profiles>
+    <transport_descriptors>
+      <transport_descriptor>
+        <transport_id>benchmark_shm_ds_transport</transport_id>
+        <type>SHM</type>
+        <segment_size>67108864</segment_size>
+        <maxMessageSize>50331648</maxMessageSize>
+        <port_queue_capacity>512</port_queue_capacity>
+        <healthy_check_timeout_ms>1000</healthy_check_timeout_ms>
+      </transport_descriptor>
+    </transport_descriptors>
+
+    <participant profile_name="benchmark_shm_ds_participant" is_default_profile="true">
+      <rtps>
+        <useBuiltinTransports>false</useBuiltinTransports>
+        <userTransports>
+          <transport_id>benchmark_shm_ds_transport</transport_id>
+        </userTransports>
+      </rtps>
+    </participant>
+
+    <data_writer profile_name="benchmark_shm_ds_writer" is_default_profile="true">
+      <qos>
+        <data_sharing>
+          <kind>AUTOMATIC</kind>
+        </data_sharing>
+      </qos>
+      <!-- DYNAMIC_REUSABLE so unconstrained internal writers always
+           construct; with AUTOMATIC they gracefully skip data sharing. -->
+      <historyMemoryPolicy>DYNAMIC_REUSABLE</historyMemoryPolicy>
+    </data_writer>
+
+    <data_reader profile_name="benchmark_shm_ds_reader" is_default_profile="true">
+      <qos>
+        <data_sharing>
+          <kind>OFF</kind>
+        </data_sharing>
+      </qos>
+      <historyMemoryPolicy>PREALLOCATED_WITH_REALLOC</historyMemoryPolicy>
+    </data_reader>
+  </profiles>
+</dds>
