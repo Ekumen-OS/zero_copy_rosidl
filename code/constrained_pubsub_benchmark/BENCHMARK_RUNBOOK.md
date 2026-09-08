@@ -119,7 +119,40 @@ A full matrix (5 cases x 6 directions) is 30 sweep invocations of up to
 a failed step emits an error row and the sweep continues (nonzero exit
 if any step failed).
 
-## 6. Raw CSV schema
+## 6. Collecting the matrix
+
+Two driver scripts (package root, also installed to
+`share/constrained_pubsub_benchmark`) run whole sets sequentially with
+`[i/N]` progress. Both resume: an invocation with a `.done` marker in
+the results dir is skipped; failures keep a `.csv.failed` copy plus the
+stderr log and are retried on the next run. `RESULTS_DIR` overrides the
+output location; `DRY_RUN=1` prints every command without running.
+
+Machine hygiene: each step cleans stale FastDDS SHM segments
+(`fast_datasharing_*`, `fastrtps_*`), appends a temp/freq/load/SHM
+snapshot to `{RESULTS_DIR}/machine_state.log`, and cools down until max
+CPU temp drops below `COOLDOWN_MAX_C` (default 75°C, `COOLDOWN_TIMEOUT`
+120 s cap) before the next step. Heat soak skews latencies ~2x, so do
+not disable this for publishable runs. `ROS_DISABLE_LOANED_MESSAGES=0`
+is exported by both drivers (loaned takes are opt-in at the rcl layer),
+and both pass `--fill-encoding 64 --fill-frame-id 16 --fill-data-ratio
+1.0` so constrained messages fill their bounds and skip the compaction
+rewrite.
+```bash
+# Pilot first: 5 cases x 4 inter-process directions, shmem_ds only,
+# 10 Hz, 100K + 1MB payloads, 30 s per step (~25 min)
+./src/constrained_pubsub_benchmark/run_pilot.sh
+
+# Full matrix: 5 cases x 6 directions x 240 steps at 30 s (~34 h)
+RESULTS_DIR=/data/matrix ./src/constrained_pubsub_benchmark/run_matrix.sh
+```
+
+Run from the workspace root, one driver at a time (SHM segments and
+40 MB payloads are sized for sequential steps). Inspect a finished
+invocation's `.log` on failure, delete a stale `.done` marker to force
+a re-run, then feed the results dir to `analyze_results.py` (§8).
+
+## 7. Raw CSV schema
 
 One row per published (`publish`) or received (`receive`) sample, plus
 `error` rows for explicit failures (never sequence-joined):
@@ -151,7 +184,33 @@ lat = [v[0] for v in sub.values() if v]
 drops = sum(1 for k in pub if k not in sub)
 ```
 
-## 7. What to look at
+## 8. Post-processing
+
+`scripts/analyze_results.py` turns raw sweep CSVs into statistics,
+figures, and a Markdown report (spec: `src/PLAN_postprocessing.md`).
+Needs pandas, numpy, matplotlib (pip). The script is a source-tree
+tool; it is not installed by the package build.
+
+```bash
+# Analyze a results directory (raw CSVs anywhere underneath)
+python3 src/constrained_pubsub_benchmark/scripts/analyze_results.py \
+  /tmp/sweep_results --output-dir /tmp/sweep_results/analysis
+
+# Common filters
+python3 src/constrained_pubsub_benchmark/scripts/analyze_results.py \
+  /tmp/sweep_results --cases exp_constrained_pub_sub_xcdr \
+  --transports shmem,shmem_ds --no-figures
+```
+
+Inputs: raw CSV files (21 columns) anywhere under the results
+directory. Outputs under `{results_dir}/analysis` (override with
+`--output-dir`): six CSVs (`summary_matrix`, `per_run_stats`,
+`sweep_by_payload`, `sweep_by_frequency`, `sweep_by_direction`,
+`drops`), 27 PNG figures (summary heatmap, per-case payload and
+frequency sweeps, per-step time series), and `report.md`. See
+`--help` for step selection, payload exclusion, PDF output, and DPI.
+
+## 9. What to look at
 
 - **stdout CSV**: the only benchmark output. One header line, then data
   rows. Missing receive rows are drops, not errors.
@@ -166,7 +225,7 @@ drops = sum(1 for k in pub if k not in sub)
   - `check_datasharing_compatible ... is_bounded=...` — data sharing enabled?
   - `XcdrTypeSupport type=... bounded=... type_size=...` — bounded/plain flags.
 
-## 8. Known behaviors (not bugs)
+## 10. Known behaviors (not bugs)
 
 - **Short-window tail drops**: with 1–3 s runs, discovery settle (~1 s)
   plus the grace window can clip trailing messages. They appear as

@@ -111,6 +111,14 @@ install(FILES
   DESTINATION lib/${PROJECT_NAME}
 )
 
+# ── Matrix driver scripts (host-side run tooling, not benchmark code) ────
+
+install(PROGRAMS
+  run_matrix.sh
+  run_pilot.sh
+  DESTINATION share/${PROJECT_NAME}
+)
+
 # ── Fast DDS transport profiles (UDP-only, SHM-only, SHM + data sharing) ─
 
 install(DIRECTORY
@@ -127,6 +135,11 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_benchmark_common
     test/test_benchmark_common.py
     TIMEOUT 60
+  )
+
+  ament_add_pytest_test(test_analyze_results
+    test/test_analyze_results.py
+    TIMEOUT 600
   )
 
   ament_add_gtest(test_sample_record
