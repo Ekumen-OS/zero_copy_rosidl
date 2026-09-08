@@ -245,8 +245,10 @@ private:
   size_t element_stride() const;
 
   std::pmr::vector<Element> elements_;
-  size_t actual_count_;
-  std::pmr::memory_resource * memory_resource_;
+  // Default member initializers so the object is always in a valid state,
+  // even when constructed via placement new into a variant.
+  size_t actual_count_{0};
+  std::pmr::memory_resource * memory_resource_{nullptr};
 };
 
 /**

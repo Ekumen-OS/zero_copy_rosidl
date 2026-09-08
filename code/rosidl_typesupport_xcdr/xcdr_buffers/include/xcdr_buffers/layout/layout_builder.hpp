@@ -15,6 +15,7 @@
 #ifndef XCDR_BUFFERS__LAYOUT__LAYOUT_BUILDER_HPP_
 #define XCDR_BUFFERS__LAYOUT__LAYOUT_BUILDER_HPP_
 
+#include <deque>
 #include <functional>
 #include <memory>
 #include <memory_resource>
@@ -254,8 +255,10 @@ private:
     // Nested builder for structs
     std::shared_ptr<XCdrLayoutBuilder> nested_builder;
 
-    // Element layouts for arrays/sequences (one per element)
-    std::pmr::vector<XCdrLayout> element_layouts;
+    // Element layouts for arrays/sequences (one per element).  A deque is
+    // used instead of a vector so push_back never moves existing elements:
+    // moving the large XCdrLayout variant trips GCC -Wmaybe-uninitialized.
+    std::pmr::deque<XCdrLayout> element_layouts;
     std::pmr::vector<size_t> element_offsets;
   };
 

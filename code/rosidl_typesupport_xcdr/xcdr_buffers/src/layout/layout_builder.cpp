@@ -70,10 +70,7 @@ void XCdrLayoutBuilder::allocate_primitive(std::string_view name, XCdrPrimitiveK
         elem_offset -= kSequenceLengthPrefixSize;  // Sequences have length prefix
       }
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
       ctx.element_layouts.push_back(XCdrPrimitiveLayout(kind, memory_resource_));
-#pragma GCC diagnostic pop
       ctx.element_offsets.push_back(elem_offset);
       current_offset_ += get_primitive_size(kind);
       return;
@@ -105,10 +102,7 @@ void XCdrLayoutBuilder::allocate_string(
         elem_offset -= kSequenceLengthPrefixSize;  // Sequences have length prefix
       }
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
       ctx.element_layouts.push_back(XCdrStringLayout(actual_length, char_kind, memory_resource_));
-#pragma GCC diagnostic pop
       ctx.element_offsets.push_back(elem_offset);
       // The layout object we just pushed knows its own byte size.
       current_offset_ += std::get<XCdrStringLayout>(ctx.element_layouts.back()).size();
@@ -154,7 +148,7 @@ void XCdrLayoutBuilder::end_allocate_array()
     return;
   }
 
-  const auto & first_elem = ctx.element_layouts[0];
+  [[maybe_unused]] const auto & first_elem = ctx.element_layouts[0];
 
   // Primitive arrays must be built with allocate_primitive_array(): the
   // begin/allocate/end path is only for non-primitive elements (strings,
@@ -241,7 +235,7 @@ void XCdrLayoutBuilder::end_allocate_sequence()
     return;
   }
 
-  const auto & first_elem = ctx.element_layouts[0];
+  [[maybe_unused]] const auto & first_elem = ctx.element_layouts[0];
 
   // Primitive sequences must be built with allocate_primitive_sequence():
   // the begin/allocate/end path is only for non-primitive elements (strings,
