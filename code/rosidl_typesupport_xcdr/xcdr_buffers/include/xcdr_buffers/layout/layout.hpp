@@ -219,7 +219,21 @@ public:
     std::pmr::vector<Element> elements,
     std::pmr::memory_resource * mr = nullptr);
 
-  size_t actual_count() const {return elements_.size();}
+  /// Construct with an explicit element count (the constraint bound).
+  /**
+   * The count is the number of elements the sequence can hold at its
+   * maximum (the constraint bound).  When the layout was built from a single
+   * element template (the usual case for constrained sequences), element
+   * access beyond the stored templates is derived from the template's
+   * stride.  When \p actual_count is omitted it defaults to
+   * `elements.size()`.
+   */
+  XCdrSequenceLayout(
+    std::pmr::vector<Element> elements,
+    size_t actual_count,
+    std::pmr::memory_resource * mr = nullptr);
+
+  size_t actual_count() const {return actual_count_;}
   XCdrResult<size_t> element_offset(size_t index) const;  // Relative to data start
   XCdrResult<std::reference_wrapper<const XCdrLayout>> element_layout(size_t index) const;
   size_t size() const;  // Includes length prefix
@@ -227,8 +241,14 @@ public:
   size_t data_offset() const {return kSequenceLengthPrefixSize;}
 
 private:
+  /// Byte stride between consecutive uniform elements (0 if no elements).
+  size_t element_stride() const;
+
   std::pmr::vector<Element> elements_;
-  std::pmr::memory_resource * memory_resource_;
+  // Default member initializers so the object is always in a valid state,
+  // even when constructed via placement new into a variant.
+  size_t actual_count_{0};
+  std::pmr::memory_resource * memory_resource_{nullptr};
 };
 
 /**

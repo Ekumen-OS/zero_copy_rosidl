@@ -60,6 +60,7 @@ services:
         GID: $GROUPID
     image: ekumenlabs/zcr-dev
     container_name: zcr-dev
+    shm_size: '2gb'
     stdin_open: true
     tty: true
     volumes:

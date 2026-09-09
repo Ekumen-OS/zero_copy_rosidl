@@ -29,16 +29,13 @@ TEST(FastCDRInterop, XCdrWriterToFastCDR_Primitives) {
   writer.write<double>(3.14);
   auto buffer = writer.flush();
 
-  // FastCDR in DDS_CDR mode doesn't include the encapsulation header in the buffer,
-  // so we need to skip the 4-byte header from XCdrWriter output
-  const uint8_t * data_start = buffer.data() + kXCdrHeaderSize;
-  size_t data_size = buffer.size() - kXCdrHeaderSize;
-
-  // Read with FastCDR - need to copy to mutable buffer for FastCDR
-  std::vector<char> mutable_buffer(data_start, data_start + data_size);
+  // FastCDR reads the XCdrWriter encapsulation header directly via
+  // read_encapsulation(): the 4-byte header format is shared (PLAIN_CDR).
+  std::vector<char> mutable_buffer(buffer.data(), buffer.data() + buffer.size());
   eprosima::fastcdr::FastBuffer fast_buffer(mutable_buffer.data(), mutable_buffer.size());
   eprosima::fastcdr::Cdr cdr(fast_buffer, eprosima::fastcdr::Cdr::DEFAULT_ENDIAN,
     eprosima::fastcdr::DDS_CDR);
+  cdr.read_encapsulation();
 
   uint32_t value1;
   double value2;
@@ -54,15 +51,12 @@ TEST(FastCDRInterop, XCdrWriterToFastCDR_String) {
   writer.write(std::string_view("Hello, FastCDR!"));
   auto buffer = writer.flush();
 
-  // Skip the 4-byte XCdr header for FastCDR compatibility
-  const uint8_t * data_start = buffer.data() + kXCdrHeaderSize;
-  size_t data_size = buffer.size() - kXCdrHeaderSize;
-
-  // Read with FastCDR
-  eprosima::fastcdr::FastBuffer fast_buffer(
-    reinterpret_cast<char *>(const_cast<uint8_t *>(data_start)), data_size);
+  // FastCDR reads the XCdrWriter encapsulation header directly.
+  std::vector<char> mutable_buffer(buffer.data(), buffer.data() + buffer.size());
+  eprosima::fastcdr::FastBuffer fast_buffer(mutable_buffer.data(), mutable_buffer.size());
   eprosima::fastcdr::Cdr cdr(fast_buffer, eprosima::fastcdr::Cdr::DEFAULT_ENDIAN,
     eprosima::fastcdr::DDS_CDR);
+  cdr.read_encapsulation();
 
   std::string str;
   cdr >> str;
@@ -77,15 +71,12 @@ TEST(FastCDRInterop, XCdrWriterToFastCDR_Sequence) {
   writer.write_sequence(tcb::span<const uint32_t>(values.data(), values.size()));
   auto buffer = writer.flush();
 
-  // Skip the 4-byte XCdr header for FastCDR compatibility
-  const uint8_t * data_start = buffer.data() + kXCdrHeaderSize;
-  size_t data_size = buffer.size() - kXCdrHeaderSize;
-
-  // Read with FastCDR
-  eprosima::fastcdr::FastBuffer fast_buffer(
-    reinterpret_cast<char *>(const_cast<uint8_t *>(data_start)), data_size);
+  // FastCDR reads the XCdrWriter encapsulation header directly.
+  std::vector<char> mutable_buffer(buffer.data(), buffer.data() + buffer.size());
+  eprosima::fastcdr::FastBuffer fast_buffer(mutable_buffer.data(), mutable_buffer.size());
   eprosima::fastcdr::Cdr cdr(fast_buffer, eprosima::fastcdr::Cdr::DEFAULT_ENDIAN,
     eprosima::fastcdr::DDS_CDR);
+  cdr.read_encapsulation();
 
   std::vector<uint32_t> result;
   cdr >> result;
@@ -186,15 +177,12 @@ TEST(FastCDRInterop, RoundTripComplex) {
   writer.write_sequence(tcb::span<const double>(coords.data(), coords.size()));
   auto xcdr_buffer = writer.flush();
 
-  // Skip XCdr header for FastCDR
-  const uint8_t * data_start = xcdr_buffer.data() + kXCdrHeaderSize;
-  size_t data_size = xcdr_buffer.size() - kXCdrHeaderSize;
-
-  // Read with FastCDR - copy to mutable buffer
-  std::vector<char> mutable_buffer(data_start, data_start + data_size);
+  // Read with FastCDR - FastCDR reads the XCdrWriter encapsulation header directly.
+  std::vector<char> mutable_buffer(xcdr_buffer.data(), xcdr_buffer.data() + xcdr_buffer.size());
   eprosima::fastcdr::FastBuffer fast_buffer(mutable_buffer.data(), mutable_buffer.size());
   eprosima::fastcdr::Cdr cdr_read(fast_buffer, eprosima::fastcdr::Cdr::DEFAULT_ENDIAN,
     eprosima::fastcdr::DDS_CDR);
+  cdr_read.read_encapsulation();
 
   uint32_t id;
   std::string name;

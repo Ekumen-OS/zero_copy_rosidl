@@ -89,6 +89,35 @@ if(BUILD_TESTING)
   ament_add_gtest(test_accessor_integration test/integration/test_accessor_integration.cpp)
   target_link_libraries(test_accessor_integration ${PROJECT_NAME})
 
+  # Microbenchmarks (Google Benchmark). These are skipped by default unless
+  # AMENT_RUN_PERFORMANCE_TESTS is ON at configure time.
+  find_package(ament_cmake_google_benchmark REQUIRED)
+
+  ament_add_google_benchmark(benchmark_layout_build test/benchmark/benchmark_layout_build.cpp TIMEOUT 120)
+  if(TARGET benchmark_layout_build)
+    target_link_libraries(benchmark_layout_build ${PROJECT_NAME})
+  endif()
+
+  ament_add_google_benchmark(benchmark_layout_parse test/benchmark/benchmark_layout_parse.cpp TIMEOUT 120)
+  if(TARGET benchmark_layout_parse)
+    target_link_libraries(benchmark_layout_parse ${PROJECT_NAME})
+  endif()
+
+  ament_add_google_benchmark(benchmark_accessor test/benchmark/benchmark_accessor.cpp TIMEOUT 120)
+  if(TARGET benchmark_accessor)
+    target_link_libraries(benchmark_accessor ${PROJECT_NAME})
+  endif()
+
+  ament_add_google_benchmark(benchmark_reader test/benchmark/benchmark_reader.cpp TIMEOUT 120)
+  if(TARGET benchmark_reader)
+    target_link_libraries(benchmark_reader ${PROJECT_NAME})
+  endif()
+
+  ament_add_google_benchmark(benchmark_writer test/benchmark/benchmark_writer.cpp TIMEOUT 120)
+  if(TARGET benchmark_writer)
+    target_link_libraries(benchmark_writer ${PROJECT_NAME})
+  endif()
+
   # Linting
   find_package(ament_lint_auto REQUIRED)
   ament_lint_auto_find_test_dependencies()

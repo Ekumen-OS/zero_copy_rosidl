@@ -1,0 +1,2 @@
+case,message,config,backend,direction,transport,reliability,payload_bytes,mean,std,p50,p95,p99,n_runs
+exp_constrained_pub_only_xcdr,exp,constrained_pub_only,xcdr,py_to_py,shmem_ds,best_effort,1000000,139.3191727574751,40.78595425515245,127.622,210.009,291.282,1

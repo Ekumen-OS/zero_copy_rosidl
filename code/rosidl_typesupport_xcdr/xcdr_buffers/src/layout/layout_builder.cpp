@@ -70,10 +70,7 @@ void XCdrLayoutBuilder::allocate_primitive(std::string_view name, XCdrPrimitiveK
         elem_offset -= kSequenceLengthPrefixSize;  // Sequences have length prefix
       }
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
       ctx.element_layouts.push_back(XCdrPrimitiveLayout(kind, memory_resource_));
-#pragma GCC diagnostic pop
       ctx.element_offsets.push_back(elem_offset);
       current_offset_ += get_primitive_size(kind);
       return;
@@ -105,12 +102,10 @@ void XCdrLayoutBuilder::allocate_string(
         elem_offset -= kSequenceLengthPrefixSize;  // Sequences have length prefix
       }
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
       ctx.element_layouts.push_back(XCdrStringLayout(actual_length, char_kind, memory_resource_));
-#pragma GCC diagnostic pop
       ctx.element_offsets.push_back(elem_offset);
-      current_offset_ += kStringLengthPrefixSize + actual_length + kStringNullTerminatorSize;
+      // The layout object we just pushed knows its own byte size.
+      current_offset_ += std::get<XCdrStringLayout>(ctx.element_layouts.back()).size();
       return;
     }
   }
@@ -118,8 +113,9 @@ void XCdrLayoutBuilder::allocate_string(
   // Top-level field
   align_current_offset(kStringLengthPrefixSize);  // Strings align to prefix size
   size_t field_offset = current_offset_;
-  add_field(name, field_offset, XCdrStringLayout(actual_length, char_kind, memory_resource_));
-  current_offset_ += kStringLengthPrefixSize + actual_length + kStringNullTerminatorSize;
+  XCdrStringLayout string_layout(actual_length, char_kind, memory_resource_);
+  add_field(name, field_offset, string_layout);
+  current_offset_ += string_layout.size();
 }
 
 void XCdrLayoutBuilder::begin_allocate_array(std::string_view name, size_t count)
@@ -152,7 +148,7 @@ void XCdrLayoutBuilder::end_allocate_array()
     return;
   }
 
-  const auto & first_elem = ctx.element_layouts[0];
+  [[maybe_unused]] const auto & first_elem = ctx.element_layouts[0];
 
   // Primitive arrays must be built with allocate_primitive_array(): the
   // begin/allocate/end path is only for non-primitive elements (strings,
@@ -162,22 +158,45 @@ void XCdrLayoutBuilder::end_allocate_array()
 
   // Non-primitive array (strings, structs, nested composites) - use unified XCdrArrayLayout
   std::pmr::vector<XCdrArrayLayout::Element> elements(memory_resource_);
-  for (size_t i = 0; i < ctx.element_layouts.size(); ++i) {
-    elements.push_back({
-        ctx.element_offsets[i],
-        std::allocate_shared<XCdrLayout>(
-          std::pmr::polymorphic_allocator<XCdrLayout>(memory_resource_),
-          std::move(ctx.element_layouts[i]))
-    });
+
+  // Homogeneous arrays: the generator emits a single allocate_* call for the
+  // element type; replicate it element_count times.  Each element may sit at a
+  // different offset due to alignment padding.
+  if (ctx.element_layouts.size() == 1 && ctx.element_count > 1) {
+    const auto & elem_layout = ctx.element_layouts[0];
+    size_t elem_size = std::visit([](const auto & l) { return l.size(); }, elem_layout);
+    size_t elem_align = std::visit([](const auto & l) { return l.alignment(); }, elem_layout);
+    size_t offset = ctx.element_offsets[0];
+    for (size_t i = 0; i < ctx.element_count; ++i) {
+      elements.push_back({
+          offset,
+          std::allocate_shared<XCdrLayout>(
+            std::pmr::polymorphic_allocator<XCdrLayout>(memory_resource_),
+            elem_layout)  // copy: the layout is shared by all elements
+      });
+      offset = align_to(offset + elem_size, elem_align);
+    }
+  } else {
+    for (size_t i = 0; i < ctx.element_layouts.size(); ++i) {
+      elements.push_back({
+          ctx.element_offsets[i],
+          std::allocate_shared<XCdrLayout>(
+            std::pmr::polymorphic_allocator<XCdrLayout>(memory_resource_),
+            std::move(ctx.element_layouts[i]))
+      });
+    }
   }
 
+  XCdrArrayLayout array_layout(std::move(elements), memory_resource_);
   if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
     context_stack_.back().nested_builder->add_field(
-      ctx.field_name, ctx.start_offset, XCdrArrayLayout(std::move(elements), memory_resource_));
+      ctx.field_name, ctx.start_offset, array_layout);
   } else {
-    add_field(ctx.field_name, ctx.start_offset,
-        XCdrArrayLayout(std::move(elements), memory_resource_));
+    add_field(ctx.field_name, ctx.start_offset, array_layout);
   }
+  // Advance past the array's true span (accounts for inter-element alignment
+  // padding that per-element size accumulation under-counts).
+  current_offset_ = ctx.start_offset + array_layout.size();
 }
 
 void XCdrLayoutBuilder::begin_allocate_sequence(std::string_view name, size_t actual_count)
@@ -216,7 +235,7 @@ void XCdrLayoutBuilder::end_allocate_sequence()
     return;
   }
 
-  const auto & first_elem = ctx.element_layouts[0];
+  [[maybe_unused]] const auto & first_elem = ctx.element_layouts[0];
 
   // Primitive sequences must be built with allocate_primitive_sequence():
   // the begin/allocate/end path is only for non-primitive elements (strings,
@@ -235,14 +254,16 @@ void XCdrLayoutBuilder::end_allocate_sequence()
     });
   }
 
+  XCdrSequenceLayout sequence_layout(std::move(elements), ctx.element_count, memory_resource_);
   if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
     context_stack_.back().nested_builder->add_field(
-      ctx.field_name, ctx.start_offset,
-        XCdrSequenceLayout(std::move(elements), memory_resource_));
+      ctx.field_name, ctx.start_offset, sequence_layout);
   } else {
-    add_field(ctx.field_name, ctx.start_offset,
-        XCdrSequenceLayout(std::move(elements), memory_resource_));
+    add_field(ctx.field_name, ctx.start_offset, sequence_layout);
   }
+  // Advance past the sequence's true span (includes the length prefix and
+  // inter-element alignment padding).
+  current_offset_ = ctx.start_offset + sequence_layout.size();
 }
 
 void XCdrLayoutBuilder::begin_allocate_struct()

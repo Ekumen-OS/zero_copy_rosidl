@@ -1,0 +1,2 @@
+run_id,case,direction,transport,reliability,payload_bytes,target_frequency_hz,nominal_period_ms,n_intervals,inter_send_mean_ms,inter_send_std_ms,inter_send_min_ms,inter_send_max_ms,jitter_ratio
+exp_constrained_pub_only_xcdr__py_to_py__1000000B__10Hz__shmem_ds__best_effort,exp_constrained_pub_only_xcdr,py_to_py,shmem_ds,best_effort,1000000,10.0,100.0,300,99.98376716002822,0.6446655684096552,97.86302800476551,102.46177199482918,0.006447702329297523

@@ -443,10 +443,10 @@ create_constrained_message_type_support(
     RCUTILS_SET_ERROR_MSG("constraints is nullptr");
     return nullptr;
   }
-  if (std::strcmp(base_typesupport->typesupport_identifier,
-                  rosidl_typesupport_xcdr_cpp__identifier) != 0)
+  if (nullptr == base_typesupport->typesupport_identifier ||
+    nullptr == std::strstr(base_typesupport->typesupport_identifier, "xcdr"))
   {
-    RCUTILS_SET_ERROR_MSG("Not an XCDR C++ typesupport");
+    RCUTILS_SET_ERROR_MSG("Not an XCDR typesupport");
     return nullptr;
   }
 
