@@ -188,15 +188,23 @@ TEST(ConfigTest, RunId) {
   using constrained_pubsub_benchmark::Backend;
   using constrained_pubsub_benchmark::Config;
   using constrained_pubsub_benchmark::MessageType;
+  using constrained_pubsub_benchmark::Reliability;
   using constrained_pubsub_benchmark::Transport;
   using constrained_pubsub_benchmark::make_run_id;
   EXPECT_EQ(
-    "exp_constrained_pub_sub_xcdr__cpp_to_cpp__400000B__10Hz__shmem",
+    "exp_constrained_pub_sub_xcdr__cpp_to_cpp__400000B__10Hz__shmem__reliable",
     make_run_id(
       MessageType::kExperimental, Config::kConstrainedPubSub,
-      Backend::kXcdr, "cpp_to_cpp", 400000, 10.0, Transport::kShmem));
+      Backend::kXcdr, "cpp_to_cpp", 400000, 10.0, Transport::kShmem,
+      Reliability::kReliable));
   EXPECT_EQ(
-    "std_copy_fastcdr__manual__40B__1Hz__auto",
+    "exp_constrained_pub_sub_xcdr__cpp_to_cpp__400000B__10Hz__shmem__best_effort",
+    make_run_id(
+      MessageType::kExperimental, Config::kConstrainedPubSub,
+      Backend::kXcdr, "cpp_to_cpp", 400000, 10.0, Transport::kShmem,
+      Reliability::kBestEffort));
+  EXPECT_EQ(
+    "std_copy_fastcdr__manual__40B__1Hz__auto__reliable",
     make_run_id(
       MessageType::kStandard, Config::kCopy, Backend::kFastCdr, "", 40,
       1.0, Transport::kAuto));

@@ -147,7 +147,7 @@ TEST(SampleRecordTest, FromConfigMintsRunId) {
     cfg, rec::Process::kSub, rec::Direction::kCppToCpp,
     rec::Backend::kXcdr, 10);
   const std::string prefix =
-    "exp_constrained_pub_sub_xcdr__cpp_to_cpp__400000B__10Hz__shmem__pid";
+    "exp_constrained_pub_sub_xcdr__cpp_to_cpp__400000B__10Hz__shmem__reliable__pid";
   EXPECT_EQ(prefix, ctx.run_id.substr(0, prefix.size()));
   EXPECT_EQ(rec::Direction::kCppToCpp, ctx.direction);
 }

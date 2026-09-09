@@ -32,7 +32,7 @@ import pandas as pd
 #: Columns parsed out of run_id (plus the raw run_id itself).
 RUN_ID_PARTS = (
     'message', 'config', 'backend', 'direction', 'payload_bytes',
-    'target_frequency_hz', 'transport',
+    'target_frequency_hz', 'transport', 'reliability',
 )
 
 #: Case identity: the (message, config, backend) triple, e.g.
@@ -45,18 +45,25 @@ def parse_run_id(run_id):
     Split a run id into its typed coordinates.
 
     Format: {message}_{config}_{backend}__{direction}__{payload}B__
-    {freq}Hz__{transport}, with an optional __pidN suffix for manual
-    runs. Returns a dict with RUN_ID_PARTS keys; raises ValueError on
-    malformed input.
+    {freq}Hz__{transport}__{reliability}, with an optional __pidN suffix
+    for manual runs. Historical ids without the reliability coordinate
+    default to 'reliable'. Returns a dict with RUN_ID_PARTS keys; raises
+    ValueError on malformed input.
     """
     parts = run_id.split('__')
-    if len(parts) == 6 and parts[5].startswith('pid'):
+    if len(parts) == 7 and parts[6].startswith('pid'):
+        parts = parts[:6]
+    elif len(parts) == 6 and parts[5].startswith('pid'):
         parts = parts[:5]
-    if len(parts) != 5:
+    if len(parts) == 5:
+        parts = parts + ['reliable']
+    if len(parts) != 6:
         raise ValueError('malformed run_id: %r' % (run_id,))
-    case, direction, payload_s, freq_s, transport = parts
+    case, direction, payload_s, freq_s, transport, reliability = parts
     if not payload_s.endswith('B') or not freq_s.endswith('Hz'):
         raise ValueError('malformed run_id: %r' % (run_id,))
+    if reliability not in ('reliable', 'best_effort'):
+        raise ValueError('malformed run_id reliability: %r' % (run_id,))
     case_fields = case.split('_')
     if len(case_fields) < 3:
         raise ValueError('malformed run_id case: %r' % (run_id,))
@@ -71,6 +78,7 @@ def parse_run_id(run_id):
         'payload_bytes': int(payload_s[:-1]),
         'target_frequency_hz': float(freq_s[:-2].replace('p', '.')),
         'transport': transport,
+        'reliability': reliability,
     }
 
 
@@ -196,13 +204,15 @@ def per_run_stats(metrics, n_publish, n_receive):
     coords = grouped[[
         'message_pub', 'config_pub', 'backend_pub', 'direction_pub',
         'payload_bytes_pub', 'target_frequency_hz_pub', 'transport_pub',
-        'step_index_pub']].first().reset_index()
+        'reliability_pub', 'step_index_pub']].first().reset_index()
     coords = coords.rename(columns={
         'message_pub': 'message', 'config_pub': 'config',
         'backend_pub': 'backend', 'direction_pub': 'direction',
         'payload_bytes_pub': 'payload_bytes',
         'target_frequency_hz_pub': 'target_frequency_hz',
-        'transport_pub': 'transport', 'step_index_pub': 'step_index'})
+        'transport_pub': 'transport',
+        'reliability_pub': 'reliability',
+        'step_index_pub': 'step_index'})
     stats = pd.merge(stats, coords, on='run_id', how='left')
     counts = pd.DataFrame({
         'n_publish': n_publish, 'n_receive': n_receive}).reset_index()
@@ -240,18 +250,19 @@ def aggregate_sweeps(metrics):
 
     by_payload = aggregate(
         metrics, ['case', 'message_pub', 'config_pub', 'backend_pub',
-                  'direction_pub', 'transport_pub', 'payload_bytes_pub'])
+                  'direction_pub', 'transport_pub', 'reliability_pub',
+                  'payload_bytes_pub'])
     by_frequency = aggregate(
         metrics, ['case', 'message_pub', 'config_pub', 'backend_pub',
-                  'direction_pub', 'transport_pub',
+                  'direction_pub', 'transport_pub', 'reliability_pub',
                   'target_frequency_hz_pub'])
     by_direction = aggregate(
         metrics, ['case', 'message_pub', 'config_pub', 'backend_pub',
-                  'direction_pub', 'transport_pub'])
+                  'direction_pub', 'transport_pub', 'reliability_pub'])
     rename = {
         'message_pub': 'message', 'config_pub': 'config',
         'backend_pub': 'backend', 'direction_pub': 'direction',
-        'transport_pub': 'transport',
+        'transport_pub': 'transport', 'reliability_pub': 'reliability',
         'payload_bytes_pub': 'payload_bytes',
         'target_frequency_hz_pub': 'target_frequency_hz'}
     return (by_payload.rename(columns=rename),
@@ -272,7 +283,8 @@ def summary_matrix(metrics):
         metrics['backend_pub'])
     grouped = metrics.groupby(
         ['case', 'message_pub', 'config_pub', 'backend_pub',
-         'direction_pub', 'transport_pub'], observed=True)
+         'direction_pub', 'transport_pub', 'reliability_pub'],
+        observed=True)
     table = grouped['latency_us'].agg(
         n='count', mean='mean', std='std', min='min', max='max',
         p50=lambda s: s.quantile(0.50),
@@ -282,7 +294,8 @@ def summary_matrix(metrics):
     return table.rename(columns={
         'message_pub': 'message', 'config_pub': 'config',
         'backend_pub': 'backend', 'direction_pub': 'direction',
-        'transport_pub': 'transport'})
+        'transport_pub': 'transport',
+        'reliability_pub': 'reliability'})
 
 
 def drops_table(per_run):
@@ -295,9 +308,75 @@ def drops_table(per_run):
     drops = per_run.loc[per_run['n_receive'] < per_run['n_publish']].copy()
     drops['drops'] = drops['n_publish'] - drops['n_receive']
     return drops[[
-        'run_id', 'case', 'direction', 'transport', 'payload_bytes',
-        'target_frequency_hz', 'n_publish', 'n_receive', 'drops',
-        'drop_rate']].reset_index(drop=True)
+        'run_id', 'case', 'direction', 'transport', 'reliability',
+        'payload_bytes', 'target_frequency_hz', 'n_publish', 'n_receive',
+        'drops', 'drop_rate']].reset_index(drop=True)
+
+
+def pacing_table(metrics):
+    """
+    Compute per-run publish pacing statistics, one row per run_id.
+
+    Reports the nominal period (from the target frequency), the observed
+    inter-send interval mean/std/min/max in ms, and jitter_ratio
+    (std/mean, dimensionless).  For uniform +/-j dither the ratio tends
+    to j/sqrt(3) (~0.029 at the harness default 0.01); an exact metronome
+    scores ~0.  Runs with fewer than two joined samples yield NaN.
+    Sweep coordinates ride along from the first sample.
+    """
+    rows = []
+    for run_id, group in metrics.groupby('run_id', observed=True):
+        send_ms = np.sort(group['send_mono_ns_pub'].to_numpy(
+            dtype=np.float64)) / 1e6
+        dt = np.diff(send_ms)
+        rows.append({
+            'run_id': run_id,
+            'n_intervals': len(dt),
+            'inter_send_mean_ms': np.mean(dt) if len(dt) else np.nan,
+            'inter_send_std_ms':
+                np.std(dt, ddof=1) if len(dt) > 1 else np.nan,
+            'inter_send_min_ms': np.min(dt) if len(dt) else np.nan,
+            'inter_send_max_ms': np.max(dt) if len(dt) else np.nan,
+        })
+    pacing = pd.DataFrame(rows)
+    pacing['jitter_ratio'] = (
+        pacing['inter_send_std_ms'] / pacing['inter_send_mean_ms'])
+    coords = metrics.groupby('run_id', observed=True)[[
+        'message_pub', 'config_pub', 'backend_pub', 'direction_pub',
+        'transport_pub', 'reliability_pub', 'payload_bytes_pub',
+        'target_frequency_hz_pub']].first().reset_index()
+    coords = coords.rename(columns={
+        'message_pub': 'message', 'config_pub': 'config',
+        'backend_pub': 'backend', 'direction_pub': 'direction',
+        'transport_pub': 'transport',
+        'reliability_pub': 'reliability',
+        'payload_bytes_pub': 'payload_bytes',
+        'target_frequency_hz_pub': 'target_frequency_hz'})
+    pacing = pd.merge(pacing, coords, on='run_id', how='left')
+    pacing['nominal_period_ms'] = 1000.0 / pacing['target_frequency_hz']
+    pacing['case'] = (
+        pacing['message'] + '_' + pacing['config'] + '_' +
+        pacing['backend'])
+    return pacing[[
+        'run_id', 'case', 'direction', 'transport', 'reliability',
+        'payload_bytes', 'target_frequency_hz', 'nominal_period_ms',
+        'n_intervals', 'inter_send_mean_ms', 'inter_send_std_ms',
+        'inter_send_min_ms', 'inter_send_max_ms', 'jitter_ratio']]
+
+
+def pacing_summary_table(pacing):
+    """
+    Aggregate pacing jitter per (case, direction, transport, reliability).
+
+    Reports run count plus mean/worst jitter_ratio; compact enough to
+    inline in the report.  Compare against the configured dither
+    fraction (uniform +/-j tends to j/sqrt(3)).
+    """
+    return pacing.groupby(
+        ['case', 'direction', 'transport', 'reliability'],
+        observed=True)['jitter_ratio'].agg(
+            runs='count', mean='mean',
+            worst='max').reset_index()
 
 
 #: Transport colors, used identically in every figure.
@@ -406,16 +485,25 @@ def plot_summary_heatmap(summary, out_path, dpi=150):
     from matplotlib.colors import LogNorm
     transports = sorted(summary['transport'].unique())
     cases = sorted(summary['case'].unique())
+    reliabilities = sorted(summary['reliability'].unique())
+    rows = [(case, reliability)
+            for case in cases for reliability in reliabilities]
     directions = [d for d in DIRECTIONS if d in set(summary['direction'])]
     width = max(6.0, 3.0 * len(directions))
+    height = max(8.0, 2.0 + 1.2 * len(rows))
     fig, axes = plt.subplots(
-        1, len(transports), figsize=(width * len(transports) / 2 + 6, 8),
+        1, len(transports), figsize=(width * len(transports) / 2 + 6,
+                                     height),
         squeeze=False)
     for ax, transport in zip(axes[0], transports):
         panel = summary.loc[summary['transport'] == transport]
         grid = panel.pivot_table(
-            values='mean', index='case', columns='direction')
-        grid = grid.reindex(index=cases, columns=directions)
+            values='mean', index=['case', 'reliability'],
+            columns='direction')
+        grid = grid.reindex(
+            index=pd.MultiIndex.from_tuples(
+                rows, names=['case', 'reliability']),
+            columns=directions)
         values = grid.to_numpy(dtype=np.float64)
         positive = values[np.isfinite(values) & (values > 0)]
         norm = LogNorm(vmin=positive.min(), vmax=positive.max()) \
@@ -423,7 +511,8 @@ def plot_summary_heatmap(summary, out_path, dpi=150):
         mesh = ax.imshow(values, aspect='auto', cmap='viridis', norm=norm)
         ax.set_xticks(range(len(directions)), directions, rotation=45,
                       ha='right')
-        ax.set_yticks(range(len(cases)), cases)
+        ax.set_yticks(range(len(rows)),
+                      ['%s %s' % row for row in rows])
         ax.set_title(transport)
         for (row, col), value in np.ndenumerate(values):
             if np.isfinite(value):
@@ -453,15 +542,21 @@ def plot_sweep(table, case, x_column, x_label, x_ticks, out_path, dpi=150):
         frame = subset.loc[subset['direction'] == direction].sort_values(
             x_column)
         for transport, color in TRANSPORT_COLORS.items():
-            line = frame.loc[frame['transport'] == transport]
-            if line.empty:
-                continue
-            x = line[x_column].to_numpy(dtype=np.float64)
-            mean = line['mean'].to_numpy(dtype=np.float64)
-            std = line['std'].to_numpy(dtype=np.float64)
-            ax.plot(x, mean, label=transport, color=color, linewidth=2)
-            ax.fill_between(x, mean - std, mean + std, color=color,
-                            alpha=0.3)
+            for reliability, linestyle in (('reliable', '-'),
+                                           ('best_effort', '--')):
+                line = frame.loc[
+                    (frame['transport'] == transport) &
+                    (frame['reliability'] == reliability)].sort_values(
+                        x_column)
+                if line.empty:
+                    continue
+                x = line[x_column].to_numpy(dtype=np.float64)
+                mean = line['mean'].to_numpy(dtype=np.float64)
+                std = line['std'].to_numpy(dtype=np.float64)
+                ax.plot(x, mean, label='%s %s' % (transport, reliability),
+                        color=color, linestyle=linestyle, linewidth=2)
+                ax.fill_between(x, mean - std, mean + std, color=color,
+                                alpha=0.3)
         ax.set_xscale('log')
         ax.set_yscale('log')
         ax.set_xlabel(x_label)
@@ -502,23 +597,30 @@ def plot_time_series(metrics, payload_bytes, frequency_hz, out_path,
     for ax, direction in zip(axes.flat, directions):
         frame = subset.loc[subset['direction_pub'] == direction]
         for transport, color in TRANSPORT_COLORS.items():
-            line = frame.loc[frame['transport_pub'] == transport].sort_values(
-                'elapsed_sec')
-            if line.empty:
-                continue
-            x = line['elapsed_sec'].to_numpy(dtype=np.float64)
-            y = line['latency_us'].to_numpy(dtype=np.float64)
-            window = max(1, len(y) // 100)
-            series = pd.Series(y)
-            roll = series.rolling(window, min_periods=1)
-            p1 = roll.quantile(0.01).to_numpy()
-            p99 = roll.quantile(0.99).to_numpy()
-            mean = roll.mean().to_numpy()
-            std = roll.std(ddof=0).fillna(0.0).to_numpy()
-            ax.plot(x, y, color=color, alpha=0.4, linewidth=0.8)
-            ax.fill_between(x, p1, p99, color=color, alpha=0.05)
-            ax.fill_between(mean - std, mean + std, color=color, alpha=0.2)
-            ax.plot([], [], label=transport, color=color, linewidth=2)
+            for reliability, linestyle in (('reliable', '-'),
+                                           ('best_effort', '--')):
+                line = frame.loc[
+                    (frame['transport_pub'] == transport) &
+                    (frame['reliability_pub'] == reliability)].sort_values(
+                        'elapsed_sec')
+                if line.empty:
+                    continue
+                x = line['elapsed_sec'].to_numpy(dtype=np.float64)
+                y = line['latency_us'].to_numpy(dtype=np.float64)
+                window = max(1, len(y) // 100)
+                series = pd.Series(y)
+                roll = series.rolling(window, min_periods=1)
+                p1 = roll.quantile(0.01).to_numpy()
+                p99 = roll.quantile(0.99).to_numpy()
+                mean = roll.mean().to_numpy()
+                std = roll.std(ddof=0).fillna(0.0).to_numpy()
+                ax.plot(x, y, color=color, linestyle=linestyle, alpha=0.4,
+                        linewidth=0.8)
+                ax.fill_between(x, p1, p99, color=color, alpha=0.05)
+                ax.fill_between(mean - std, mean + std, color=color,
+                                alpha=0.2)
+                ax.plot([], [], label='%s %s' % (transport, reliability),
+                        color=color, linestyle=linestyle, linewidth=2)
         ax.set_xlabel('elapsed_sec')
         ax.set_ylabel('latency_us')
         ax.set_title(direction)
@@ -530,6 +632,57 @@ def plot_time_series(metrics, payload_bytes, frequency_hz, out_path,
         ax.set_visible(False)
     fig.suptitle('Latency over time: %s' %
                  step_label(payload_bytes, frequency_hz))
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=dpi)
+    plt.close(fig)
+
+
+def plot_pacing(pacing, expected_jitter, out_path, dpi=150):
+    """
+    Write the publish-pacing scatter.
+
+    Observed inter-send std vs nominal period, one marker per run,
+    colored by transport. Overlays the uniform-dither reference (std =
+    period * jitter / sqrt(3)) when expected_jitter > 0, so a
+    misconfigured or missing dither shows as a systematic departure. An
+    exact metronome sits orders of magnitude below the line; NaN rows
+    are skipped.
+    """
+    ensure_backend()
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ok = pacing.dropna(
+        subset=['nominal_period_ms', 'inter_send_std_ms'])
+    reliabilities = sorted(ok['reliability'].unique())
+    markers = ('o', '^', 's', 'D')
+    for transport, color in TRANSPORT_COLORS.items():
+        for pos, reliability in enumerate(reliabilities):
+            pts = ok.loc[(ok['transport'] == transport) &
+                         (ok['reliability'] == reliability)]
+            if pts.empty:
+                continue
+            ax.scatter(pts['nominal_period_ms'], pts['inter_send_std_ms'],
+                       label='%s %s' % (transport, reliability),
+                       color=color, marker=markers[pos % len(markers)],
+                       alpha=0.6)
+    if expected_jitter > 0 and not ok.empty:
+        lo = ok['nominal_period_ms'].min()
+        hi = ok['nominal_period_ms'].max()
+        span = np.logspace(np.log10(lo), np.log10(max(hi, lo * 1.01)))
+        ax.plot(span, span * expected_jitter / np.sqrt(3), 'k--',
+                label='uniform +/-%.2g' % expected_jitter)
+    elif ok.empty:
+        ax.text(0.5, 0.5, 'no pacing data', ha='center', va='center',
+                transform=ax.transAxes)
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.set_xlabel('nominal period_ms (log)')
+    ax.set_ylabel('inter-send std_ms (log)')
+    handles, _labels = ax.get_legend_handles_labels()
+    if handles:
+        ax.legend(loc='upper left')
+    ax.grid(True, which='both', alpha=0.3)
+    fig.suptitle('Publish pacing jitter: observed vs configured')
     fig.tight_layout()
     fig.savefig(out_path, dpi=dpi)
     plt.close(fig)
@@ -559,9 +712,11 @@ def transport_deltas(summary):
     missing either transport are dropped.
     """
     pivot_mean = summary.pivot_table(
-        values='mean', index=['case', 'direction'], columns='transport')
+        values='mean', index=['case', 'direction', 'reliability'],
+        columns='transport')
     pivot_p95 = summary.pivot_table(
-        values='p95', index=['case', 'direction'], columns='transport')
+        values='p95', index=['case', 'direction', 'reliability'],
+        columns='transport')
     deltas = pd.DataFrame(index=pivot_mean.index)
     if 'shmem_ds' in pivot_mean and 'shmem' in pivot_mean:
         deltas['ds_minus_shmem_mean'] = (
@@ -576,10 +731,33 @@ def transport_deltas(summary):
     return deltas.dropna(how='all').reset_index()
 
 
-def write_report(output_dir, summary, per_run, drops, steps, figures,
-                 image_format='png'):
+def reliability_deltas(summary):
     """
-    Write report.md with the six plan sections.
+    Compute reliable-vs-best_effort deltas per (case, direction, transport).
+
+    Returns a frame with mean and p95 differences in latency_us;
+    positive favors best_effort (reliable minus best_effort).  Combos
+    missing either level are dropped.
+    """
+    pivot_mean = summary.pivot_table(
+        values='mean', index=['case', 'direction', 'transport'],
+        columns='reliability')
+    pivot_p95 = summary.pivot_table(
+        values='p95', index=['case', 'direction', 'transport'],
+        columns='reliability')
+    deltas = pd.DataFrame(index=pivot_mean.index)
+    if 'reliable' in pivot_mean and 'best_effort' in pivot_mean:
+        deltas['rel_minus_be_mean'] = (
+            pivot_mean['reliable'] - pivot_mean['best_effort'])
+        deltas['rel_minus_be_p95'] = (
+            pivot_p95['reliable'] - pivot_p95['best_effort'])
+    return deltas.dropna(how='all').reset_index()
+
+
+def write_report(output_dir, summary, per_run, drops, steps, figures,
+                 pacing_summary, image_format='png'):
+    """
+    Write report.md with the seven plan sections.
 
     Embeds relative figure paths, inlines the summary matrix as a
     markdown table, and states the clock-sync assumption. figures maps
@@ -594,8 +772,8 @@ def write_report(output_dir, summary, per_run, drops, steps, figures,
                  'transport):')
     lines.append('')
     show = summary[[
-        'case', 'direction', 'transport', 'n_runs', 'mean', 'p50', 'p95',
-        'p99']].copy()
+        'case', 'direction', 'transport', 'reliability', 'n_runs', 'mean',
+        'p50', 'p95', 'p99']].copy()
     for column in ('mean', 'p50', 'p95', 'p99'):
         show[column] = show[column].map(format_us)
     lines.append(markdown_table(show))
@@ -619,8 +797,8 @@ def write_report(output_dir, summary, per_run, drops, steps, figures,
             lines.append('')
             table = summary.loc[(summary['case'] == case) &
                                 (summary['direction'] == direction),
-                                ['transport', 'n_runs', 'mean', 'p50',
-                                 'p95']]
+                                ['transport', 'reliability', 'n_runs',
+                                 'mean', 'p50', 'p95']]
             lines.append(markdown_table(table))
             lines.append('')
     lines.append('## 3. Latency by Publishing Frequency')
@@ -645,6 +823,16 @@ def write_report(output_dir, summary, per_run, drops, steps, figures,
     else:
         lines.append('Not enough overlapping transports for deltas.')
         lines.append('')
+    rel_deltas = reliability_deltas(summary)
+    if len(rel_deltas):
+        lines.append('Reliable-vs-best_effort deltas (µs; positive favors '
+                     'best_effort):')
+        lines.append('')
+        lines.append(markdown_table(rel_deltas))
+        lines.append('')
+    else:
+        lines.append('Single reliability level: no reliability deltas.')
+        lines.append('')
     lines.append('## 5. Time Series')
     lines.append('')
     for label in steps:
@@ -660,15 +848,28 @@ def write_report(output_dir, summary, per_run, drops, steps, figures,
         lines.append(markdown_table(drops))
         lines.append('')
         by_transport = drops.groupby(
-            ['transport', 'case'], observed=True)['drop_rate'].agg(
+            ['transport', 'reliability', 'case'],
+            observed=True)['drop_rate'].agg(
                 runs='count', mean='mean', worst='max').reset_index()
-        lines.append('Drop-rate summary per (transport, case):')
+        lines.append('Drop-rate summary per (transport, reliability, case):')
         lines.append('')
         lines.append(markdown_table(by_transport))
         lines.append('')
     else:
         lines.append('No drops recorded.')
         lines.append('')
+    lines.append('## 7. Pacing and Publish Jitter')
+    lines.append('')
+    lines.append('![pacing](%s)' % figures['pacing'])
+    lines.append('')
+    lines.append('Observed inter-send jitter (std/mean) per (case, '
+                 'direction, transport). For uniform +/-j dither the ratio '
+                 'tends to j/sqrt(3) (~0.029 at the harness default 0.01); '
+                 'an exact metronome scores ~0. Systematic departures mean '
+                 'the configured dither did not reach the publisher.')
+    lines.append('')
+    lines.append(markdown_table(pacing_summary))
+    lines.append('')
     with open(os.path.join(output_dir, 'report.md'), 'w') as handle:
         handle.write('\n'.join(lines))
 
@@ -706,6 +907,10 @@ def build_parser():
                              'frequency at 40K')
     parser.add_argument('--format', choices=('png', 'pdf'), default='png',
                         help='Figure output format (default: png)')
+    parser.add_argument('--expected-jitter', type=float, default=0.0,
+                        help='Expected uniform publish dither fraction for '
+                             'the pacing reference overlay (default: 0 = '
+                             'no overlay)')
     parser.add_argument('--dpi', type=int, default=150,
                         help='Figure DPI (default: 150)')
     parser.add_argument('--no-figures', action='store_true',
@@ -744,6 +949,8 @@ def run_pipeline(args):
     by_payload, by_frequency, by_direction = aggregate_sweeps(metrics)
     matrix = summary_matrix(metrics)
     drops = drops_table(per_run)
+    pacing = pacing_table(metrics)
+    pacing_summary = pacing_summary_table(pacing)
     per_run.to_csv(os.path.join(output_dir, 'per_run_stats.csv'),
                    index=False)
     by_payload.to_csv(os.path.join(output_dir, 'sweep_by_payload.csv'),
@@ -755,10 +962,15 @@ def run_pipeline(args):
     matrix.to_csv(os.path.join(output_dir, 'summary_matrix.csv'),
                   index=False)
     drops.to_csv(os.path.join(output_dir, 'drops.csv'), index=False)
+    pacing.to_csv(os.path.join(output_dir, 'pacing.csv'), index=False)
 
     figures = {}
     fmt = args.format
     if not args.no_figures:
+        pace = 'fig_pacing.%s' % fmt
+        plot_pacing(pacing, args.expected_jitter,
+                    os.path.join(output_dir, pace), dpi=args.dpi)
+        figures['pacing'] = pace
         heat = 'fig_summary_heatmap.%s' % fmt
         plot_summary_heatmap(
             matrix, os.path.join(output_dir, heat), dpi=args.dpi)
@@ -809,7 +1021,7 @@ def run_pipeline(args):
         steps = []
     if not args.no_report:
         write_report(output_dir, matrix, per_run, drops, steps, figures,
-                     image_format=fmt)
+                     pacing_summary, image_format=fmt)
     return 0
 
 

@@ -165,11 +165,13 @@ int main(int argc, char ** argv)
 
     // spin_once with a timeout (rather than a bare spin_some busy loop)
     // so each iteration waits for newly arrived work instead of re-polling
-    // a possibly stale snapshot.
+    // a possibly stale snapshot.  10 ms (not 50): longer quanta phase-lock
+    // against rigid publish grids and inflate the tail; measured 50->5 ms
+    // taking cpp_to_py 1M@10Hz from ~490 to ~342 mean.
     auto t_start = bench::Clock::now();
     auto t_end = t_start + bench::Duration(cfg.duration_sec + cfg.grace_sec);
     while (bench::Clock::now() < t_end) {
-      exec.spin_once(std::chrono::milliseconds(20));
+      exec.spin_once(std::chrono::milliseconds(10));
     }
   // One final drain to catch in-flight messages.
     exec.spin_once(std::chrono::milliseconds(100));

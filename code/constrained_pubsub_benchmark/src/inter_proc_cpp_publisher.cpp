@@ -123,7 +123,8 @@ int main(int argc, char ** argv)
             pub->publish(msg);
             emit_sent(seq, send_ns);
           },
-          cfg.publish_rate_hz, cfg.duration_sec);
+          cfg.publish_rate_hz, cfg.duration_sec,
+          cfg.publish_jitter, cfg.publish_jitter_seed);
       };
 
     switch (cfg.config) {
@@ -164,7 +165,8 @@ int main(int argc, char ** argv)
               pub->publish(std::move(loaned));
               emit_sent(seq, send_ns);
             },
-            cfg.publish_rate_hz, cfg.duration_sec);
+            cfg.publish_rate_hz, cfg.duration_sec,
+            cfg.publish_jitter, cfg.publish_jitter_seed);
           break;
         }
     }

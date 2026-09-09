@@ -273,7 +273,7 @@ static std::string format_frequency_hz(double hz)
 std::string make_run_id(
   MessageType message, Config config, Backend backend,
   const std::string & direction, size_t payload_bytes, double frequency_hz,
-  Transport transport)
+  Transport transport, Reliability reliability)
 {
   std::string dir = direction.empty() ? "manual" : direction;
   std::ostringstream os;
@@ -283,19 +283,20 @@ std::string make_run_id(
   os << message_type_key(message) << "_" << config_key(config) << "_"
      << backend_key(backend) << "__"
      << dir << "__" << payload_bytes << "B__"
-     << format_frequency_hz(frequency_hz) << "__" << transport_key(transport);
+     << format_frequency_hz(frequency_hz) << "__" << transport_key(transport)
+     << "__" << reliability_key(reliability);
   return os.str();
 }
 
 std::string auto_run_id(
   MessageType message, Config config, Backend backend,
   const std::string & direction, size_t payload_bytes, double frequency_hz,
-  Transport transport)
+  Transport transport, Reliability reliability)
 {
   std::ostringstream os;
   os << make_run_id(
     message, config, backend, direction, payload_bytes, frequency_hz,
-    transport)
+    transport, reliability)
      << "__pid" << getpid();
   return os.str();
 }
@@ -390,6 +391,14 @@ bool parse_args(int argc, char ** argv, BenchmarkConfig & cfg)
       cfg.reliability = reliability_from_string(next());
     } else if (arg == "--publish-rate-hz") {
       cfg.publish_rate_hz = std::stod(next());
+    } else if (arg == "--publish-jitter") {
+      cfg.publish_jitter = std::stod(next());
+      if (cfg.publish_jitter < 0.0 || cfg.publish_jitter >= 1.0) {
+        throw std::invalid_argument("--publish-jitter must be in [0.0, 1.0)");
+      }
+    } else if (arg == "--publish-jitter-seed") {
+      cfg.publish_jitter_seed =
+        static_cast<uint64_t>(std::stoull(next()));
     } else if (arg == "--duration-sec") {
       cfg.duration_sec = std::stod(next());
     } else if (arg == "--topic") {
@@ -409,38 +418,41 @@ bool parse_args(int argc, char ** argv, BenchmarkConfig & cfg)
 
 void print_usage(const char * program)
 {
-  std::cerr << "Usage: " << program << " [options]\n\n"
-            << "Options:\n"
-            << "  --message std|exp                  ROS message type "
-            << "(default: std)\n"
-            << "  --config copy|constrained_pub_only|constrained_pub_sub\n"
-            << "                                     Data path (default: copy)\n"
-            << "  --backend auto|fastcdr|xcdr        Serialization backend "
-            << "(default: auto; fastcdr needs copy)\n"
-            << "  --transport auto|udp|shmem|shmem_ds  DDS transport profile "
-            << "(default: auto)\n"
-            << "  --run-id <id>                     Run identifier (default: auto)\n"
-            << "  --direction <name>                 Direction label (default: unset)\n"
-            << "  --step-index <N>                   Sweep step index, -1 = single "
-            << "(default: -1)\n"
-            << "  --strict true|false               Enable strict validation "
-            << "(constrained configs only)\n"
-            << "  --payload-bytes <N>[K|KB|M|MB]    Payload size (default: 1000)\n"
-            << "  --fill-encoding <N>               Exact encoding length (0 = \"rgb8\");\n"
-            << "                                     64 = at bound (no-op compaction)\n"
-            << "  --fill-frame-id <N>               Exact frame_id length (0 = \"benchmark\");\n"
-            << "                                     16 = at bound (no-op compaction)\n"
-            << "  --fill-data-ratio <F>             Data fill fraction of payload_bytes\n"
-            << "                                     [0.0,1.0]; 1.0 = at bound (no-op\n"
-            << "                                     compaction), 0.0 = square-image logic\n"
-            << "  --qos-depth <N>                   QoS history depth (default: 10)\n"
-            << "  --reliability reliable|best_effort (default: reliable)\n"
-            << "  --publish-rate-hz <F>             Fixed publish rate (default: 100)\n"
-            << "  --duration-sec <F>                Run duration in seconds (default: 30)\n"
-            << "  --topic <name>                    Topic name (default: ~/benchmark)\n"
-            << "  --grace-sec <F>                   Extra listen time after the run window\n"
-            << "                                     (subscriber, default: 2)\n"
-            << "  --help, -h                        This help\n";
+  std::cerr  << "Usage: " << program << " [options]\n\n"
+             << "Options:\n"
+             << "  --message std|exp                  ROS message type "
+             << "(default: std)\n"
+             << "  --config copy|constrained_pub_only|constrained_pub_sub\n"
+             << "                                     Data path (default: copy)\n"
+             << "  --backend auto|fastcdr|xcdr        Serialization backend "
+             << "(default: auto; fastcdr needs copy)\n"
+             << "  --transport auto|udp|shmem|shmem_ds  DDS transport profile "
+             << "(default: auto)\n"
+             << "  --run-id <id>                     Run identifier (default: auto)\n"
+             << "  --direction <name>                 Direction label (default: unset)\n"
+             << "  --step-index <N>                   Sweep step index, -1 = single "
+             << "(default: -1)\n"
+             << "  --strict true|false               Enable strict validation "
+             << "(constrained configs only)\n"
+             << "  --payload-bytes <N>[K|KB|M|MB]    Payload size (default: 1000)\n"
+             << "  --fill-encoding <N>               Exact encoding length (0 = \"rgb8\");\n"
+             << "                                     64 = at bound (no-op compaction)\n"
+             << "  --fill-frame-id <N>               Exact frame_id length (0 = \"benchmark\");\n"
+             << "                                     16 = at bound (no-op compaction)\n"
+             << "  --fill-data-ratio <F>             Data fill fraction of payload_bytes\n"
+             << "                                     [0.0,1.0]; 1.0 = at bound (no-op\n"
+             << "                                     compaction), 0.0 = square-image logic\n"
+             << "  --qos-depth <N>                   QoS history depth (default: 10)\n"
+             << "  --reliability reliable|best_effort (default: reliable)\n"
+             << "  --publish-rate-hz <F>             Fixed publish rate (default: 100)\n"
+             << "  --publish-jitter <F>            Deadline dither fraction [0.0,1.0)\n"
+             << "                                     (default: 0 = exact metronome)\n"
+             << "  --publish-jitter-seed <N>       PRNG seed for dither (default: 42)\n"
+             << "  --duration-sec <F>                Run duration in seconds (default: 30)\n"
+             << "  --topic <name>                    Topic name (default: ~/benchmark)\n"
+             << "  --grace-sec <F>                   Extra listen time after the run window\n"
+             << "                                     (subscriber, default: 2)\n"
+             << "  --help, -h                        This help\n";
 }
 
 }  // namespace constrained_pubsub_benchmark

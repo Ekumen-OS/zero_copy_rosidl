@@ -1,40 +1,54 @@
 #!/usr/bin/env bash
 #
 # Pilot matrix: all 5 cases, inter-process directions only, shmem_ds
-# transport, 10 Hz, 100KB and 1MB payloads (2 steps at 30 s each).
+# transport, best-effort delivery, 10 Hz, 100KB and 1MB payloads
+# (2 steps at 30 s each). Full-bounds fill (no compaction rewrite).
 # Same resumable/progress conventions as run_matrix.sh.
 #
-# Usage (from the colcon workspace root):
-#   ./src/constrained_pubsub_benchmark/run_pilot.sh
-#   RESULTS_DIR=/data/pilot ./src/constrained_pubsub_benchmark/run_pilot.sh
-#   DRY_RUN=1 ./src/constrained_pubsub_benchmark/run_pilot.sh  # list only
+# Usage (source tree, from the colcon workspace root):
+#   ./src/constrained_pubsub_benchmark/scripts/run_pilot.sh
+#   RESULTS_DIR=/data/pilot ./src/constrained_pubsub_benchmark/scripts/run_pilot.sh
+#   DRY_RUN=1 ./src/constrained_pubsub_benchmark/scripts/run_pilot.sh  # list only
+# Or installed (any directory, environment sourced):
+#   ros2 run constrained_pubsub_benchmark pilot
 #
 
 RESULTS_DIR="${RESULTS_DIR:-/tmp/pilot_results}"
 DRY_RUN="${DRY_RUN:-0}"
 STEP_SEC=30
 
-if [[ ! -f install/setup.bash ]]; then
-  echo "error: run from the colcon workspace root" >&2
-  exit 2
+# Resolve install-vs-source layout. Via `ros2 run`, this script lives in
+# install/<pkg>/lib/<pkg>/ next to the benchmark executables (environment
+# already sourced by the caller). Otherwise it runs from the source tree,
+# rooted at the colcon workspace.
+HERE="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+if [[ -f "$HERE/inter_proc_cpp_publisher" ]]; then
+  BIN="$HERE"
+  ANALYZE="$HERE/analyze"
+else
+  if [[ ! -f install/setup.bash ]]; then
+    echo "error: run from the colcon workspace root" >&2
+    exit 2
+  fi
+  # shellcheck disable=SC1091
+  source install/setup.bash
+  BIN="install/constrained_pubsub_benchmark/lib/constrained_pubsub_benchmark"
+  ANALYZE="src/constrained_pubsub_benchmark/scripts/analyze_results.py"
 fi
-# shellcheck disable=SC1091
-source install/setup.bash
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 # Loaned takes are opt-in at the rcl layer (default off); the constrained
 # benchmark needs them for the zero-copy take path (see BENCHMARK_RUNBOOK).
 export ROS_DISABLE_LOANED_MESSAGES=0
-BIN="install/constrained_pubsub_benchmark/lib/constrained_pubsub_benchmark"
 
 CASES=(
+  "exp constrained_pub_only xcdr"
+  "exp constrained_pub_sub xcdr"
   "std copy fastcdr"
   "std copy xcdr"
   "exp copy xcdr"
-  "exp constrained_pub_only xcdr"
-  "exp constrained_pub_sub xcdr"
 )
 DIRECTIONS=(
-  cpp_to_cpp cpp_to_py py_to_cpp py_to_py
+  cpp_to_py cpp_to_cpp py_to_cpp py_to_py
 )
 
 TOTAL=$(( ${#CASES[@]} * ${#DIRECTIONS[@]} ))
@@ -152,6 +166,8 @@ for entry in "${CASES[@]}"; do
       --sweep --direction "$dir" \
       --message "$msg" --config "$cfg" --backend "$be" \
       --sweep-payloads 100K,1M --sweep-freqs 10 --sweep-shm shmem_ds \
+      --reliability best_effort \
+      --publish-jitter 0.01 --publish-jitter-seed 42 \
       --fill-encoding 64 --fill-frame-id 16 --fill-data-ratio 1.0 \
       --duration-per-step "$STEP_SEC"
   done

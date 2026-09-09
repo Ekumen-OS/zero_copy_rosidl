@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -113,12 +114,20 @@ void fill_image(
 /// when behind schedule the next deadline resets to now.  Spins the given
 /// executor each iteration so discovery and events stay alive; the caller
 /// owns the executor (constructed once, reused everywhere).
+///
+/// jitter_frac perturbs each deadline by uniform(-jitter_frac,
+/// +jitter_frac) * period from a PRNG seeded with jitter_seed, breaking
+/// rigid-grid beating against fixed-period middleware timers while keeping
+/// the mean rate exact.  0.0 = exact metronome.  The dither stream is
+/// deterministic per (seed) so runs stay reproducible.
 template<typename PublishFn>
 void run_fixed_rate_loop(
   rclcpp::executors::SingleThreadedExecutor & exec,
   PublishFn publish_one,
   double rate_hz,
-  double duration_sec)
+  double duration_sec,
+  double jitter_frac = 0.0,
+  uint64_t jitter_seed = 42)
 {
   if (!(rate_hz > 0.0)) {
     throw std::invalid_argument("publish rate must be positive");
@@ -126,7 +135,12 @@ void run_fixed_rate_loop(
   if (!(duration_sec > 0.0)) {
     throw std::invalid_argument("duration must be positive");
   }
+  if (!(jitter_frac >= 0.0) || !(jitter_frac < 1.0)) {
+    throw std::invalid_argument("publish jitter must be in [0.0, 1.0)");
+  }
   auto period = std::chrono::microseconds(static_cast<int64_t>(1e6 / rate_hz));
+  std::mt19937_64 rng(jitter_seed);
+  std::uniform_real_distribution<double> jitter(-jitter_frac, jitter_frac);
   auto t_start = Clock::now();
   auto t_end = t_start + Duration(duration_sec);
   auto next = t_start;
@@ -135,6 +149,10 @@ void run_fixed_rate_loop(
     publish_one(seq++);
     exec.spin_some();
     next += period;
+    if (jitter_frac > 0.0) {
+      next += std::chrono::microseconds(
+        static_cast<int64_t>(period.count() * jitter(rng)));
+    }
     auto now = Clock::now();
     if (next < now) {
       next = now;  // Do not burst if we fell behind.

@@ -256,7 +256,8 @@ struct RunContext
     ctx.run_id = cfg.run_id.empty() ?
       auto_run_id(
       cfg.message, cfg.config, backend, direction_key(ctx.direction),
-      cfg.payload_bytes, cfg.publish_rate_hz, cfg.transport) :
+      cfg.payload_bytes, cfg.publish_rate_hz, cfg.transport,
+      cfg.reliability) :
       cfg.run_id;
     ctx.process = process;
     ctx.message = cfg.message;

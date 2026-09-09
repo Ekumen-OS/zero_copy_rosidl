@@ -111,12 +111,37 @@ install(FILES
   DESTINATION lib/${PROJECT_NAME}
 )
 
-# ── Matrix driver scripts (host-side run tooling, not benchmark code) ────
+# ── Run drivers (host-side run tooling, not benchmark code) ───────────────
+# Installed under short `ros2 run` names: spike, pilot, matrix.  Each
+# driver resolves install-vs-source layout at runtime (see prologue).
 
 install(PROGRAMS
-  run_matrix.sh
-  run_pilot.sh
-  DESTINATION share/${PROJECT_NAME}
+  scripts/run_spike.sh
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME spike
+)
+
+install(PROGRAMS
+  scripts/run_pilot.sh
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME pilot
+)
+
+install(PROGRAMS
+  scripts/run_matrix.sh
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME matrix
+)
+
+install(FILES
+  scripts/analyze_results.py
+  DESTINATION share/${PROJECT_NAME}/scripts
+)
+
+install(PROGRAMS
+  scripts/analyze_results.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME analyze
 )
 
 # ── Fast DDS transport profiles (UDP-only, SHM-only, SHM + data sharing) ─

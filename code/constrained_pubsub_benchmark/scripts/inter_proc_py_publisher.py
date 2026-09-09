@@ -117,6 +117,14 @@ def main():
         t_start = time.monotonic()
         t_end = t_start + args.duration_sec
         next_publish = t_start
+        # Deterministic deadline dither (uniform +/- jitter fraction, fixed
+        # seed): breaks rigid-grid beating against fixed-period middleware
+        # timers while keeping the mean rate exact. 0.0 = exact metronome.
+        import random
+        jitter_rng = random.Random(args.publish_jitter_seed)
+        jitter_frac = args.publish_jitter
+        if not 0.0 <= jitter_frac < 1.0:
+            raise ValueError('--publish-jitter must be in [0.0, 1.0)')
         while time.monotonic() < t_end:
             if use_loan:
                 with pub.borrow_loaned_message() as loan:
@@ -133,6 +141,9 @@ def main():
             ctx.emit(Event.PUBLISH, sent, send_ns, send_ns, -1, -1)
             sent += 1
             next_publish += period
+            if jitter_frac > 0.0:
+                next_publish += period * jitter_rng.uniform(
+                    -jitter_frac, jitter_frac)
             now = time.monotonic()
             if next_publish < now:
                 next_publish = now  # Do not burst if we fell behind.

@@ -95,6 +95,8 @@ def test_parser_new_flag_defaults():
     assert args.sweep_freqs is None
     assert args.sweep_shm == bc.DEFAULT_TRANSPORT_GRID
     assert args.duration_per_step == 10.0
+    assert args.publish_jitter == 0.0
+    assert args.publish_jitter_seed == 42
 
 
 def test_payload_grid():
@@ -131,15 +133,19 @@ def test_run_id():
     assert bc.make_run_id(
         'exp', 'constrained_pub_sub', 'xcdr', 'cpp_to_cpp', 400000, 10.0,
         'shmem') == \
-        'exp_constrained_pub_sub_xcdr__cpp_to_cpp__400000B__10Hz__shmem'
+        'exp_constrained_pub_sub_xcdr__cpp_to_cpp__400000B__10Hz__shmem__reliable'
+    assert bc.make_run_id(
+        'exp', 'constrained_pub_sub', 'xcdr', 'cpp_to_cpp', 400000, 10.0,
+        'shmem', 'best_effort') == \
+        'exp_constrained_pub_sub_xcdr__cpp_to_cpp__400000B__10Hz__shmem__best_effort'
     assert bc.make_run_id(
         'std', 'copy', 'fastcdr', None, 40, 1.0, 'auto') == \
-        'std_copy_fastcdr__manual__40B__1Hz__auto'
+        'std_copy_fastcdr__manual__40B__1Hz__auto__reliable'
     auto_id = bc.auto_run_id(
         'exp', 'constrained_pub_sub', 'xcdr', 'cpp_to_cpp', 400000, 10.0,
         'shmem')
     assert auto_id.startswith(
-        'exp_constrained_pub_sub_xcdr__cpp_to_cpp__400000B__10Hz__shmem__pid')
+        'exp_constrained_pub_sub_xcdr__cpp_to_cpp__400000B__10Hz__shmem__reliable__pid')
     assert auto_id.endswith(str(os.getpid()))
 
 
@@ -462,7 +468,7 @@ def test_run_context_from_args():
         args, process='sub', direction_fallback='', backend='xcdr',
         expected_samples=10, payload_bytes=4000)
     assert ctx.run_id.startswith(
-        'exp_constrained_pub_sub_xcdr__cpp_to_cpp__4000B__10Hz__auto__pid')
+        'exp_constrained_pub_sub_xcdr__cpp_to_cpp__4000B__10Hz__auto__reliable__pid')
     assert ctx.run_id.endswith(str(os.getpid()))
     assert ctx.direction == 'cpp_to_cpp'
     assert ctx.message == 'exp' and ctx.config == 'constrained_pub_sub'

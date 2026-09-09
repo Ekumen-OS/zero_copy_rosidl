@@ -93,18 +93,71 @@ def make_two_run_matrix(tmp_path):
 
 
 def test_parse_run_id():
-    """Run ids split into the seven typed coordinates."""
+    """Run ids split into the eight typed coordinates."""
     parsed = ar.parse_run_id(RUN_B)
     assert parsed == {
         'message': 'exp', 'config': 'constrained_pub_sub',
         'backend': 'xcdr', 'direction': 'cpp_to_cpp',
         'payload_bytes': 4000, 'target_frequency_hz': 10.0,
-        'transport': 'shmem',
+        'transport': 'shmem', 'reliability': 'reliable',
     }
     assert ar.parse_run_id(RUN_A)['target_frequency_hz'] == 10.0
     assert ar.parse_run_id(
         'std_copy_fastcdr__manual__40B__2p15443Hz__auto__pid123'
     )['target_frequency_hz'] == 2.15443
+    assert ar.parse_run_id(
+        'exp_copy_xcdr__cpp_to_cpp__4000B__10Hz__udp__best_effort'
+    )['reliability'] == 'best_effort'
+    assert ar.parse_run_id(
+        'exp_copy_xcdr__cpp_to_cpp__4000B__10Hz__udp__best_effort__pid7'
+    )['reliability'] == 'best_effort'
+    try:
+        ar.parse_run_id(
+            'exp_copy_xcdr__cpp_to_cpp__4000B__10Hz__udp__sometimes')
+    except ValueError:
+        pass
+    else:
+        raise AssertionError('expected ValueError for bogus reliability')
+
+
+def test_reliability_separates_runs(tmp_path):
+    """Same coordinates differing only in reliability stay separate."""
+    rows = []
+    for seq in range(3):
+        send_ns = seq * 100000000
+        rows.append(pub_row(
+            'exp_copy_xcdr__cpp_to_cpp__4000B__10Hz__udp__reliable',
+            seq, send_ns, config='copy', message='exp', backend='xcdr',
+            transport='udp', payload_bytes=4000))
+        rows.append(sub_row(
+            'exp_copy_xcdr__cpp_to_cpp__4000B__10Hz__udp__reliable',
+            seq, send_ns, send_ns + 200000, config='copy', message='exp',
+            backend='xcdr', transport='udp', payload_bytes=4000))
+        rows.append(pub_row(
+            'exp_copy_xcdr__cpp_to_cpp__4000B__10Hz__udp__best_effort',
+            seq, send_ns, config='copy', message='exp', backend='xcdr',
+            transport='udp', payload_bytes=4000))
+        rows.append(sub_row(
+            'exp_copy_xcdr__cpp_to_cpp__4000B__10Hz__udp__best_effort',
+            seq, send_ns, send_ns + 100000, config='copy', message='exp',
+            backend='xcdr', transport='udp', payload_bytes=4000))
+    path = os.path.join(str(tmp_path), 'rel.csv')
+    write_csv(path, rows)
+    df = ar.load_raw_csvs(str(tmp_path))
+    joined, n_pub, n_recv = ar.join_pub_sub(df)
+    assert len(joined) == 6
+    matrix = ar.summary_matrix(ar.derive_metrics(joined))
+    assert len(matrix) == 2
+    assert set(matrix['reliability']) == {'reliable', 'best_effort'}
+    assert matrix.loc[
+        matrix['reliability'] == 'reliable', 'mean'].iloc[0] == 200.0
+    assert matrix.loc[
+        matrix['reliability'] == 'best_effort', 'mean'].iloc[0] == 100.0
+    deltas = ar.reliability_deltas(matrix)
+    assert len(deltas) == 1
+    assert deltas.iloc[0]['rel_minus_be_mean'] == 100.0
+    pacing = ar.pacing_table(ar.derive_metrics(joined))
+    assert set(pacing['reliability']) == {'reliable', 'best_effort'}
 
 
 def test_load_filters_errors_and_warmup(tmp_path):
@@ -215,6 +268,60 @@ def test_drops_table_only_dropped_runs(tmp_path):
     assert row['drops'] == 1 and row['drop_rate'] == 0.5
 
 
+def test_pacing_table_known_values(tmp_path):
+    """Inter-send stats and jitter ratio on hand-computed intervals."""
+    rows = []
+    for seq, send_ns in enumerate((0, 90000000, 210000000)):
+        rows.append(pub_row(RUN_A, seq, send_ns))
+        rows.append(sub_row(RUN_A, seq, send_ns, send_ns + 100000))
+    path = os.path.join(str(tmp_path), 'paced.csv')
+    write_csv(path, rows)
+    df = ar.load_raw_csvs(str(tmp_path))
+    joined, _n_pub, _n_recv = ar.join_pub_sub(df)
+    pacing = ar.pacing_table(ar.derive_metrics(joined))
+    assert len(pacing) == 1
+    row = pacing.iloc[0]
+    assert row['n_intervals'] == 2
+    assert row['nominal_period_ms'] == 100.0
+    assert row['inter_send_mean_ms'] == 105.0
+    assert round(row['inter_send_std_ms'], 3) == 21.213
+    assert round(row['jitter_ratio'], 4) == 0.2020
+    assert row['case'] == 'std_copy_fastcdr'
+    summary = ar.pacing_summary_table(pacing)
+    assert len(summary) == 1
+    assert summary.iloc[0]['runs'] == 1
+    assert round(summary.iloc[0]['mean'], 4) == 0.2020
+
+
+def test_pacing_single_sample_is_nan(tmp_path):
+    """One joined sample leaves intervals undefined, never crashes."""
+    rows = [pub_row(RUN_A, 0, 0), sub_row(RUN_A, 0, 0, 100000)]
+    path = os.path.join(str(tmp_path), 'single.csv')
+    write_csv(path, rows)
+    df = ar.load_raw_csvs(str(tmp_path))
+    joined, _n_pub, _n_recv = ar.join_pub_sub(df)
+    pacing = ar.pacing_table(ar.derive_metrics(joined))
+    row = pacing.iloc[0]
+    assert row['n_intervals'] == 0
+    assert row['inter_send_mean_ms'] != row['inter_send_mean_ms']  # NaN
+    assert row['jitter_ratio'] != row['jitter_ratio']  # NaN
+
+
+def test_pacing_figure_smoke(tmp_path):
+    """Pacing figure renders with overlay, without it, and empty."""
+    metrics, _n_pub, _n_recv = load_two_run_metrics(tmp_path)
+    pacing = ar.pacing_table(metrics)
+    out = os.path.join(str(tmp_path), 'pacing_figs')
+    os.makedirs(out)
+    ar.plot_pacing(
+        pacing, 0.01, os.path.join(out, 'pacing_overlay.png'))
+    ar.plot_pacing(pacing, 0.0, os.path.join(out, 'pacing_plain.png'))
+    ar.plot_pacing(
+        pacing.iloc[0:0], 0.01, os.path.join(out, 'pacing_empty.png'))
+    for name in os.listdir(out):
+        assert os.path.getsize(os.path.join(out, name)) > 0
+
+
 def write_synthetic_grid(tmp_path, n_samples=12):
     """Write a 2x2x2x2x2 synthetic matrix for figure/report tests."""
     cases = [
@@ -309,13 +416,14 @@ def test_figures_smoke(tmp_path):
 
 
 def test_report_sections_and_links(tmp_path):
-    """Report has all six sections with working figure references."""
+    """Report has all seven sections with working figure references."""
     metrics, n_pub, n_recv = load_grid_metrics(tmp_path)
     out = os.path.join(str(tmp_path), 'analysis')
     os.makedirs(out)
     stats = ar.per_run_stats(metrics, n_pub, n_recv)
     matrix = ar.summary_matrix(metrics)
     drops = ar.drops_table(stats)
+    pacing_summary = ar.pacing_summary_table(ar.pacing_table(metrics))
     figures = {
         'heatmap': 'fig_summary_heatmap.png',
         'payload_std_copy_fastcdr': 'fig_sweep_payload_std_copy_fastcdr.png',
@@ -325,17 +433,19 @@ def test_report_sections_and_links(tmp_path):
         'frequency_exp_constrained_pub_sub_xcdr':
             'fig_sweep_freq_exp_constrained_pub_sub_xcdr.png',
         '400B@10Hz': 'fig_timeseries_400B_10Hz.png',
+        'pacing': 'fig_pacing.png',
     }
     for name in figures.values():
         with open(os.path.join(out, name), 'w') as handle:
             handle.write('png')
     ar.write_report(
-        out, matrix, stats, drops, ['400B@10Hz'], figures)
+        out, matrix, stats, drops, ['400B@10Hz'], figures,
+        pacing_summary)
     report = open(os.path.join(out, 'report.md')).read()
     for section in ('## 1. Summary', '## 2. Latency by Payload Size',
                     '## 3. Latency by Publishing Frequency',
                     '## 4. Transport Comparison', '## 5. Time Series',
-                    '## 6. Drop Analysis'):
+                    '## 6. Drop Analysis', '## 7. Pacing'):
         assert section in report
     assert 'NTP-synchronized' in report
     for name in figures.values():
@@ -343,7 +453,7 @@ def test_report_sections_and_links(tmp_path):
 
 
 def test_end_to_end_cli(tmp_path):
-    """Full CLI pipeline on the synthetic grid: six CSVs, figures, report."""
+    """Full CLI pipeline on the synthetic grid: seven CSVs, figures, report."""
     import subprocess
     write_synthetic_grid(tmp_path)
     scripts = os.path.join(
@@ -359,13 +469,14 @@ def test_end_to_end_cli(tmp_path):
     expected_rows = {
         'per_run_stats.csv': 32, 'summary_matrix.csv': 8,
         'sweep_by_payload.csv': 16, 'sweep_by_frequency.csv': 16,
-        'sweep_by_direction.csv': 8, 'drops.csv': 0,
+        'sweep_by_direction.csv': 8, 'drops.csv': 0, 'pacing.csv': 32,
     }
     for name, count in expected_rows.items():
         path = os.path.join(out, name)
         assert os.path.isfile(path), name
         assert len(pd.read_csv(path)) == count, name
     for name in ('fig_summary_heatmap.png',
+                 'fig_pacing.png',
                  'fig_sweep_payload_std_copy_fastcdr.png',
                  'fig_sweep_payload_exp_constrained_pub_sub_xcdr.png',
                  'fig_sweep_freq_std_copy_fastcdr.png',

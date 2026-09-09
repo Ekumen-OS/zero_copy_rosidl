@@ -121,36 +121,61 @@ if any step failed).
 
 ## 6. Collecting the matrix
 
-Two driver scripts (package root, also installed to
-`share/constrained_pubsub_benchmark`) run whole sets sequentially with
-`[i/N]` progress. Both resume: an invocation with a `.done` marker in
+Three driver scripts under `scripts/`, also installed as `ros2 run`
+entry points, run whole sets sequentially with
+`[i/N]` progress. All three resume: an invocation with a `.done` marker in
 the results dir is skipped; failures keep a `.csv.failed` copy plus the
 stderr log and are retried on the next run. `RESULTS_DIR` overrides the
 output location; `DRY_RUN=1` prints every command without running.
 
-Machine hygiene: each step cleans stale FastDDS SHM segments
-(`fast_datasharing_*`, `fastrtps_*`), appends a temp/freq/load/SHM
-snapshot to `{RESULTS_DIR}/machine_state.log`, and cools down until max
+Machine hygiene: the pilot and matrix drivers clean stale FastDDS SHM segments
+(`fast_datasharing_*`, `fastrtps_*`), append a temp/freq/load/SHM
+snapshot to `{RESULTS_DIR}/machine_state.log`, and cool down until max
 CPU temp drops below `COOLDOWN_MAX_C` (default 75°C, `COOLDOWN_TIMEOUT`
 120 s cap) before the next step. Heat soak skews latencies ~2x, so do
-not disable this for publishable runs. `ROS_DISABLE_LOANED_MESSAGES=0`
-is exported by both drivers (loaned takes are opt-in at the rcl layer),
-and both pass `--fill-encoding 64 --fill-frame-id 16 --fill-data-ratio
+not disable this for publishable runs. The spike performs the SHM cleanup
+once but does not log machine state or wait for thermal cooldown.
+`ROS_DISABLE_LOANED_MESSAGES=0` is exported by all three drivers (loaned
+takes are opt-in at the rcl layer), and all three pass
+`--fill-encoding 64 --fill-frame-id 16 --fill-data-ratio
 1.0` so constrained messages fill their bounds and skip the compaction
 rewrite.
+
+The drivers do not control processor idle states. At low publication rates,
+deep package C-state wake-ups added roughly 100–200 µs during development
+and changed the apparent ordering of otherwise identical cases. Disable deep
+C-states with the platform's firmware or operating-system controls before a
+publishable run, and record that policy with the result set.
 ```bash
 # Pilot first: 5 cases x 4 inter-process directions, shmem_ds only,
 # 10 Hz, 100K + 1MB payloads, 30 s per step (~25 min)
-./src/constrained_pubsub_benchmark/run_pilot.sh
+./src/constrained_pubsub_benchmark/scripts/run_pilot.sh
+# or installed: ros2 run constrained_pubsub_benchmark pilot
 
-# Full matrix: 5 cases x 6 directions x 240 steps at 30 s (~34 h)
-RESULTS_DIR=/data/matrix ./src/constrained_pubsub_benchmark/run_matrix.sh
+# Full matrix: 60 invocations x 126 steps at 30 s (~63 h publish time)
+RESULTS_DIR=/data/matrix ./src/constrained_pubsub_benchmark/scripts/run_matrix.sh
+# or installed: RESULTS_DIR=/data/matrix ros2 run constrained_pubsub_benchmark matrix
+
+# Single spike (1M BE @ 10 Hz) with figures:
+# ./src/constrained_pubsub_benchmark/scripts/run_spike.sh
+# or installed: ros2 run constrained_pubsub_benchmark spike
 ```
 
 Run from the workspace root, one driver at a time (SHM segments and
 40 MB payloads are sized for sequential steps). Inspect a finished
 invocation's `.log` on failure, delete a stale `.done` marker to force
 a re-run, then feed the results dir to `analyze_results.py` (§8).
+
+The matrix driver sweeps both reliabilities (`reliable`,
+`best_effort`) as a first-class run_id coordinate
+(`...__{transport}__{reliability}`, defaulting to `reliable` for
+historical ids), so one results directory holds both levels and every
+table, figure, and delta splits by it. To compensate for the doubled
+axis it uses reduced grids: payloads `40,400,4K,40K,400K,4M,40M` (4B
+dropped) and frequencies `1,10,46.4,100,464,1000` (decade anchors
+kept). Pure publish time is 60 invocations x 126 steps x 30 s ~= 63 h
+plus ~20% step overhead and thermal cooldown gaps; the report carries
+reliable-vs-best_effort deltas per (case, direction, transport).
 
 ## 7. Raw CSV schema
 
@@ -187,13 +212,16 @@ drops = sum(1 for k in pub if k not in sub)
 ## 8. Post-processing
 
 `scripts/analyze_results.py` turns raw sweep CSVs into statistics,
-figures, and a Markdown report (spec: `src/PLAN_postprocessing.md`).
-Needs pandas, numpy, matplotlib (pip). The script is a source-tree
-tool; it is not installed by the package build.
+figures, and a Markdown report. It needs pandas, numpy, and matplotlib.
+The package also installs it as the `analyze` entry point.
 
 ```bash
 # Analyze a results directory (raw CSVs anywhere underneath)
 python3 src/constrained_pubsub_benchmark/scripts/analyze_results.py \
+  /tmp/sweep_results --output-dir /tmp/sweep_results/analysis
+
+# Installed equivalent
+ros2 run constrained_pubsub_benchmark analyze \
   /tmp/sweep_results --output-dir /tmp/sweep_results/analysis
 
 # Common filters
@@ -204,10 +232,12 @@ python3 src/constrained_pubsub_benchmark/scripts/analyze_results.py \
 
 Inputs: raw CSV files (21 columns) anywhere under the results
 directory. Outputs under `{results_dir}/analysis` (override with
-`--output-dir`): six CSVs (`summary_matrix`, `per_run_stats`,
+`--output-dir`): seven CSVs (`summary_matrix`, `per_run_stats`,
 `sweep_by_payload`, `sweep_by_frequency`, `sweep_by_direction`,
-`drops`), 27 PNG figures (summary heatmap, per-case payload and
-frequency sweeps, per-step time series), and `report.md`. See
+`drops`, `pacing`), 28 PNG figures (summary heatmap, pacing scatter,
+per-case payload and frequency sweeps, per-step time series), and
+`report.md` (now with a §7 pacing section; pass `--expected-jitter`
+with the harness dither fraction for the reference overlay). See
 `--help` for step selection, payload exclusion, PDF output, and DPI.
 
 ## 9. What to look at
@@ -216,14 +246,9 @@ frequency sweeps, per-step time series), and `report.md`. See
   rows. Missing receive rows are drops, not errors.
 - **stderr**: `READY` handshake, `DONE sent/received` summaries, per-step
   progress (`[i/N] run_id`), malformed-row warnings, failure messages.
-- **`--prof-dir`**: per-process (per-step) stdout/stderr logs, including
-  FastDDS traces. Relevant markers:
-  - `XcdrTypeSupport::serialize type=N` — serialize path
-    (2 = ROS_MESSAGE, 0 = CDR_BUFFER).
-  - `XcdrTypeSupport::deserialize type=N` — deserialize path
-    (0 = ROS_MESSAGE_LOAN cast, 2 = ROS_MESSAGE full deserialize).
-  - `check_datasharing_compatible ... is_bounded=...` — data sharing enabled?
-  - `XcdrTypeSupport type=... bounded=... type_size=...` — bounded/plain flags.
+- **`--prof-dir`**: per-process, per-step stdout and stderr logs for
+  diagnosing discovery, endpoint creation, and Fast DDS failures. The
+  benchmark does not require middleware timing instrumentation.
 
 ## 10. Known behaviors (not bugs)
 

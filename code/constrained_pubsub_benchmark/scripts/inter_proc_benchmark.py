@@ -360,6 +360,8 @@ def step_common(args, run_id, payload_bytes, frequency_hz, transport,
         '--qos-depth', str(args.qos_depth),
         '--reliability', args.reliability,
         '--publish-rate-hz', repr(frequency_hz),
+        '--publish-jitter', repr(args.publish_jitter),
+        '--publish-jitter-seed', str(args.publish_jitter_seed),
         '--duration-sec', str(duration_sec),
         '--grace-sec', str(args.grace_sec),
         '--backend', args.backend,
@@ -378,7 +380,7 @@ def run_single(args, paths):
     run_id = args.run_id or make_run_id(
         message, config, backend, args.direction,
         parse_payload(args.payload_bytes), args.publish_rate_hz,
-        args.transport)
+        args.transport, args.reliability)
     topic = f'/inter_proc_benchmark_{os.getpid()}'
     common = step_common(
         args, run_id, parse_payload(args.payload_bytes),
@@ -441,7 +443,7 @@ def run_sweep(args, paths, payloads, freqs, transports):
     for step_index, (payload_bytes, frequency_hz, transport) in enumerate(steps):
         run_id = make_run_id(
             message, config, backend, args.direction, payload_bytes,
-            frequency_hz, transport)
+            frequency_hz, transport, args.reliability)
         sys.stderr.write(
             '[%d/%d] %s\n' % (step_index + 1, len(steps), run_id))
         sys.stderr.flush()

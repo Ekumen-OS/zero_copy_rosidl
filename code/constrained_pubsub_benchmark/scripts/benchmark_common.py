@@ -72,6 +72,8 @@ def build_parser():
     parser.add_argument('--qos-depth', type=int, default=10)
     parser.add_argument('--reliability', choices=['reliable', 'best_effort'], default='reliable')
     parser.add_argument('--publish-rate-hz', type=float, default=100.0)
+    parser.add_argument('--publish-jitter', type=float, default=0.0)
+    parser.add_argument('--publish-jitter-seed', type=int, default=42)
     parser.add_argument('--duration-sec', type=float, default=30.0)
     parser.add_argument('--sweep-payloads', default=DEFAULT_PAYLOAD_GRID)
     parser.add_argument('--sweep-freqs', default=None)
@@ -142,25 +144,26 @@ def format_frequency_hz(hz):
 
 
 def make_run_id(message, config, backend, direction, payload_bytes,
-                frequency_hz, transport):
+                frequency_hz, transport, reliability='reliable'):
     """
     Build a run id from its coordinates.
 
-    E.g. 'exp_constrained_pub_sub_xcdr__cpp_to_cpp__...'. Callers pass
-    the resolved backend.
+    E.g. 'exp_constrained_pub_sub_xcdr__cpp_to_cpp__...__shmem__reliable'.
+    Callers pass the resolved backend. Reliability defaults to
+    'reliable' so historical ids without the coordinate keep parsing.
     """
     direction = direction or 'manual'
-    return '%s_%s_%s__%s__%dB__%s__%s' % (
+    return '%s_%s_%s__%s__%dB__%s__%s__%s' % (
         message, config, backend, direction, payload_bytes,
-        format_frequency_hz(frequency_hz), transport)
+        format_frequency_hz(frequency_hz), transport, reliability)
 
 
 def auto_run_id(message, config, backend, direction, payload_bytes,
-                frequency_hz, transport):
+                frequency_hz, transport, reliability='reliable'):
     """Build a run id with the process id appended (manual runs only)."""
     return '%s__pid%d' % (
         make_run_id(message, config, backend, direction, payload_bytes,
-                    frequency_hz, transport),
+                    frequency_hz, transport, reliability),
         os.getpid())
 
 
@@ -339,7 +342,8 @@ class RunContext:
         run_id = args.run_id or auto_run_id(
             args.message, args.config, backend,
             args.direction or direction_fallback, payload_bytes,
-            args.publish_rate_hz, args.transport)
+            args.publish_rate_hz, args.transport,
+            getattr(args, 'reliability', 'reliable'))
         return cls(
             run_id=run_id, process=process,
             direction=args.direction or direction_fallback,

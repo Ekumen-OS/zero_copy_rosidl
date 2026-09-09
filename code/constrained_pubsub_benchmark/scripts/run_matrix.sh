@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 #
-# Full 90-combo matrix driver: 5 cases x 6 directions, one sweep invocation
-# each (8 payloads x 10 frequencies x 3 transports = 240 steps at 30 s).
+# Full matrix driver: 5 cases x 6 directions x 2 reliabilities, one sweep
+# invocation each (7 payloads x 6 frequencies x 3 transports = 126 steps
+# at 30 s). Reliability is a first-class run_id coordinate, so both
+# levels share one results directory and post-processing separates them.
+#
+# Pure publish time: 60 invocations x 126 steps x 30 s ~= 63 h, plus
+# per-step discovery/settle overhead (~20%) and thermal cooldown gaps.
+# Payloads drop the degenerate 4B point; frequencies keep decade anchors
+# (1, 10, 100, 1000) plus mids (46.4, 464) to compensate for the added
+# reliability axis.
 #
 # Resumable: an invocation is skipped when its .done marker exists in the
 # results dir. Partial output lands in .csv.tmp while running and is moved
@@ -9,27 +17,40 @@
 # re-run on the next invocation of this script. Progress ([i/N], elapsed,
 # average pace) prints throughout; a failure summary prints at the end.
 #
-# Usage (from the colcon workspace root):
-#   ./src/constrained_pubsub_benchmark/run_matrix.sh
-#   RESULTS_DIR=/data/matrix ./src/constrained_pubsub_benchmark/run_matrix.sh
-#   DRY_RUN=1 ./src/constrained_pubsub_benchmark/run_matrix.sh  # list only
+# Usage (source tree, from the colcon workspace root):
+#   ./src/constrained_pubsub_benchmark/scripts/run_matrix.sh
+#   RESULTS_DIR=/data/matrix ./src/constrained_pubsub_benchmark/scripts/run_matrix.sh
+#   DRY_RUN=1 ./src/constrained_pubsub_benchmark/scripts/run_matrix.sh  # list only
+# Or installed (any directory, environment sourced):
+#   ros2 run constrained_pubsub_benchmark matrix
 #
 
 RESULTS_DIR="${RESULTS_DIR:-/tmp/matrix_results}"
 DRY_RUN="${DRY_RUN:-0}"
 STEP_SEC=30
 
-if [[ ! -f install/setup.bash ]]; then
-  echo "error: run from the colcon workspace root" >&2
-  exit 2
+# Resolve install-vs-source layout. Via `ros2 run`, this script lives in
+# install/<pkg>/lib/<pkg>/ next to the benchmark executables (environment
+# already sourced by the caller). Otherwise it runs from the source tree,
+# rooted at the colcon workspace.
+HERE="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+if [[ -f "$HERE/inter_proc_cpp_publisher" ]]; then
+  BIN="$HERE"
+  ANALYZE="$HERE/analyze"
+else
+  if [[ ! -f install/setup.bash ]]; then
+    echo "error: run from the colcon workspace root" >&2
+    exit 2
+  fi
+  # shellcheck disable=SC1091
+  source install/setup.bash
+  BIN="install/constrained_pubsub_benchmark/lib/constrained_pubsub_benchmark"
+  ANALYZE="src/constrained_pubsub_benchmark/scripts/analyze_results.py"
 fi
-# shellcheck disable=SC1091
-source install/setup.bash
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 # Loaned takes are opt-in at the rcl layer (default off); the constrained
 # benchmark needs them for the zero-copy take path (see BENCHMARK_RUNBOOK).
 export ROS_DISABLE_LOANED_MESSAGES=0
-BIN="install/constrained_pubsub_benchmark/lib/constrained_pubsub_benchmark"
 
 CASES=(
   "std copy fastcdr"
@@ -41,8 +62,14 @@ CASES=(
 DIRECTIONS=(
   cpp_to_cpp cpp_to_py py_to_cpp py_to_py intra_cpp intra_py
 )
+RELIABILITIES=(
+  reliable best_effort
+)
+# Reduced sweep grids (see header): 4B dropped, 6 frequencies.
+SWEEP_PAYLOADS="40,400,4K,40K,400K,4M,40M"
+SWEEP_FREQS="1,10,46.4,100,464,1000"
 
-TOTAL=$(( ${#CASES[@]} * ${#DIRECTIONS[@]} ))
+TOTAL=$(( ${#CASES[@]} * ${#DIRECTIONS[@]} * ${#RELIABILITIES[@]} ))
 mkdir -p "$RESULTS_DIR"
 FAILURES=()
 START_ALL=$SECONDS
@@ -146,18 +173,23 @@ run_one() {
   cooldown
 }
 
-for entry in "${CASES[@]}"; do
+for rel in "${RELIABILITIES[@]}"; do
+  for entry in "${CASES[@]}"; do
   # shellcheck disable=SC2086
   set -- $entry
   msg="$1"
   cfg="$2"
   be="$3"
   for dir in "${DIRECTIONS[@]}"; do
-    run_one "${msg}_${cfg}_${be}__${dir}" \
+    run_one "${msg}_${cfg}_${be}__${dir}__${rel}" \
       --sweep --direction "$dir" \
       --message "$msg" --config "$cfg" --backend "$be" \
+      --sweep-payloads "$SWEEP_PAYLOADS" --sweep-freqs "$SWEEP_FREQS" \
+      --reliability "$rel" \
+      --publish-jitter 0.01 --publish-jitter-seed 42 \
       --fill-encoding 64 --fill-frame-id 16 --fill-data-ratio 1.0 \
       --duration-per-step "$STEP_SEC"
+  done
   done
 done
 

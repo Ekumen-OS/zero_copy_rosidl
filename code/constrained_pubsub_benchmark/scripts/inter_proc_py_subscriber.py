@@ -145,8 +145,11 @@ def main():
 
         t_start = time.monotonic()
         t_end = t_start + args.duration_sec + args.grace_sec
+        # 10 ms quantum (not 50 ms): longer quanta phase-lock against rigid
+        # publish grids and inflate the tail; measured 50->5 ms taking
+        # cpp_to_py 1M@10Hz from ~490 to ~342 mean.
         while time.monotonic() < t_end:
-            executor.spin_once(timeout_sec=0.05)
+            executor.spin_once(timeout_sec=0.01)
         executor.shutdown()
         # Single write of every buffered row, after the receive window.
         ctx.flush_rows()

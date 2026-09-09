@@ -112,6 +112,15 @@ const char * transport_key(Transport t);
 /// Parse a string into Transport.  Throws std::invalid_argument on unknown.
 Transport transport_from_string(const std::string & s);
 
+/// QoS reliability.
+enum class Reliability
+{
+  kReliable,
+  kBestEffort,
+};
+
+const char * reliability_key(Reliability r);
+
 /// Parse a comma-separated payload grid (each item accepts K/KB/M/MB).
 /// Throws std::invalid_argument on empty or malformed input.
 std::vector<size_t> parse_payload_grid(const std::string & s);
@@ -125,29 +134,21 @@ std::vector<double> default_frequency_grid();
 std::vector<double> parse_frequency_grid(const std::string & s);
 
 /// Build a run id from its coordinates, e.g.
-/// "exp_constrained_pub_sub_xcdr__cpp_to_cpp__400000B__10Hz__shmem".
+/// "exp_constrained_pub_sub_xcdr__cpp_to_cpp__400000B__10Hz__shmem__reliable".
 /// Callers pass the resolved backend (see resolve_backend).
 std::string make_run_id(
   MessageType message, Config config, Backend backend,
   const std::string & direction, size_t payload_bytes, double frequency_hz,
-  Transport transport);
+  Transport transport, Reliability reliability = Reliability::kReliable);
 
 /// Build a run id with the process id appended (manual runs only; the
 /// orchestrator always passes an explicit id so pub/sub rows join).
 std::string auto_run_id(
   MessageType message, Config config, Backend backend,
   const std::string & direction, size_t payload_bytes, double frequency_hz,
-  Transport transport);
+  Transport transport, Reliability reliability = Reliability::kReliable);
 
-/// QoS reliability.
-enum class Reliability
-{
-  kReliable,
-  kBestEffort,
-};
-
-const char * reliability_key(Reliability r);
-
+/// Parse a string into Reliability.  Throws std::invalid_argument on unknown.
 Reliability reliability_from_string(const std::string & s);
 
 /// Complete runtime configuration for a single benchmark run.
@@ -200,6 +201,15 @@ struct BenchmarkConfig
   // ── Run control ─────────────────────────────────────────────────────────
   /// Fixed publish rate in Hz for the run step.
   double publish_rate_hz{100.0};
+  /// Deterministic publish-period dither as a fraction of the period.
+  /// Each deadline is perturbed by uniform(-jitter, +jitter) * period from
+  /// a PRNG seeded by publish_jitter_seed, so the mean rate is unchanged
+  /// while rigid-grid beating against fixed-period DDS timers is broken.
+  /// 0.0 = exact metronome (default, preserves historical behavior).
+  double publish_jitter{0.0};
+  /// PRNG seed for publish dithering.  Fixed default => the dither pattern
+  /// is reproducible run to run; same seed gives the same stimulus.
+  uint64_t publish_jitter_seed{42};
   /// Fixed length of the run step in seconds.
   double duration_sec{30.0};
   /// Topic name (expanded/remapped by rcl).  Use an absolute name for
