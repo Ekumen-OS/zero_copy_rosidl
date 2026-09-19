@@ -146,16 +146,13 @@ def test_reliability_separates_runs(tmp_path):
     df = ar.load_raw_csvs(str(tmp_path))
     joined, n_pub, n_recv = ar.join_pub_sub(df)
     assert len(joined) == 6
-    matrix = ar.summary_matrix(ar.derive_metrics(joined))
-    assert len(matrix) == 2
-    assert set(matrix['reliability']) == {'reliable', 'best_effort'}
-    assert matrix.loc[
-        matrix['reliability'] == 'reliable', 'mean'].iloc[0] == 200.0
-    assert matrix.loc[
-        matrix['reliability'] == 'best_effort', 'mean'].iloc[0] == 100.0
-    deltas = ar.reliability_deltas(matrix)
-    assert len(deltas) == 1
-    assert deltas.iloc[0]['rel_minus_be_mean'] == 100.0
+    per_run = ar.per_run_stats(ar.derive_metrics(joined), n_pub, n_recv)
+    assert len(per_run) == 2
+    assert set(per_run['reliability']) == {'reliable', 'best_effort'}
+    assert per_run.loc[
+        per_run['reliability'] == 'reliable', 'mean'].iloc[0] == 200.0
+    assert per_run.loc[
+        per_run['reliability'] == 'best_effort', 'mean'].iloc[0] == 100.0
     pacing = ar.pacing_table(ar.derive_metrics(joined))
     assert set(pacing['reliability']) == {'reliable', 'best_effort'}
 
@@ -225,6 +222,8 @@ def test_per_run_stats_known_values(tmp_path):
     row_b = stats.loc[stats['run_id'] == RUN_B].iloc[0]
     assert row_b['n'] == 1 and row_b['drop_rate'] == 0.5
     assert row_b['case'] == 'exp_constrained_pub_sub_xcdr'
+    assert row_a['n_late'] == 0 and row_a['missed_frac'] == 0.0
+    assert row_b['n_late'] == 0 and row_b['missed_frac'] == 0.5
 
 
 def test_zero_variance_std_is_zero(tmp_path):
@@ -243,17 +242,44 @@ def test_zero_variance_std_is_zero(tmp_path):
     assert stats.iloc[0]['mean'] == 200.0
 
 
-def test_sweep_and_summary_row_counts(tmp_path):
-    """Sweep tables and the summary matrix aggregate as specified."""
+def test_streaming_collect_matches_direct(tmp_path):
+    """Streaming per-file collection matches direct per-run stats."""
     metrics, n_pub, n_recv = load_two_run_metrics(tmp_path)
-    by_payload, by_frequency, by_direction = ar.aggregate_sweeps(metrics)
-    assert len(by_payload) == 2 and len(by_frequency) == 2
-    assert len(by_direction) == 2
-    assert set(by_payload['n_runs']) == {1}
-    matrix = ar.summary_matrix(metrics)
-    assert len(matrix) == 2
-    assert set(matrix['case']) == {
+    direct = ar.per_run_stats(metrics, n_pub, n_recv)
+    per_run, pacing, _pooled = ar.collect_per_run_tables(str(tmp_path))
+    assert len(per_run) == len(direct) == 2
+    assert set(per_run['case']) == {
         'std_copy_fastcdr', 'exp_constrained_pub_sub_xcdr'}
+    assert set(per_run['run_id']) == set(direct['run_id'])
+    assert len(pacing) == 2
+
+
+def test_fixed_values_snap_to_figures(tmp_path):
+    """Fixed values snap to figure-visible payloads, never excluded ones."""
+    write_synthetic_grid(tmp_path)
+    per_run, _pacing, _pooled = ar.collect_per_run_tables(str(tmp_path))
+    assert len(per_run) == 32
+
+    class Args:
+        exclude_payloads = '4000'
+        sweep_fixed_freq = None
+        sweep_fixed_payload = None
+        ts_case = None
+        ts_direction = None
+        figure_exclude_cases = None
+        figure_exclude_directions = None
+        line_exclude_cases = None
+        throughput_xmin = None
+    fixed = ar.resolve_fixed_values(per_run, Args())
+    assert fixed['figure_exclude_payloads'] == [4000]
+    # Medians resolve inside the visible set.
+    assert fixed['sweep_fixed_payload'] == 400
+    fig_only = ar.filter_figure_runs(
+        per_run, exclude_payloads=fixed['figure_exclude_payloads'])
+    assert set(fig_only['payload_bytes']) == {400}
+    # Saturation scope keeps every payload.
+    sat_only = ar.filter_figure_runs(per_run)
+    assert set(sat_only['payload_bytes']) == {400, 4000}
 
 
 def test_drops_table_only_dropped_runs(tmp_path):
@@ -387,73 +413,283 @@ def test_formatters_round_trip():
 
 def test_figures_smoke(tmp_path):
     """All figure kinds render to non-empty files on synthetic data."""
-    metrics, n_pub, n_recv = load_grid_metrics(tmp_path)
+    write_synthetic_grid(tmp_path)
+    per_run, _pacing, _pooled = ar.collect_per_run_tables(str(tmp_path))
+    per_run = ar.add_throughput_columns(per_run)
     out = os.path.join(str(tmp_path), 'figs')
     os.makedirs(out)
-    matrix = ar.summary_matrix(metrics)
-    heat = os.path.join(out, 'fig_summary_heatmap.png')
-    ar.plot_summary_heatmap(matrix, heat)
-    by_payload, by_frequency, _by_direction = ar.aggregate_sweeps(metrics)
-    for case in ('std_copy_fastcdr', 'exp_constrained_pub_sub_xcdr'):
-        payloads = sorted(
-            by_payload.loc[by_payload['case'] == case, 'payload_bytes'])
-        ar.plot_sweep(
-            by_payload, case, 'payload_bytes', 'payload_bytes',
-            payloads,
-            os.path.join(out, 'fig_sweep_payload_%s.png' % case))
-        freqs = sorted(
-            by_frequency.loc[by_frequency['case'] == case,
-                             'target_frequency_hz'])
-        ar.plot_sweep(
-            by_frequency, case, 'target_frequency_hz',
-            'target_frequency_hz', freqs,
-            os.path.join(out, 'fig_sweep_freq_%s.png' % case))
-    ar.plot_time_series(
-        metrics, 4000, 100.0, os.path.join(out, 'fig_timeseries.png'))
+    transport, reliability = 'udp', 'reliable'
+    ar.plot_sweep_payload(
+        per_run, transport, reliability, 100.0,
+        os.path.join(out, 'sweep_payload_lat.png'))
+    ar.plot_sweep_frequency(
+        per_run, transport, reliability, 4000,
+        os.path.join(out, 'sweep_freq_lat.png'))
+    # Synthetic offered loads top out at 400KB/s, below the default
+    # 100MB/s zoom floor, so tests pin the floor at zero.
+    ar.plot_throughput_vs_expected(
+        per_run, transport, reliability,
+        os.path.join(out, 'thr_vs_exp.png'), xmin_bps=0.0)
+    ar.plot_latency_payload_by_transport(
+        per_run, reliability,
+        sorted(per_run['case'].unique())[0],
+        sorted(per_run['direction'].unique())[0], 100.0,
+        os.path.join(out, 'transport_lat.png'))
+    ar.plot_throughput_frequency_by_transport(
+        per_run, reliability,
+        sorted(per_run['case'].unique())[0],
+        sorted(per_run['direction'].unique())[0],
+        os.path.join(out, 'transport_thr.png'), xmin_bps=0.0)
+    ar.plot_corner_bars(
+        _pooled, transport, reliability, 4000, 10.0,
+        out_path=os.path.join(out, 'corner_bars.png'))
+    ar.plot_ontime_vs_offered(
+        per_run, transport, reliability,
+        os.path.join(out, 'ontime.png'))
+    max_frame = ar.throughput_max_frame(per_run)
+    ar.plot_throughput_bars(
+        max_frame, reliability, os.path.join(out, 'bars.png'))
+    # Empty slices write nothing and report False instead of blank figures.
+    assert ar.plot_sweep_payload(
+        per_run, 'nonexistent', reliability, 100.0,
+        os.path.join(out, 'empty.png')) is False
+    assert not os.path.exists(os.path.join(out, 'empty.png'))
     for name in os.listdir(out):
         assert os.path.getsize(os.path.join(out, name)) > 0
-    assert len(os.listdir(out)) == 6
+    assert len(os.listdir(out)) == 8
+
+
+def test_descriptive_throughput_labels():
+    """Throughput legends read direction, backend, data path in full."""
+    assert ar.descriptive_label(
+        'exp_constrained_pub_only_xcdr',
+        'cpp_to_py') == 'C++ to Python, XCDR, loan (write bounded)'
+    assert ar.descriptive_label(
+        'exp_constrained_pub_sub_xcdr',
+        'py_to_py') == 'Python to Python, XCDR, loan (bounded)'
+    assert ar.descriptive_label(
+        'std_copy_fastcdr', 'cpp_to_cpp') == 'C++ to C++, FastCDR, copy'
+    assert ar.descriptive_label(
+        'std_copy_xcdr', 'cpp_to_cpp') == 'C++ to C++, XCDR, copy'
+
+
+def test_case_short_labels():
+    """Direction-cell legends carry backend + path only."""
+    assert ar.case_short_label(
+        'exp_constrained_pub_only_xcdr') == 'XCDR loan (write bounded)'
+    assert ar.case_short_label(
+        'exp_constrained_pub_sub_xcdr') == 'XCDR loan (bounded)'
+    assert ar.case_short_label('std_copy_fastcdr') == 'FastCDR copy'
+    assert ar.case_short_label('std_copy_xcdr') == 'XCDR copy'
+    assert ar.case_short_label('exp_copy_xcdr') == 'XCDR copy'
+
+
+def test_curves_coincide_removed():
+    """Shared-handle merging is gone: every line keeps its own handle."""
+    import numpy as np
+    assert not hasattr(ar, 'merge_coincident_lines')
+    assert not hasattr(ar, '_curves_coincide')
+    assert not hasattr(ar, 'plot_pooled_boxes')
+    assert not hasattr(ar, 'plot_missed_vs_offered')
+    assert hasattr(ar, 'plot_corner_bars')
+    assert hasattr(ar, 'plot_ontime_vs_offered')
+    x, y = ar.max_same_x(
+        np.array([10.0, 10.0, 20.0]), np.array([1.0, 3.0, 2.0]))
+    assert list(y) == [3.0, 2.0]
+
+
+def test_collapse_merge_and_xmin():
+    """Shared-x points take the max; xmin/span helpers behave."""
+    import numpy as np
+    x, y = ar.max_same_x(
+        np.array([10.0, 10.0, 20.0]), np.array([1.0, 3.0, 2.0]))
+    assert list(x) == [10.0, 20.0]
+    assert list(y) == [3.0, 2.0]
+    assert ar.parse_throughput_label('100MB/s') == 100e6
+    assert ar.parse_throughput_label('1GB/s') == 1e9
+    assert ar.parse_throughput_label('40K') == 40000.0
+    assert ar._span_subs([40.0], [4e10]) is None
+    assert ar._span_subs([100.0], [200.0]) == (1.0, 2.0, 5.0)
+
+
+def test_pooled_distributions_exact_on_synthetic(tmp_path):
+    """Pooled histograms recover hand-computed quantiles."""
+    write_synthetic_grid(tmp_path)
+    per_run, _pacing, pooled = ar.collect_per_run_tables(str(tmp_path))
+    # 2 transports x 1 reliability x 2 cases x 2 directions; payloads and
+    # frequencies pool inside each group.
+    assert len(pooled['groups']) == 8
+    total = sum(e['n'] for e in pooled['groups'].values())
+    assert total == 32 * 12
+    md = ar.pooled_latency_table(pooled)
+    assert 'p50' in md and 'Shared memory' in md
+    key = ('udp', 'reliable', 'exp_constrained_pub_sub_xcdr', 'cpp_to_cpp')
+    assert pooled['groups'][key]['n'] == 4 * 12
+    assert len(pooled['groups'][key]['res']) > 0
+    out = os.path.join(str(tmp_path), 'corner_bars.png')
+    assert ar.plot_corner_bars(
+        pooled, 'udp', 'reliable', 400, 10.0, out_path=out) is True
+    assert os.path.getsize(out) > 0
+
+
+def test_rendered_ticks_never_scientific(tmp_path):
+    """Decade and subdivision ticks render SI on narrow and wide spans."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    cases = [
+        (dict(x_kind='payload_bytes', y_kind='latency_us',
+              x_ticks=[40, 40000000]),
+         [40, 4e7], [70, 2e4]),
+        (dict(x_kind='throughput_bps', y_kind='throughput_bps',
+              subs=None),
+         [40, 4e10], [40, 4e10]),
+        (dict(x_kind='milliseconds', y_kind='milliseconds'),
+         [1, 1000], [0.05, 500]),
+        # Box-plot span: minors must stay silent, never math notation.
+        (dict(x_kind='payload_bytes', y_kind='latency_us',
+              x_ticks=[40, 4000]),
+         [40, 4000], [15, 200]),
+    ]
+    for kwargs, xr, yr in cases:
+        fig, ax = plt.subplots()
+        ax.set_xscale('log')
+        ax.set_yscale('log')
+        ax.plot(xr, yr)
+        ar.apply_log_ticks(ax, **kwargs)
+        fig.canvas.draw()
+        labels = [t.get_text() for t in
+                  list(ax.get_xticklabels()) + list(ax.get_yticklabels())]
+        assert labels, kwargs
+        for text in labels:
+            assert 'e+' not in text and 'e-' not in text, (kwargs, text)
+            assert '10^' not in text and '−' not in text, (kwargs, text)
+        for axis in (ax.xaxis, ax.yaxis):
+            for tick in axis.get_minor_ticks():
+                assert tick.label1.get_text() == '', (
+                    kwargs, tick.label1.get_text())
+        plt.close(fig)
+
+
+def test_throughput_includes_40M_without_averaging(tmp_path):
+    """Throughput plots carry one point per run, 40M included."""
+    write_synthetic_grid(tmp_path)
+    per_run, _pacing, _pooled = ar.collect_per_run_tables(str(tmp_path))
+    per_run = ar.add_throughput_columns(per_run)
+    out = os.path.join(str(tmp_path), 'thr.png')
+    assert ar.plot_throughput_vs_expected(
+        per_run, 'udp', 'reliable', out, xmin_bps=0.0) is True
+    assert os.path.getsize(out) > 0
+    # 40M runs are kept in per-run tables and shown, never aggregated.
+    assert 'achieved_throughput_Bps' in per_run.columns
+    assert 'expected_throughput_Bps' in per_run.columns
+    max_frame = ar.throughput_max_frame(per_run)
+    thr_md = ar.throughput_max_table(max_frame)
+    assert 'Max achieved' in thr_md
+    assert 'At payload' in thr_md
+
+
+def test_si_formatters_and_labels():
+    """SI axis formatters and spelled-out labels behave."""
+    assert ar.format_throughput_bps(40000) == '40KB/s'
+    assert ar.format_throughput_bps(4000000) == '4MB/s'
+    assert ar.format_freq_pretty(100.0) == '100 Hz'
+    assert ar.humanize_case(
+        'exp_constrained_pub_sub_xcdr') == 'Constrained pub/sub XCDR'
+    assert ar.humanize_case('std_copy_fastcdr') == 'Copy FastCDR'
+    assert ar.humanize_case('std_copy_xcdr') == 'Copy XCDR'
+    assert ar.humanize_direction('cpp_to_py') == 'C++ to Python'
+    assert ar.humanize_transport('shmem_ds') == \
+        'Shared memory + data sharing'
+    assert ar.axis_formatter('latency_us')(200.0, 0) == ar.format_us(200.0)
+    assert ar.axis_formatter('payload_bytes')(40000.0, 0) == '40K'
+    assert ar.axis_formatter('throughput_bps')(40000.0, 0) == '40KB/s'
+    assert ar.axis_formatter('throughput_bps')(1000000000.0, 0) == '1GB/s'
+    assert ar.axis_formatter('throughput_bps')(4e13, 0) == '40TB/s'
+    assert ar.axis_formatter('latency_us')(0.5, 0) == '0.5µs'
+    assert ar.axis_formatter('milliseconds')(10.0, 0) == '10ms'
+    assert ar.axis_formatter('milliseconds')(0.5, 0) == '500µs'
+
+
+def test_throughput_columns_and_exclusions(tmp_path):
+    """Throughput math is exact; figure exclusions only affect figures."""
+    write_synthetic_grid(tmp_path)
+    per_run, _pacing, _pooled = ar.collect_per_run_tables(str(tmp_path))
+    per_run = ar.add_throughput_columns(per_run)
+    row = per_run.iloc[0]
+    assert row['achieved_throughput_Bps'] == \
+        row['achieved_hz'] * row['payload_bytes']
+    assert row['expected_throughput_Bps'] == \
+        row['target_frequency_hz'] * row['payload_bytes']
+    fig_only = ar.filter_figure_runs(
+        per_run, exclude_cases=('std_copy_fastcdr',),
+        exclude_directions=('cpp_to_cpp',))
+    assert len(fig_only) < len(per_run)
+    assert 'std_copy_fastcdr' not in set(fig_only['case'])
+    assert 'cpp_to_cpp' not in set(fig_only['direction'])
+    assert len(per_run) == 32
 
 
 def test_report_sections_and_links(tmp_path):
-    """Report has all seven sections with working figure references."""
+    """Restructured report has per-run sections with figure references."""
     metrics, n_pub, n_recv = load_grid_metrics(tmp_path)
     out = os.path.join(str(tmp_path), 'analysis')
     os.makedirs(out)
     stats = ar.per_run_stats(metrics, n_pub, n_recv)
-    matrix = ar.summary_matrix(metrics)
     drops = ar.drops_table(stats)
     pacing_summary = ar.pacing_summary_table(ar.pacing_table(metrics))
+    fixed = {
+        'sweep_fixed_freq': 100.0, 'sweep_fixed_payload': 4000,
+        'sweep_corner_payloads': [4000],
+        'sweep_corner_freqs': [100.0],
+        'ts_case': 'exp_constrained_pub_sub_xcdr',
+        'ts_direction': 'cpp_to_cpp',
+        'figure_exclude_cases': ['exp_copy_xcdr'],
+        'figure_exclude_directions': ['intra_cpp', 'intra_py'],
+        'figure_exclude_payloads': [],
+        'line_exclude_cases': [],
+        'throughput_xmin_bps': 100e6,
+    }
     figures = {
-        'heatmap': 'fig_summary_heatmap.png',
-        'payload_std_copy_fastcdr': 'fig_sweep_payload_std_copy_fastcdr.png',
-        'payload_exp_constrained_pub_sub_xcdr':
-            'fig_sweep_payload_exp_constrained_pub_sub_xcdr.png',
-        'frequency_std_copy_fastcdr': 'fig_sweep_freq_std_copy_fastcdr.png',
-        'frequency_exp_constrained_pub_sub_xcdr':
-            'fig_sweep_freq_exp_constrained_pub_sub_xcdr.png',
-        '400B@10Hz': 'fig_timeseries_400B_10Hz.png',
+        'sweep_payload_latency_100Hz_udp_reliable': 'sweep_lat.png',
+        'sweep_freq_latency_4K_udp_reliable': 'sweep_freq.png',
+        'throughput_vs_expected_udp_reliable': 'thr.png',
+        'transport_latency_payload_reliable': 'cmp_lat.png',
+        'corner_bars_4K_100Hz_udp_reliable': 'corner_bars.png',
+        'ontime_vs_offered_udp_reliable': 'ontime.png',
+        'throughput_bars_reliable': 'bars.png',
         'pacing': 'fig_pacing.png',
     }
     for name in figures.values():
         with open(os.path.join(out, name), 'w') as handle:
             handle.write('png')
+    import numpy as np
+    pooled = ar.new_pooled()
+    ar.accumulate_pooled(pooled, metrics, np.random.default_rng(0))
+    max_frame = ar.throughput_max_frame(
+        ar.add_throughput_columns(stats))
     ar.write_report(
-        out, matrix, stats, drops, ['400B@10Hz'], figures,
-        pacing_summary)
+        out, stats, drops, pacing_summary, figures, fixed, pooled,
+        max_frame)
     report = open(os.path.join(out, 'report.md')).read()
-    for section in ('## 1. Summary', '## 2. Latency by Payload Size',
-                    '## 3. Latency by Publishing Frequency',
-                    '## 4. Transport Comparison', '## 5. Time Series',
-                    '## 6. Drop Analysis', '## 7. Pacing'):
+    for section in ('## 1. Dataset overview',
+                    '## 2. Latency sweeps by payload and frequency',
+                    '## 3. Throughput (achieved vs expected)',
+                    '## 4. Transport comparisons',
+                    '## 5. Pooled distributions and throughput ceiling',
+                     '## 6. Regime bars: latency at grid corners',
+                     '## 7. Drop Analysis', '## 8. Pacing'):
         assert section in report
     assert 'NTP-synchronized' in report
+    assert 'Time series' not in report
+    assert 'Heatmap' not in report
+    assert 'Copy FastCDR' in report
     for name in figures.values():
         assert name in report
 
 
 def test_end_to_end_cli(tmp_path):
-    """Full CLI pipeline on the synthetic grid: seven CSVs, figures, report."""
+    """Full streaming CLI pipeline on the synthetic grid."""
     import subprocess
     write_synthetic_grid(tmp_path)
     scripts = os.path.join(
@@ -462,34 +698,40 @@ def test_end_to_end_cli(tmp_path):
     result = subprocess.run(
         [sys.executable,
          os.path.join(scripts, 'analyze_results.py'), str(tmp_path),
-         '--output-dir', out],
+         '--output-dir', out, '--throughput-xmin', '0B/s',
+         '--line-exclude-cases', ''],
         capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
     import pandas as pd
     expected_rows = {
-        'per_run_stats.csv': 32, 'summary_matrix.csv': 8,
-        'sweep_by_payload.csv': 16, 'sweep_by_frequency.csv': 16,
-        'sweep_by_direction.csv': 8, 'drops.csv': 0, 'pacing.csv': 32,
+        'per_run_stats.csv': 32, 'drops.csv': 0, 'pacing.csv': 32,
+        'pacing_summary.csv': 8,
     }
     for name, count in expected_rows.items():
         path = os.path.join(out, name)
         assert os.path.isfile(path), name
         assert len(pd.read_csv(path)) == count, name
-    for name in ('fig_summary_heatmap.png',
-                 'fig_pacing.png',
-                 'fig_sweep_payload_std_copy_fastcdr.png',
-                 'fig_sweep_payload_exp_constrained_pub_sub_xcdr.png',
-                 'fig_sweep_freq_std_copy_fastcdr.png',
-                 'fig_sweep_freq_exp_constrained_pub_sub_xcdr.png',
-                 'fig_timeseries_400_100Hz.png',
-                 'fig_timeseries_4K_100Hz.png',
-                 'fig_timeseries_4K_10Hz.png',
+    for name in ('fig_sweep_payload_latency_10Hz_udp_reliable.png',
+                 'fig_sweep_payload_latency_100Hz_udp_reliable.png',
+                 'fig_sweep_freq_latency_4K_udp_reliable.png',
+                 'fig_throughput_vs_expected_udp_reliable.png',
+                 'fig_transport_latency_payload_reliable.png',
+                 'fig_transport_throughput_freq_reliable.png',
+                 'fig_corner_bars_4K_10Hz_udp_reliable.png',
+                 'fig_corner_bars_4K_10Hz_shmem_reliable.png',
+                 'fig_corner_bars_4K_100Hz_udp_reliable.png',
+                 'fig_corner_bars_4K_100Hz_shmem_reliable.png',
+                 'fig_ontime_vs_offered_udp_reliable.png',
+                 'fig_ontime_vs_offered_shmem_reliable.png',
+                 'fig_throughput_bars_reliable.png',
                  'report.md'):
         path = os.path.join(out, name)
         assert os.path.isfile(path), name
         assert os.path.getsize(path) > 0, name
     report = open(os.path.join(out, 'report.md')).read()
-    assert 'fig_summary_heatmap.png' in report
+    assert 'per_run_stats.csv' in report
+    assert 'Time series' not in report
+    assert 'Heatmap' not in report
 
 
 def test_loader_skips_outputs_and_strays(tmp_path):
@@ -501,8 +743,11 @@ def test_loader_skips_outputs_and_strays(tmp_path):
         handle.write('a,b\n1,2\n')
     analysis = os.path.join(str(tmp_path), 'analysis')
     os.makedirs(analysis)
-    with open(os.path.join(analysis, 'summary_matrix.csv'), 'w') as handle:
+    with open(os.path.join(analysis, 'per_run_stats.csv'), 'w') as handle:
         handle.write('case,mean\nstd_copy_fastcdr,100.0\n')
     df = ar.load_raw_csvs(str(tmp_path), skip_dirs=(analysis,))
     assert set(df['run_id']) == {RUN_A, RUN_B}
     assert len(df) == 9
+    per_run, _pacing, _pooled = ar.collect_per_run_tables(
+        str(tmp_path), skip_dirs=(analysis,))
+    assert set(per_run['run_id']) == {RUN_A, RUN_B}

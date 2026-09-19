@@ -211,6 +211,9 @@ def fill_image(msg, payload_bytes, seq, fill_encoding, fill_frame_id, fill_data_
         msg.width = w
         msg.step = w * 3
         try:
+            # Fresh loans arrive empty, so resize-and-fill covers the whole
+            # payload at memset speed with no Python-side temporary; the
+            # bytes assignment is the fallback for older bindings.
             msg.data.resize(want, 0xFE)
         except Exception:
             msg.data = b'\xfe' * want

@@ -111,9 +111,12 @@ void fill_image(
 
 /// Publishes at a fixed rate for a fixed duration, calling
 /// publish_one(seq) with seq = 0, 1, 2, ...  Never bursts to catch up:
-/// when behind schedule the next deadline resets to now.  Spins the given
-/// executor each iteration so discovery and events stay alive; the caller
-/// owns the executor (constructed once, reused everywhere).
+/// when behind schedule the next deadline resets to now.  The executor is
+/// pumped until each deadline (spin with timeout) instead of sleeping, so
+/// arrivals dispatch promptly: with pub and sub on one executor a bare
+/// sleep would queue every sample a full period and intra latency would
+/// read as period + transit instead of transit.  The caller owns the
+/// executor (constructed once, reused everywhere).
 ///
 /// jitter_frac perturbs each deadline by uniform(-jitter_frac,
 /// +jitter_frac) * period from a PRNG seeded with jitter_seed, breaking
@@ -147,17 +150,23 @@ void run_fixed_rate_loop(
   uint64_t seq = 0;
   while (Clock::now() < t_end) {
     publish_one(seq++);
-    exec.spin_some();
     next += period;
     if (jitter_frac > 0.0) {
       next += std::chrono::microseconds(
         static_cast<int64_t>(period.count() * jitter(rng)));
     }
-    auto now = Clock::now();
-    if (next < now) {
-      next = now;  // Do not burst if we fell behind.
+    auto remaining = next - Clock::now();
+    if (remaining <= Duration::zero()) {
+      next = Clock::now();  // Do not burst if we fell behind.
+      exec.spin_some();
+    } else {
+      // Wait out the period inside the executor so arrivals dispatch as
+      // they come in instead of queueing until the next tick.
+      do {
+        exec.spin_once(std::chrono::duration_cast<std::chrono::nanoseconds>(remaining));
+        remaining = next - Clock::now();
+      } while (remaining > Duration::zero());
     }
-    std::this_thread::sleep_until(next);
   }
 }
 
