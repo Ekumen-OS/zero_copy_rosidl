@@ -120,6 +120,10 @@ void XCdrLayoutBuilder::allocate_string(
 
 void XCdrLayoutBuilder::begin_allocate_array(std::string_view name, size_t count)
 {
+  if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
+    context_stack_.back().nested_builder->begin_allocate_array(name, count);
+    return;
+  }
   BuildContext ctx(memory_resource_);
   ctx.type = BuildContext::Type::kArray;
   ctx.field_name.assign(name);
@@ -134,6 +138,10 @@ void XCdrLayoutBuilder::begin_allocate_array(std::string_view name, size_t count
 
 void XCdrLayoutBuilder::end_allocate_array()
 {
+  if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
+    context_stack_.back().nested_builder->end_allocate_array();
+    return;
+  }
   if (context_stack_.empty() || context_stack_.back().type != BuildContext::Type::kArray) {
     // Error: unmatched end_allocate_array
     return;
@@ -164,8 +172,8 @@ void XCdrLayoutBuilder::end_allocate_array()
   // different offset due to alignment padding.
   if (ctx.element_layouts.size() == 1 && ctx.element_count > 1) {
     const auto & elem_layout = ctx.element_layouts[0];
-    size_t elem_size = std::visit([](const auto & l) { return l.size(); }, elem_layout);
-    size_t elem_align = std::visit([](const auto & l) { return l.alignment(); }, elem_layout);
+    size_t elem_size = std::visit([](const auto & l) {return l.size();}, elem_layout);
+    size_t elem_align = std::visit([](const auto & l) {return l.alignment();}, elem_layout);
     size_t offset = ctx.element_offsets[0];
     for (size_t i = 0; i < ctx.element_count; ++i) {
       elements.push_back({
@@ -191,6 +199,12 @@ void XCdrLayoutBuilder::end_allocate_array()
   if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
     context_stack_.back().nested_builder->add_field(
       ctx.field_name, ctx.start_offset, array_layout);
+  } else if (!context_stack_.empty()) {
+    auto & parent = context_stack_.back();
+    const size_t prefix = parent.type == BuildContext::Type::kSequence ?
+      kSequenceLengthPrefixSize : 0;
+    parent.element_offsets.push_back(ctx.start_offset - parent.start_offset - prefix);
+    parent.element_layouts.push_back(array_layout);
   } else {
     add_field(ctx.field_name, ctx.start_offset, array_layout);
   }
@@ -201,6 +215,10 @@ void XCdrLayoutBuilder::end_allocate_array()
 
 void XCdrLayoutBuilder::begin_allocate_sequence(std::string_view name, size_t actual_count)
 {
+  if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
+    context_stack_.back().nested_builder->begin_allocate_sequence(name, actual_count);
+    return;
+  }
   BuildContext ctx(memory_resource_);
   ctx.type = BuildContext::Type::kSequence;
   ctx.field_name.assign(name);
@@ -216,6 +234,10 @@ void XCdrLayoutBuilder::begin_allocate_sequence(std::string_view name, size_t ac
 
 void XCdrLayoutBuilder::end_allocate_sequence()
 {
+  if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
+    context_stack_.back().nested_builder->end_allocate_sequence();
+    return;
+  }
   if (context_stack_.empty() || context_stack_.back().type != BuildContext::Type::kSequence) {
     // Error: unmatched end_allocate_sequence
     return;
@@ -225,22 +247,15 @@ void XCdrLayoutBuilder::end_allocate_sequence()
   context_stack_.pop_back();
 
   // Determine sequence type based on elements
-  if (ctx.element_layouts.empty()) {
-    // Empty sequence
-    if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
-      // Can't easily determine type for empty sequence - skip for now
-    } else {
-      // Empty sequence at top level - skip
-    }
-    return;
+  if (ctx.element_layouts.empty() && ctx.element_count != 0) {
+    throw XCdrError("Nonempty sequence has no element layout");
   }
-
-  [[maybe_unused]] const auto & first_elem = ctx.element_layouts[0];
 
   // Primitive sequences must be built with allocate_primitive_sequence():
   // the begin/allocate/end path is only for non-primitive elements (strings,
   // structs, composites), where each element may have a different layout.
-  assert(!std::holds_alternative<XCdrPrimitiveLayout>(first_elem) &&
+  assert((ctx.element_layouts.empty() ||
+    !std::holds_alternative<XCdrPrimitiveLayout>(ctx.element_layouts[0])) &&
     "Primitive sequences must be built with allocate_primitive_sequence()");
 
   // Non-primitive sequence (strings, structs, nested composites)
@@ -258,6 +273,12 @@ void XCdrLayoutBuilder::end_allocate_sequence()
   if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
     context_stack_.back().nested_builder->add_field(
       ctx.field_name, ctx.start_offset, sequence_layout);
+  } else if (!context_stack_.empty()) {
+    auto & parent = context_stack_.back();
+    const size_t prefix = parent.type == BuildContext::Type::kSequence ?
+      kSequenceLengthPrefixSize : 0;
+    parent.element_offsets.push_back(ctx.start_offset - parent.start_offset - prefix);
+    parent.element_layouts.push_back(sequence_layout);
   } else {
     add_field(ctx.field_name, ctx.start_offset, sequence_layout);
   }
@@ -321,9 +342,7 @@ void XCdrLayoutBuilder::end_allocate_struct()
 
   // Check if the nested builder has any open struct contexts
   // If so, delegate to it first
-  if (ctx.nested_builder && !ctx.nested_builder->context_stack_.empty() &&
-    ctx.nested_builder->context_stack_.back().type == BuildContext::Type::kStruct)
-  {
+  if (ctx.nested_builder && ctx.nested_builder->has_open_contexts()) {
     ctx.nested_builder->end_allocate_struct();
     return;
   }
@@ -338,17 +357,24 @@ void XCdrLayoutBuilder::end_allocate_struct()
   // Align to nested struct's max alignment
   align_current_offset(nested_layout.max_alignment());
   size_t field_offset = current_offset_;
+  const size_t field_size = nested_layout.total_size();
 
   if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
     // Adding struct field to parent struct
     context_stack_.back().nested_builder->add_field(ctx_moved.field_name, field_offset,
         std::move(nested_layout));
+  } else if (!context_stack_.empty()) {
+    auto & parent = context_stack_.back();
+    const size_t prefix = parent.type == BuildContext::Type::kSequence ?
+      kSequenceLengthPrefixSize : 0;
+    parent.element_offsets.push_back(field_offset - parent.start_offset - prefix);
+    parent.element_layouts.push_back(std::move(nested_layout));
   } else {
     // Top-level struct field
     add_field(ctx_moved.field_name, field_offset, std::move(nested_layout));
   }
 
-  current_offset_ += nested_layout.total_size();
+  current_offset_ += field_size;
 }
 
 // No-name overloads (for array/sequence elements or unnamed struct fields)
@@ -386,6 +412,10 @@ void XCdrLayoutBuilder::begin_allocate_sequence(size_t actual_count)
 void XCdrLayoutBuilder::allocate_primitive_array(
   std::string_view name, XCdrPrimitiveKind kind, size_t count)
 {
+  if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
+    context_stack_.back().nested_builder->allocate_primitive_array(name, kind, count);
+    return;
+  }
   // Build the homogeneous primitive array layout in one shot: align to the
   // element alignment, record the (aligned) field offset, and advance past
   // all elements.  The begin/allocate/end path is for non-primitive arrays.
@@ -404,6 +434,10 @@ void XCdrLayoutBuilder::allocate_primitive_array(
 void XCdrLayoutBuilder::allocate_primitive_sequence(
   std::string_view name, XCdrPrimitiveKind kind, size_t actual_count)
 {
+  if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
+    context_stack_.back().nested_builder->allocate_primitive_sequence(name, kind, actual_count);
+    return;
+  }
   // Build the homogeneous primitive sequence layout in one shot: align to the
   // length prefix, record the prefix-start field offset, and advance past the
   // prefix + padding + all element bytes.  The begin/allocate/end path is for

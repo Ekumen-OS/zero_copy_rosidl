@@ -126,6 +126,13 @@ std::string_view name = accessor["name"].as<std::string_view>();
 double x = accessor["position"]["x"].as<double>();
 ```
 
+Nested structures may contain arrays and sequences, including sequences of
+structures. A single element layout can serve as the uniform template for a
+non-primitive collection. Empty sequences retain their four-byte length prefix
+and their position in the member list; they are not omitted. Applying a layout
+initializes length prefixes recursively inside collection elements as well as
+direct structure members.
+
 ### Layout Discovery from Buffers
 
 Parse layouts from existing serialized buffers:

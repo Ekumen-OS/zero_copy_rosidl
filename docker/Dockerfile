@@ -24,9 +24,12 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         git \
         htop \
         locate \
+        libbenchmark-dev \
         mc \
         nano \
         python-is-python3 \
+        pybind11-dev \
+        python3-dev \
         python3-pip \
         screen \
         software-properties-common \
@@ -131,8 +134,10 @@ CMD ["/bin/bash"]
 
 FROM base_environ AS dev_environ
 
-RUN vcs import --shallow --force --input src/core/.repos/patched.repos --recursive src/core
+RUN vcs import --shallow --force --input src/core/.repos/patched.repos --recursive src/core \
+    && (cd src/core/ros2/rosidl && bash ../../.repos/patches/ros2/rosidl.sh)
 COPY code/rosidl_typesupport_xcdr src/rosidl_typesupport_xcdr
+COPY code/message_access_benchmark src/message_access_benchmark
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
@@ -145,8 +150,10 @@ FROM base_environ AS base_ros
 ARG UID=1001
 ARG GID=1001
 
+COPY --chown=$USER:$GROUP code/message_access_benchmark src/message_access_benchmark
+
 RUN --mount=type=cache,target=$HOME/.ccache,sharing=locked,uid=${UID},gid=${GID} \
-    colcon build --parallel-workers=2 --merge-install --cmake-args -DCMAKE_BUILD_TYPE=Release --packages-ignore-regex "rosidl_typesupport_xcdr.*|xcdr_buffers"
+    MAKEFLAGS=-j2 colcon build --parallel-workers=2 --merge-install --cmake-args -DCMAKE_BUILD_TYPE=Release -DMESSAGE_ACCESS_EXPERIMENTAL=OFF --packages-ignore-regex "rosidl_typesupport_xcdr.*|xcdr_buffers"
 
 RUN sed -i "3a source $USER_WS/install/setup.bash" $HOME/.bashrc
 
@@ -156,6 +163,6 @@ ARG UID=1001
 ARG GID=1001
 
 RUN --mount=type=cache,target=$HOME/.ccache,sharing=locked,uid=${UID},gid=${GID} \
-    colcon build --parallel-workers=2 --merge-install --cmake-args -DCMAKE_BUILD_TYPE=Release
+    MAKEFLAGS=-j2 colcon build --parallel-workers=2 --merge-install --cmake-args -DCMAKE_BUILD_TYPE=Release
 
 RUN sed -i "3a source $USER_WS/install/setup.bash" $HOME/.bashrc

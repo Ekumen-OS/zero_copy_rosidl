@@ -1,0 +1,48 @@
+diff --git a/rosidl_runtime_cpp/include/rosidl_runtime_cpp/experimental/sequence.hpp b/rosidl_runtime_cpp/include/rosidl_runtime_cpp/experimental/sequence.hpp
+--- a/rosidl_runtime_cpp/include/rosidl_runtime_cpp/experimental/sequence.hpp
++++ b/rosidl_runtime_cpp/include/rosidl_runtime_cpp/experimental/sequence.hpp
+@@ -21,6 +21,7 @@
+ #include <iterator>
+ #include <limits>
+ #include <memory_resource>
++#include <new>
+ #include <stdexcept>
+ #include <type_traits>
+ #include <utility>
+@@ -29,5 +30,6 @@
+ #include "rosidl_runtime_cpp/experimental/memory.hpp"
+ #include "rosidl_runtime_cpp/experimental/traits.hpp"
++#include "rosidl_runtime_cpp/message_initialization.hpp"
+ 
+ // Forward declaration for partial specialization
+ namespace rosidl_runtime_cpp
+@@ -117,12 +119,23 @@ public:
+   explicit BasicSequence(
+     std::vector<ElementStorage> element_storage_pool,
+     size_type initial_size)
+-  : shared_storage_pool_(std::pmr::get_default_resource()),
+-    storage_(),
+-    element_storage_pool_(std::move(element_storage_pool)),
+-    capacity_(element_storage_pool_.size()),
+-    size_(std::min(initial_size, element_storage_pool_.size()))
+-  {}
++  : BasicSequence(std::move(element_storage_pool))
++  {
++    const size_type count = std::min(initial_size, element_storage_pool_.size());
++    ensure_capacity_or_fail(count);
++    for (size_type position = 0; position < count; ++position) {
++      // Construct view objects without resetting the prepopulated regions.
++      if constexpr (std::is_constructible_v<value_type,
++        const ElementStorage &, rosidl_runtime_cpp::MessageInitialization>)
++      {
++        ::new (static_cast<void *>(data() + position)) value_type(
++          element_storage_pool_[position], rosidl_runtime_cpp::MessageInitialization::SKIP);
++      } else {
++        ::new (static_cast<void *>(data() + position)) value_type(element_storage_pool_[position]);
++      }
++      ++size_;
++    }
++  }
+ 
+   /// @brief Construct over fixed external storage with per-element storage.
+   /// @param storage_region External memory region for element objects.

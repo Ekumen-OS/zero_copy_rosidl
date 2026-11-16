@@ -200,10 +200,11 @@ XCdrResult<std::reference_wrapper<const XCdrLayout>> XCdrSequenceLayout::element
 
 size_t XCdrSequenceLayout::size() const
 {
-  if (elements_.empty()) {
+  if (elements_.empty() || actual_count_ == 0) {
     return kSequenceLengthPrefixSize;  // Just the length prefix
   }
-  const auto & last = elements_.back();
+  const auto & last = actual_count_ <= elements_.size() ?
+    elements_[actual_count_ - 1] : elements_.front();
   size_t last_size = std::visit([](auto && layout) -> size_t {
         return layout.size();
   }, *last.layout);
@@ -211,7 +212,7 @@ size_t XCdrSequenceLayout::size() const
   // region covers all actual_count elements (the constraint bound).
   size_t stored_span = last.offset + last_size;
   if (actual_count_ > elements_.size()) {
-    stored_span = element_stride() * actual_count_;
+    stored_span += element_stride() * (actual_count_ - 1);
   }
   return kSequenceLengthPrefixSize + stored_span;
 }
@@ -256,6 +257,55 @@ XCdrResult<XCdrStructLayout::MemberConstRef> XCdrStructLayout::get_member(size_t
   return ok(std::cref(members_[index]));
 }
 
+namespace
+{
+XCdrStatus apply_value(
+  const XCdrLayout & value, tcb::span<uint8_t> buffer, XCdrEndianness endianness)
+{
+  auto apply = [&](const auto & layout) -> XCdrStatus {
+      using T = std::decay_t<decltype(layout)>;
+      constexpr bool is_sequence = std::is_same_v<T, XCdrSequenceLayout>;
+      constexpr bool is_array = std::is_same_v<T, XCdrArrayLayout>;
+      if (buffer.size() < layout.size()) {
+        return error("Buffer too small for nested layout");
+      }
+      if constexpr (std::is_same_v<T, XCdrStringLayout>) {
+        write_to_bytes(buffer.first(kStringLengthPrefixSize),
+          static_cast<uint32_t>(layout.actual_length() + 1), endianness);
+      } else if constexpr (std::is_same_v<T, XCdrPrimitiveSequenceLayout>|| is_sequence) {
+        write_to_bytes(buffer.first(kSequenceLengthPrefixSize),
+          static_cast<uint32_t>(layout.actual_count()), endianness);
+      }
+      if constexpr (is_sequence || is_array) {
+        const size_t count = [&]() {
+            if constexpr (is_sequence) {
+              return layout.actual_count();
+            } else {
+              return layout.count();
+            }
+          }();
+        constexpr size_t prefix = is_sequence ? kSequenceLengthPrefixSize : 0;
+        for (size_t i = 0; i < count; ++i) {
+          auto offset = layout.element_offset(i);
+          if (!offset) {return error(offset.error().message());}
+          auto element = layout.element_layout(i);
+          if (!element) {return error(element.error().message());}
+          if (*offset > buffer.size() - prefix) {
+            return error("Element offset outside nested layout");
+          }
+          auto status = apply_value(
+            element->get(), buffer.subspan(prefix + *offset), endianness);
+          if (!status) {return status;}
+        }
+      } else if constexpr (std::is_same_v<T, XCdrStructLayout>) {
+        return layout.apply(buffer, false);
+      }
+      return ok();
+    };
+  return std::visit(apply, value);
+}
+}  // namespace
+
 XCdrStatus XCdrStructLayout::apply(tcb::span<uint8_t> buffer, bool zero_initialize) const
 {
   if (buffer.size() < total_size_) {
@@ -275,42 +325,13 @@ XCdrStatus XCdrStructLayout::apply(tcb::span<uint8_t> buffer, bool zero_initiali
     data_offset = kXCdrHeaderSize;
   }
 
-  // Write length prefixes for all variable-length fields
   for (const auto & member : members_) {
-    std::visit([&](auto && layout) {
-        using T = std::decay_t<decltype(layout)>;
-
-        if constexpr (std::is_same_v<T, XCdrStringLayout>) {
-        // Write string length prefix
-          // Include null
-          uint32_t length = static_cast<uint32_t>(layout.actual_length() + 1);
-          size_t prefix_offset = data_offset + member.offset();
-          tcb::span<uint8_t> prefix_span(buffer.data() + prefix_offset, 4);
-          write_to_bytes(prefix_span, length, endianness_);
-
-        } else if constexpr (std::is_same_v<T, XCdrPrimitiveSequenceLayout>) {
-        // Write primitive sequence length prefix
-          uint32_t length = static_cast<uint32_t>(layout.actual_count());
-          size_t prefix_offset = data_offset + member.offset();
-          tcb::span<uint8_t> prefix_span(buffer.data() + prefix_offset, 4);
-          write_to_bytes(prefix_span, length, endianness_);
-
-        } else if constexpr (std::is_same_v<T, XCdrSequenceLayout>) {
-        // Write non-primitive sequence length prefix
-          uint32_t length = static_cast<uint32_t>(layout.actual_count());
-          size_t prefix_offset = data_offset + member.offset();
-          tcb::span<uint8_t> prefix_span(buffer.data() + prefix_offset, 4);
-          write_to_bytes(prefix_span, length, endianness_);
-
-        } else if constexpr (std::is_same_v<T, XCdrStructLayout>) {
-        // Recursively apply nested struct layout
-          size_t struct_offset = data_offset + member.offset();
-          tcb::span<uint8_t> struct_buffer(buffer.data() + struct_offset, layout.total_size());
-          auto status = layout.apply(struct_buffer, zero_initialize);
-          (void)status;  // Suppress unused variable warning
-        }
-      // Primitives and arrays don't need initialization
-    }, member.layout());
+    if (member.offset() > buffer.size() - data_offset) {
+      return error("Member offset outside layout");
+    }
+    auto status = apply_value(
+      member.layout(), buffer.subspan(data_offset + member.offset()), endianness_);
+    if (!status) {return status;}
   }
 
   return ok();

@@ -136,6 +136,7 @@ public:
    * All elements must be the same type category (all strings with same
    * char_kind, or all structs).
    * Individual element sizes may vary (e.g., different string lengths).
+   * Alternatively, allocate one element as a uniform template for the array.
    *
    * @param name Field name (must not be empty)
    * @param count Number of elements
@@ -169,6 +170,8 @@ public:
    * All elements must be the same type category (all strings with same
    * char_kind, or all structs).
    * Individual element sizes may vary (e.g., different string lengths).
+   * Alternatively, allocate one element as a uniform template for the sequence.
+   * A zero-count sequence reserves only its length prefix, even with a template.
    *
    * @param name Field name (must not be empty)
    * @param actual_count Number of elements

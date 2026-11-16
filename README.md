@@ -2,7 +2,7 @@
 
 An experimental ROS 2 reference implementation of REP-0157: language-specific message views over a runtime-agnostic memory representation, with constrained loans for variable-size messages.
 
-The repository contains the proposed ROS core changes, an XCDRv1 type support implementation, and a benchmark that compares ordinary copy paths with constrained publisher and subscriber loans in C++ and Python.
+The repository contains the proposed ROS core changes, an XCDRv1 type support implementation, transport benchmarks comparing ordinary copy paths with constrained loans, and message construction/member-access microbenchmarks in C++ and Python.
 
 The design is documented in [REP-0157](https://reps.openrobotics.org/rep-0157-2026/) (and addendums). It remains experimental and is not part of a stock ROS 2 Jazzy installation.
 
@@ -46,6 +46,7 @@ Endpoint constraints and per-loan constraints serve different purposes. Endpoint
 - `code/core/ros2/` — ROS 2 packages modified for experimental message views, constraints, and loan plumbing.
 - `code/rosidl_typesupport_xcdr/` — language-neutral XCDR operation table, C++ implementation, and layout buffers.
 - `code/constrained_pubsub_benchmark/` — benchmark executables, run drivers, Fast DDS profiles, analysis, and tests.
+- `code/message_access_benchmark/` — Google Benchmark construction/member-access measurements for C++ and Python, including 10,000-marker arrays and scalar-heavy C++ messages.
 - `code/import.sh` (alongside `code/core/.repos/` — source import manifests for the ROS 2 workspace.
 - `data/pilot/` — controlled pilot CSVs, machine-state log, statistics, figures, and generated report.
 
@@ -74,7 +75,24 @@ source install/setup.bash
 
 The analysis command also requires Python packages `pandas`, `numpy`, and `matplotlib`.
 
-## Run the benchmark
+## Message construction and member access
+
+The [message access microbenchmark](code/message_access_benchmark/README.md) uses
+Google Benchmark to compare standard messages, owning experimental messages, and
+external-storage views without involving DDS. It measures `MarkerArray`
+construction and access in C++ and Python, plus C++ interfaces with up to 4,096
+individually named scalar fields.
+
+```bash
+ros2 run message_access_benchmark message_access \
+  --benchmark_filter='cpp/MarkerArray/.*/fresh/10000' \
+  --benchmark_repetitions=10
+```
+
+See its runbook for building the package, exact timing boundaries, JSON output,
+and matched standard/experimental summaries.
+
+## Run the transport benchmark
 
 ### Spike
 

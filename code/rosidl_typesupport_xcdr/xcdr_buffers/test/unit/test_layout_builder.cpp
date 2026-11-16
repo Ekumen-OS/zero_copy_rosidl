@@ -14,6 +14,7 @@
 
 #include <gtest/gtest.h>
 
+#include "xcdr_buffers/accessor/const_accessor.hpp"
 #include "xcdr_buffers/layout/layout_builder.hpp"
 #include "xcdr_buffers/serialization/writer.hpp"
 
@@ -274,6 +275,81 @@ TEST(LayoutBuilderTest, LayoutSizeMatchesWriterSize) {
 
   // Layout size should match writer buffer size
   EXPECT_EQ(layout.total_size(), buffer.size());
+}
+
+TEST(LayoutBuilderTest, NestedSequenceOfStructsRetainsMembersAndPrefixes) {
+  XCdrLayoutBuilder builder;
+  builder.allocate_primitive("prefix", XCdrPrimitiveKind::kUint8);
+  builder.begin_allocate_struct("holder");
+  builder.allocate_primitive("id", XCdrPrimitiveKind::kUint32);
+  builder.allocate_primitive_array("bytes", XCdrPrimitiveKind::kUint8, 3);
+  builder.begin_allocate_sequence("messages", 3);
+  builder.begin_allocate_struct();
+  builder.allocate_primitive("id", XCdrPrimitiveKind::kUint32);
+  builder.allocate_string("name", 3);
+  builder.allocate_primitive_sequence("data", XCdrPrimitiveKind::kUint8, 2);
+  builder.begin_allocate_sequence("empty", 0);
+  builder.begin_allocate_struct();
+  builder.allocate_primitive("value", XCdrPrimitiveKind::kDouble);
+  builder.end_allocate_struct();
+  builder.end_allocate_sequence();
+  builder.end_allocate_struct();
+  builder.end_allocate_sequence();
+  builder.allocate_primitive("tail", XCdrPrimitiveKind::kUint32);
+  builder.end_allocate_struct();
+  auto layout = builder.finalize();
+  ASSERT_EQ(layout.member_count(), 2u);
+  std::vector<uint8_t> buffer(layout.total_size(), 0xFF);
+  ASSERT_TRUE(layout.apply(buffer, true));
+  auto accessor = *XCdrConstAccessor::wrap(buffer, layout);
+  auto holder = accessor["holder"];
+  ASSERT_EQ(*holder["bytes"].size(), 3u);
+  auto messages = holder["messages"];
+  ASSERT_EQ(*messages.size(), 3u);
+  for (size_t i = 0; i < 3; ++i) {
+    EXPECT_EQ(messages[i]["name"].as<std::string_view>(), std::string(3, '\0'));
+    EXPECT_EQ(*messages[i]["data"].size(), 2u);
+    EXPECT_EQ(*messages[i]["empty"].size(), 0u);
+    EXPECT_EQ(messages[i]["id"].as<uint32_t>(), 0u);
+  }
+  EXPECT_EQ(holder["tail"].as<uint32_t>(), 0u);
+}
+
+TEST(LayoutBuilderTest, UniformStructSequenceSpanIncludesInitialPadding) {
+  XCdrLayoutBuilder builder;
+  builder.begin_allocate_sequence("values", 3);
+  builder.begin_allocate_struct();
+  builder.allocate_primitive("value", XCdrPrimitiveKind::kDouble);
+  builder.allocate_primitive("tag", XCdrPrimitiveKind::kUint8);
+  builder.end_allocate_struct();
+  builder.end_allocate_sequence();
+  auto layout = builder.finalize();
+  // Header + prefix + initial alignment + two strides + unpadded final element.
+  EXPECT_EQ(layout.total_size(), 4u + 4u + 4u + 2u * 16u + 9u);
+  std::vector<uint8_t> buffer(layout.total_size());
+  ASSERT_TRUE(layout.apply(buffer));
+  auto accessor = *XCdrConstAccessor::wrap(buffer, layout);
+  ASSERT_EQ(*accessor["values"].size(), 3u);
+  EXPECT_EQ(accessor["values"][2]["tag"].slice().data() + 1,
+    buffer.data() + buffer.size());
+}
+
+TEST(LayoutBuilderTest, EmptyStructSequenceDoesNotOccupyTemplateSpace) {
+  XCdrLayoutBuilder builder;
+  builder.begin_allocate_sequence("values", 0);
+  builder.begin_allocate_struct();
+  builder.allocate_primitive("value", XCdrPrimitiveKind::kDouble);
+  builder.end_allocate_struct();
+  builder.end_allocate_sequence();
+  builder.allocate_primitive("tail", XCdrPrimitiveKind::kUint32);
+  auto layout = builder.finalize();
+  EXPECT_EQ(layout.total_size(), 12u);
+  ASSERT_EQ(layout.member_count(), 2u);
+  std::vector<uint8_t> buffer(layout.total_size(), 0xFF);
+  ASSERT_TRUE(layout.apply(buffer, true));
+  auto accessor = *XCdrConstAccessor::wrap(buffer, layout);
+  EXPECT_EQ(*accessor["values"].size(), 0u);
+  EXPECT_EQ(accessor["tail"].as<uint32_t>(), 0u);
 }
 
 int main(int argc, char ** argv)

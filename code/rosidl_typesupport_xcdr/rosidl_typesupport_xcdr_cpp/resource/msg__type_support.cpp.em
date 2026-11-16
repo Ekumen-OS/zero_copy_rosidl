@@ -265,7 +265,11 @@ for member in message.structure.members:
       auto nested_outer_@(member.name) =
         static_cast<const rosidl_message_xcdr_type_support_t *>(nested_ts_@(member.name)->data);
       auto nested_inner_@(member.name) = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(nested_outer_@(member.name)->inner);
-      nested_inner_@(member.name)->build_layout_fields(builder, nullptr);
+      auto nested_ret_@(member.name) = nested_inner_@(member.name)->build_layout_fields(
+        builder, &@(constraints_prefix).@(member.name).element);
+      if (nested_ret_@(member.name) != RCUTILS_RET_OK) {
+        ret = nested_ret_@(member.name);
+      }
     }
     builder.end_allocate_struct();
 @[    end if]@

@@ -21,6 +21,8 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <memory>
+#include <string_view>
 #include <vector>
 
 #include "tcb_span/span.hpp"
@@ -34,6 +36,7 @@
 
 #include "rosidl_typesupport_xcdr_cpp_tests/msg/experimental/inner_value.hpp"
 #include "rosidl_typesupport_xcdr_cpp_tests/msg/experimental/nested_containers.hpp"
+#include "rosidl_typesupport_xcdr_cpp_tests/msg/experimental/nested_sequences.hpp"
 
 // ============================================================================
 // Typedefs
@@ -140,6 +143,48 @@ TEST(TestExternalStorageRecursion, SingleNested)
   EXPECT_NE(nullptr, ext.members.single.members.id.data());
   EXPECT_NE(nullptr, ext.members.single.members.value.data());
   EXPECT_EQ(buf.data(), ext.block.data());
+}
+
+TEST(TestExternalStorageRecursion, SequenceElementConstraintsAndEmptyChildren)
+{
+  using Message = rosidl_typesupport_xcdr_cpp_tests::msg::experimental::NestedSequences;
+  Message::Constraints constraints;
+  constraints.values.size = 2;
+  constraints.values.element.name.size = 8;
+  constraints.values.element.data.size = 0;
+  rosidl_message_type_constraints_t wrapped{};
+  wrapped.type_specific = &constraints;
+  auto support = rosidl_typesupport_xcdr_cpp::create_constrained_message_type_support(
+    rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<Message>(), &wrapped);
+  ASSERT_NE(nullptr, support);
+  size_t bytes = 0;
+  ASSERT_EQ(RCUTILS_RET_OK,
+    rosidl_typesupport_xcdr_cpp::get_expected_message_size(support.get(), &bytes));
+  std::vector<uint8_t> buffer(bytes);
+  rosidl_runtime_cpp::MemoryRegion<void> region{buffer.data(), buffer.size()};
+  void * raw_message = nullptr;
+  ASSERT_EQ(RCUTILS_RET_OK,
+    rosidl_typesupport_xcdr_cpp::construct_message_at(support.get(), region, &raw_message));
+  ASSERT_NE(nullptr, raw_message);
+  auto cleanup = [&](Message * message) {
+      rosidl_typesupport_xcdr_cpp::destroy_message(support.get(), message);
+    };
+  std::unique_ptr<Message, decltype(cleanup)> message(
+    static_cast<Message *>(raw_message), cleanup);
+  message->values.resize(2);
+  message->values[0].name = "first";
+  message->values[1].name = "second";
+  message->values[0].id = 17;
+  message->values[1].id = 23;
+  EXPECT_EQ(std::string_view(message->values[0].name.data(), message->values[0].name.size()),
+    "first");
+  EXPECT_EQ(std::string_view(message->values[1].name.data(), message->values[1].name.size()),
+    "second");
+  EXPECT_EQ(message->values[0].id.get(), 17u);
+  EXPECT_EQ(message->values[1].id.get(), 23u);
+  EXPECT_NE(&message->values[0].id.get(), &message->values[1].id.get());
+  EXPECT_TRUE(message->values[0].data.empty());
+  EXPECT_TRUE(message->values[1].data.empty());
 }
 
 // ============================================================================
