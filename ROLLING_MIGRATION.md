@@ -160,6 +160,8 @@ Starting points: Jazzy `rosidl_runtime_{c,cpp}` and
   its layout, parser, accessor and Fast CDR interoperability tests. Check
   malformed input and preserve Jazzy compatibility in shared packages.
 
+Implementation commits: `rosidl` `8afa0094`.
+
 ### 3. Generated region-backed views and XCDRv1 type support
 
 The views can be built against region-backed primitives independently of
