@@ -139,6 +139,8 @@ testing ordinary message generation.
   cases. Do not claim that plain-message adapters make storage transferable
   without copying.
 
+Implementation commits: `rosidl` `13dce8b5` and `zero_copy_rosidl` `427c25f`.
+
 Starting points: Jazzy `rosidl_runtime_{c,cpp}` and
 `rosidl_generator_cpp/resource/*experimental*`.
 
