@@ -209,6 +209,9 @@ verifying actual context-aware middleware loans remains Step 5. The dispatcher
 preserves legacy calls for null contexts when a backend lacks the new symbols,
 in both runtime-selected and fixed-backend builds.
 
+Implementation commits: `rmw` `7852434`, `rmw_implementation` `318919b`,
+`rcl` `8fc2083` and `zero_copy_rosidl` `f066f92`.
+
 ### 5. Fast DDS transport
 
 - [ ] Port `rmw_fastrtps` XCDR type support against the pinned Rolling Fast
