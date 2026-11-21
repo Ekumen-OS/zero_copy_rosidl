@@ -53,7 +53,7 @@ and add no per-take constraints.
 ## Repository layout
 
 - `code/core/` — pinned ROS 2 and middleware sources imported by
-  `code/import.sh` from the manifests in `code/core/.repos/`, including the
+  `code/import.py` from the manifests in `code/core/.repos/`, including the
   experimental message views, constraints, and loan plumbing (under
   `code/core/ros2/`).
 - `code/rosidl_typesupport_xcdr/` — language-neutral XCDR operation table,
@@ -77,7 +77,7 @@ steps 3–4.
 ./docker/run.sh -s dev_environ -- bash
 
 # 2. First time only: import the pinned sources (from ~/ws in the container)
-./src/import.sh
+./src/import.py
 
 # 3. Build — inside the container, or on the host after
 #    `source /opt/ros/jazzy/setup.bash`
@@ -99,7 +99,7 @@ services. `dev_environ` (default) mounts the host `code/` tree at `~/ws/src`,
 persists build/install/ccache in a named volume, and sizes `/dev/shm` to
 2 GB; `patched_ros_environ` and `base_ros_environ` ship pre-built patched and
 stock workspaces for comparisons. The mount replaces the image's `src/`, so
-run `./src/import.sh` at least once (first time, from `~/ws`) to populate the
+run `./src/import.py` at least once (first time, from `~/ws`) to populate the
 pinned sources; dependencies are installed when the image is built.
 
 ### Native
@@ -110,7 +110,7 @@ at `~/ws/src`.
 ```bash
 cd ~/ws/src
 source /opt/ros/jazzy/setup.bash
-./code/import.sh             # first time: pinned sources + patches
+./code/import.py             # first time: pinned sources + patches
 ```
 
 Then build with step 3 above.

@@ -1,0 +1,3 @@
+code/core/*
+!code/core/.repos/
+!code/core/.repos/**
