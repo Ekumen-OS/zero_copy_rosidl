@@ -16,76 +16,92 @@
 
 set -o errexit
 
-cd $(dirname "$(readlink -f "$0")")
+SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+cd "$SCRIPT_DIR"
 
-# function to print help options
 function print_help {
-    echo "Usage: $(basename $0) [-b|--build] [-s|--service SERVICE_NAME] [-h|--help] [-- COMMAND [ARGS...]]"
+    echo "Usage: $(basename "$0") [-b|--build] [-d|--distro DISTRO] [-s|--service SERVICE_NAME] [-h|--help] [-- COMMAND [ARGS...]]"
     echo "  --build    Build the image before starting the container."
-    echo "  --service  Set the service name (default: dev_environ). Options: dev_environ, patched_ros, base_ros"
+    echo "  --distro   Set the ROS distro: jazzy (default) or rolling."
+    echo "  --service  Set the Compose service (default: dev_environ)."
     echo "  --help     Display this help message."
     echo "  --         Everything after this is used as the command to execute in the container."
+    echo "  In a dev container, /home/developer/code/import.py imports missing sources for ROS_DISTRO."
 }
 
-set +o errexit
-VALID_ARGS=$(OPTERR=1 getopt -o bhdas: --long build,help,service: -- "$@")
-RET_CODE=$?
-set -o errexit
-
-if [[ $RET_CODE -eq 1 ]]; then
-    print_help
-    exit 1;
-fi
-if [[ $RET_CODE -ne 0 ]]; then
-    >&2 echo "Unexpected getopt error"
-    exit 1;
-fi
-
 BUILD=false
+DISTRO="jazzy"
 SERVICE_NAME="dev_environ"
 
-eval set -- "$VALID_ARGS"
-while [[ "$1" != "" ]]; do
+while [[ $# -gt 0 ]]; do
     case "$1" in
     -b | --build)
         BUILD=true
         shift
         ;;
     -s | --service)
+        if [[ $# -lt 2 || -z "$2" ]]; then
+            >&2 echo "Missing service name"
+            exit 1
+        fi
         SERVICE_NAME="$2"
         shift 2
+        ;;
+    --service=*)
+        SERVICE_NAME="${1#*=}"
+        shift
+        ;;
+    -d | --distro)
+        if [[ $# -lt 2 || -z "$2" ]]; then
+            >&2 echo "Missing distro"
+            exit 1
+        fi
+        DISTRO="$2"
+        shift 2
+        ;;
+    --distro=*)
+        DISTRO="${1#*=}"
+        shift
         ;;
     -h | --help)
         print_help
         exit 0
         ;;
-    --) # start of positional arguments
+    --)
         shift
         break
         ;;
-    *)
-        >&2 echo "Unrecognized positional argument: $1"
+    -*)
+        >&2 echo "Unrecognized option: $1"
         print_help
         exit 1
+        ;;
+    *)
+        break
         ;;
     esac
 done
 
-# Capture any remaining arguments after -- as the command to execute
-COMMAND_ARGS=("$@")
+case "$DISTRO" in
+    jazzy) PROJECT="docker" ;;
+    rolling) PROJECT="zcr_rolling" ;;
+    *)
+        >&2 echo "Unsupported ROS distro: $DISTRO"
+        exit 1
+        ;;
+esac
 
-CONTAINER_NAME="${USER}_${SERVICE_NAME}"
-
-if [[ "$BUILD" = true ]]; then
- USERID=$(id -u) GROUPID=$(id -g) docker compose build ${SERVICE_NAME} \
- && echo "Built ${SERVICE_NAME} image." || \
-    { echo "Failed to build ${SERVICE_NAME} image."; exit 1; }
+if [[ -z "$SERVICE_NAME" ]]; then
+    >&2 echo "Missing service name"
+    exit 1
 fi
 
-docker kill ${CONTAINER_NAME} 2>/dev/null || true
-docker rm ${CONTAINER_NAME} 2>/dev//null || true
+export USERID=$(id -u) GROUPID=$(id -g)
+COMPOSE=(docker compose -p "$PROJECT" -f "$SCRIPT_DIR/$DISTRO/docker-compose.yml")
 
-USERID=$(id -u) GROUPID=$(id -g) \
-    docker compose run \
-    --name ${CONTAINER_NAME} \
-    --rm ${SERVICE_NAME} "${COMMAND_ARGS[@]}"
+if [[ "$BUILD" = true ]]; then
+    "${COMPOSE[@]}" build "$SERVICE_NAME"
+    echo "Built $SERVICE_NAME image."
+fi
+
+"${COMPOSE[@]}" run --rm "$SERVICE_NAME" "$@"

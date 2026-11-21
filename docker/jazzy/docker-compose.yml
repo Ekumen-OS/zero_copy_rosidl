@@ -8,8 +8,8 @@ services:
       - XAUTHORITY=${XAUTHORITY:-/tmp/.docker.xauth}
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-90}
     build:
-      context: ..
-      dockerfile: docker/Dockerfile
+      context: ../..
+      dockerfile: docker/jazzy/Dockerfile
       target: base_ros
       args:
         UID: $USERID
@@ -17,8 +17,8 @@ services:
     image: ekumenlabs/zcr-baseline-ros
     container_name: zcr-baseline-ros
     volumes:
-      - ../data:/home/developer/data:rw
-      - ../tools:/home/developer/tools:ro
+      - ../../data:/home/developer/data:rw
+      - ../../tools:/home/developer/tools:ro
       - /tmp:/tmp:rw
 
   patched_ros_environ:
@@ -30,8 +30,8 @@ services:
       - XAUTHORITY=${XAUTHORITY:-/tmp/.docker.xauth}
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-90}
     build:
-      context: ..
-      dockerfile: docker/Dockerfile
+      context: ../..
+      dockerfile: docker/jazzy/Dockerfile
       target: patched_ros
       args:
         UID: $USERID
@@ -39,8 +39,8 @@ services:
     image: ekumenlabs/zcr-ros
     container_name: zcr-ros
     volumes:
-      - ../data:/home/developer/data:rw
-      - ../tools:/home/developer/tools:ro
+      - ../../data:/home/developer/data:rw
+      - ../../tools:/home/developer/tools:ro
       - /tmp:/tmp:rw
 
   dev_environ:
@@ -52,8 +52,8 @@ services:
       - XAUTHORITY=${XAUTHORITY:-/tmp/.docker.xauth}
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-90}
     build:
-      context: ..
-      dockerfile: docker/Dockerfile
+      context: ../..
+      dockerfile: docker/jazzy/Dockerfile
       target: dev_environ
       args:
         UID: $USERID
@@ -65,10 +65,11 @@ services:
     tty: true
     volumes:
       - zero_copy_rosidl_persistence:/home/developer/ws/.persistence
-      - ../code:/home/developer/ws/src
-      - ../data:/home/developer/data
-      - ../tools:/home/developer/tools
-      - /dev/null:/home/developer/ws/src/core/.gitignore
+      - ../../code:/home/developer/ws/src
+      - ../../code/core/jazzy:/home/developer/ws/src/core
+      - ../../code:/home/developer/code
+      - ../../data:/home/developer/data
+      - ../../tools:/home/developer/tools
       - /tmp:/tmp
 
 volumes:

@@ -1,0 +1,42 @@
+x-rolling: &rolling
+  image: ekumenlabs/zcr-rolling-dev
+  user: "${USERID:-1000}:${GROUPID:-1000}"
+  build:
+    context: ../..
+    dockerfile: docker/rolling/Dockerfile
+    target: dev_environ
+    args:
+      UID: ${USERID:-1000}
+      GID: ${GROUPID:-1000}
+  environment:
+    - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-190}
+  network_mode: host
+  shm_size: '2gb'
+  stdin_open: true
+  tty: true
+
+services:
+  base_ros_environ:
+    <<: *rolling
+    image: ekumenlabs/zcr-rolling-baseline
+    build:
+      context: ../..
+      dockerfile: docker/rolling/Dockerfile
+      target: base_environ
+      args:
+        UID: ${USERID:-1000}
+        GID: ${GROUPID:-1000}
+  dev_environ:
+    <<: *rolling
+    volumes:
+      - rolling_development:/home/developer/ws/.persistence
+      - ../../code/core/rolling:/home/developer/ws/src/core
+      - ../../code:/home/developer/code
+      - ../../code/rosidl_typesupport_xcdr:/home/developer/ws/src/rosidl_typesupport_xcdr
+      - ../../code/constrained_pubsub_benchmark:/home/developer/ws/src/constrained_pubsub_benchmark
+      - ../../data:/home/developer/data
+      - ../../tools:/home/developer/tools
+      - /tmp:/tmp
+
+volumes:
+  rolling_development:

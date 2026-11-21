@@ -1,0 +1,41 @@
+repositories:
+  ros2/rcl:
+    type: git
+    url: https://github.com/ros2/rcl.git
+    version: 24eab4efb5043025bc5eac4ef408fa94867b283c
+  ros2/rclcpp:
+    type: git
+    url: https://github.com/ros2/rclcpp.git
+    version: 9e66d4d2ef0188656e1ac2ad71d338f15c44e1f2
+  ros2/rclpy:
+    type: git
+    url: https://github.com/ros2/rclpy.git
+    version: fdbb05401126718babbc1a0b3f0c1897fb8da14e
+  ros2/rmw:
+    type: git
+    url: https://github.com/ros2/rmw.git
+    version: 52f946e1cbb4fda6df0776902d45ba892f9e612e
+  ros2/rmw_fastrtps:
+    type: git
+    url: https://github.com/ros2/rmw_fastrtps.git
+    version: 91b33be3dedff59777c0164724a5fee7100fed5e
+  ros2/rmw_implementation:
+    type: git
+    url: https://github.com/ros2/rmw_implementation.git
+    version: e3fbd058aa9c1f844051613255affac24e977ca1
+  ros2/rosidl:
+    type: git
+    url: https://github.com/ros2/rosidl.git
+    version: b58428d6f647e4d16cd5f23d806a6d13274e6e50
+  ros2/rosidl_core:
+    type: git
+    url: https://github.com/ros2/rosidl_core.git
+    version: e90f248d6889d029781f00164226cf7544b3acca
+  ros2/rosidl_python:
+    type: git
+    url: https://github.com/ros2/rosidl_python.git
+    version: 807b238311425bcfacaa5d067075aa0fd05eaa00
+  ros2/rosidl_typesupport:
+    type: git
+    url: https://github.com/ros2/rosidl_typesupport.git
+    version: 7fc2d07160944cb0b5f60c47fea5928fa936281c

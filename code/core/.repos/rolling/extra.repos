@@ -1,0 +1,5 @@
+repositories:
+  third-party/cpp_polyfills:
+    type: git
+    url: https://github.com/PickNikRobotics/cpp_polyfills.git
+    version: af6bc7fd3db973ddcb03c0e4fa7db3d9f83d071a
