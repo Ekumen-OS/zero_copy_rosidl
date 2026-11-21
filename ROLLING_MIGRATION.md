@@ -186,6 +186,10 @@ after Step 2 rather than requiring that verification before XCDR is ported.
   integration; test ordinary support and verify constrained handles retain
   their constraints and derived metadata.
 
+Implementation commits: `rosidl` `8af12f40`, `rosidl_typesupport` `0d21bb9`,
+`rosidl_core` `22abb46` and `zero_copy_rosidl` `8b0a212`. These include
+follow-up fixes and tests for the Step 2 primitives and XCDR buffers.
+
 Starting points: `code/rosidl_typesupport_xcdr/` and the Jazzy
 `rosidl_typesupport` and `rosidl_core` branches.
 
