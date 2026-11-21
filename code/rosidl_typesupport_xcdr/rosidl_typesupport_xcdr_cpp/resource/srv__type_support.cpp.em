@@ -27,6 +27,7 @@ parent_parts = list(interface_path.parents[0].parts)
 if force_experimental:
     parent_parts = [parent_parts[0] + '_experimental']
 service_underscore = convert_camel_case_to_lower_case_underscore(service_typename)
+emitted_nested_includes = set()
 }@
 @# Generate message typesupport for Request, Response, Event
 @{
@@ -34,17 +35,19 @@ TEMPLATE(
     'msg__type_support.cpp.em',
     package_name=package_name, interface_path=interface_path,
     message=service.request_message, is_service_message=True,
-    force_experimental=force_experimental)
+    force_experimental=force_experimental,
+    first_service_message=True, emitted_nested_includes=emitted_nested_includes)
 }@
-
+@
 @{
 TEMPLATE(
     'msg__type_support.cpp.em',
     package_name=package_name, interface_path=interface_path,
     message=service.response_message, is_service_message=True,
-    force_experimental=force_experimental)
+    force_experimental=force_experimental,
+    first_service_message=False, emitted_nested_includes=emitted_nested_includes)
 }@
-
+@
 @{
 # Generate Event message typesupport only in the standard (non-experimental) file.
 # The Event type wraps service_msgs::msg::ServiceEventInfo, which does NOT have
@@ -54,16 +57,15 @@ if not force_experimental:
         'msg__type_support.cpp.em',
         package_name=package_name, interface_path=interface_path,
         message=service.event_message, is_service_message=True,
-        force_experimental=False)
+        force_experimental=False,
+        first_service_message=False, emitted_nested_includes=emitted_nested_includes)
 }@
 
-#include <cstddef>
-
 #include "rosidl_runtime_c/service_type_support_struct.h"
-#include "rosidl_typesupport_interface/macros.h"
-#include "rosidl_typesupport_xcdr_cpp/identifier.hpp"
 #include "rosidl_typesupport_xcdr_cpp/service_type_support.hpp"
+@[if force_experimental]@
 #include "@(package_name)/srv/detail/@(service_underscore)__struct.hpp"
+@[end if]@
 
 namespace rosidl_typesupport_xcdr_cpp
 {
@@ -102,7 +104,7 @@ get_service_type_support_handle<@(service_full_namespace)::@(service_typename)>(
     nullptr,  // get_type_description_func (TODO: implement if needed)
     nullptr,  // get_type_description_sources_func (TODO: implement if needed)
   };
-  
+
   return &handle;
 }
 

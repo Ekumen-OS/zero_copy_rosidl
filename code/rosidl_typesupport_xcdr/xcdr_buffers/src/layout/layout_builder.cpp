@@ -24,7 +24,7 @@ XCdrLayoutBuilder::XCdrLayoutBuilder(
   XCdrEndianness endianness, std::pmr::memory_resource * mr, bool is_top_level)
 : members_(mr ? mr : std::pmr::new_delete_resource()),
   name_to_index_(mr ? mr : std::pmr::new_delete_resource()),
-  current_offset_(0),  // Always start at 0 (relative to struct data start)
+  current_offset_(0), origin_offset_(0),
   max_alignment_(1),
   endianness_(endianness),
   memory_resource_(mr ? mr : std::pmr::new_delete_resource()),
@@ -35,9 +35,7 @@ XCdrLayoutBuilder::XCdrLayoutBuilder(
 
 void XCdrLayoutBuilder::align_current_offset(size_t alignment)
 {
-  // CDR alignment is always data-relative (relative to position after header for top-level,
-  // relative to struct start for nested structs)
-  current_offset_ = align_to(current_offset_, alignment);
+  current_offset_ = align_to(origin_offset_ + current_offset_, alignment) - origin_offset_;
   max_alignment_ = std::max(max_alignment_, alignment);
 }
 
@@ -120,6 +118,10 @@ void XCdrLayoutBuilder::allocate_string(
 
 void XCdrLayoutBuilder::begin_allocate_array(std::string_view name, size_t count)
 {
+  if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
+    context_stack_.back().nested_builder->begin_allocate_array(name, count);
+    return;
+  }
   BuildContext ctx(memory_resource_);
   ctx.type = BuildContext::Type::kArray;
   ctx.field_name.assign(name);
@@ -134,6 +136,10 @@ void XCdrLayoutBuilder::begin_allocate_array(std::string_view name, size_t count
 
 void XCdrLayoutBuilder::end_allocate_array()
 {
+  if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
+    context_stack_.back().nested_builder->end_allocate_array();
+    return;
+  }
   if (context_stack_.empty() || context_stack_.back().type != BuildContext::Type::kArray) {
     // Error: unmatched end_allocate_array
     return;
@@ -201,6 +207,10 @@ void XCdrLayoutBuilder::end_allocate_array()
 
 void XCdrLayoutBuilder::begin_allocate_sequence(std::string_view name, size_t actual_count)
 {
+  if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
+    context_stack_.back().nested_builder->begin_allocate_sequence(name, actual_count);
+    return;
+  }
   BuildContext ctx(memory_resource_);
   ctx.type = BuildContext::Type::kSequence;
   ctx.field_name.assign(name);
@@ -216,6 +226,10 @@ void XCdrLayoutBuilder::begin_allocate_sequence(std::string_view name, size_t ac
 
 void XCdrLayoutBuilder::end_allocate_sequence()
 {
+  if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
+    context_stack_.back().nested_builder->end_allocate_sequence();
+    return;
+  }
   if (context_stack_.empty() || context_stack_.back().type != BuildContext::Type::kSequence) {
     // Error: unmatched end_allocate_sequence
     return;
@@ -224,23 +238,11 @@ void XCdrLayoutBuilder::end_allocate_sequence()
   auto ctx = std::move(context_stack_.back());
   context_stack_.pop_back();
 
-  // Determine sequence type based on elements
-  if (ctx.element_layouts.empty()) {
-    // Empty sequence
-    if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
-      // Can't easily determine type for empty sequence - skip for now
-    } else {
-      // Empty sequence at top level - skip
-    }
-    return;
-  }
-
-  [[maybe_unused]] const auto & first_elem = ctx.element_layouts[0];
-
   // Primitive sequences must be built with allocate_primitive_sequence():
   // the begin/allocate/end path is only for non-primitive elements (strings,
   // structs, composites), where each element may have a different layout.
-  assert(!std::holds_alternative<XCdrPrimitiveLayout>(first_elem) &&
+  assert((ctx.element_layouts.empty() ||
+    !std::holds_alternative<XCdrPrimitiveLayout>(ctx.element_layouts[0])) &&
     "Primitive sequences must be built with allocate_primitive_sequence()");
 
   // Non-primitive sequence (strings, structs, nested composites)
@@ -281,6 +283,7 @@ void XCdrLayoutBuilder::begin_allocate_struct()
   ctx.nested_builder = std::allocate_shared<XCdrLayoutBuilder>(
     std::pmr::polymorphic_allocator<XCdrLayoutBuilder>(memory_resource_),
     endianness_, memory_resource_, false);
+  ctx.nested_builder->origin_offset_ = origin_offset_ + current_offset_;
 
   ctx.start_offset = current_offset_;
 
@@ -303,6 +306,7 @@ void XCdrLayoutBuilder::begin_allocate_struct(std::string_view name)
   ctx.nested_builder = std::allocate_shared<XCdrLayoutBuilder>(
     std::pmr::polymorphic_allocator<XCdrLayoutBuilder>(memory_resource_),
     endianness_, memory_resource_, false);
+  ctx.nested_builder->origin_offset_ = origin_offset_ + current_offset_;
 
   // Struct alignment will be determined when finalized
   ctx.start_offset = current_offset_;
@@ -335,20 +339,24 @@ void XCdrLayoutBuilder::end_allocate_struct()
   // Finalize nested struct
   XCdrStructLayout nested_layout = ctx_moved.nested_builder->finalize();
 
-  // Align to nested struct's max alignment
-  align_current_offset(nested_layout.max_alignment());
-  size_t field_offset = current_offset_;
-
-  if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
-    // Adding struct field to parent struct
-    context_stack_.back().nested_builder->add_field(ctx_moved.field_name, field_offset,
-        std::move(nested_layout));
+  size_t field_offset = ctx_moved.start_offset;
+  size_t nested_size = nested_layout.total_size();
+  max_alignment_ = std::max(max_alignment_, nested_layout.max_alignment());
+  if (!context_stack_.empty() && context_stack_.back().type != BuildContext::Type::kStruct) {
+    auto & parent = context_stack_.back();
+    size_t element_offset = field_offset - parent.start_offset;
+    if (parent.type == BuildContext::Type::kSequence) {
+      element_offset -= kSequenceLengthPrefixSize;
+    }
+    parent.element_offsets.push_back(element_offset);
+    parent.element_layouts.push_back(std::move(nested_layout));
+  } else if (!context_stack_.empty()) {
+    context_stack_.back().nested_builder->add_field(
+      ctx_moved.field_name, field_offset, std::move(nested_layout));
   } else {
-    // Top-level struct field
     add_field(ctx_moved.field_name, field_offset, std::move(nested_layout));
   }
-
-  current_offset_ += nested_layout.total_size();
+  current_offset_ = field_offset + nested_size;
 }
 
 // No-name overloads (for array/sequence elements or unnamed struct fields)
@@ -386,6 +394,10 @@ void XCdrLayoutBuilder::begin_allocate_sequence(size_t actual_count)
 void XCdrLayoutBuilder::allocate_primitive_array(
   std::string_view name, XCdrPrimitiveKind kind, size_t count)
 {
+  if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
+    context_stack_.back().nested_builder->allocate_primitive_array(name, kind, count);
+    return;
+  }
   // Build the homogeneous primitive array layout in one shot: align to the
   // element alignment, record the (aligned) field offset, and advance past
   // all elements.  The begin/allocate/end path is for non-primitive arrays.
@@ -404,13 +416,18 @@ void XCdrLayoutBuilder::allocate_primitive_array(
 void XCdrLayoutBuilder::allocate_primitive_sequence(
   std::string_view name, XCdrPrimitiveKind kind, size_t actual_count)
 {
+  if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {
+    context_stack_.back().nested_builder->allocate_primitive_sequence(name, kind, actual_count);
+    return;
+  }
   // Build the homogeneous primitive sequence layout in one shot: align to the
   // length prefix, record the prefix-start field offset, and advance past the
   // prefix + padding + all element bytes.  The begin/allocate/end path is for
   // non-primitive sequences.
   align_current_offset(kSequenceLengthPrefixSize);
   size_t field_offset = current_offset_;
-  XCdrPrimitiveSequenceLayout seq(kind, actual_count, memory_resource_);
+  XCdrPrimitiveSequenceLayout seq(kind, actual_count, memory_resource_,
+    origin_offset_ + field_offset);
   current_offset_ += seq.size();
 
   if (!context_stack_.empty() && context_stack_.back().type == BuildContext::Type::kStruct) {

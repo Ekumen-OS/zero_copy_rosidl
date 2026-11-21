@@ -211,7 +211,7 @@ cpp_get_backing_storage(const void * message)
 extern "C" rosidl_message_type_support_t *
 cpp_create_constrained(
   const rosidl_message_xcdr_type_support_t * xcdr,
-  const rosidl_message_type_constraints_t * constraints)
+  const rosidl_typesupport_xcdr_c__constraints_t * constraints)
 {
   if (nullptr == xcdr || nullptr == constraints) {
     RCUTILS_SET_ERROR_MSG("xcdr or constraints is nullptr");
@@ -300,7 +300,7 @@ cpp_compare_type_specific_constraints(const void * lhs, const void * rhs)
 extern "C" rcutils_ret_t
 cpp_validate_message(
   const rosidl_message_xcdr_type_support_t * xcdr,
-  const rosidl_message_type_constraints_t * constraints,
+  const rosidl_typesupport_xcdr_c__constraints_t * constraints,
   const void * message,
   rosidl_typesupport_xcdr_c_constraint_report_callback_t report_cb,
   void * user_data)
@@ -357,7 +357,7 @@ cpp_destroy_inner(const rosidl_message_xcdr_type_support_t * xcdr)
   }
 }
 
-extern "C" const rosidl_message_type_constraints_t *
+extern "C" const rosidl_typesupport_xcdr_c__constraints_t *
 cpp_get_constraints(const rosidl_message_xcdr_type_support_t * xcdr)
 {
   if (nullptr == xcdr || nullptr == xcdr->inner) {
@@ -433,7 +433,7 @@ get_xcdr_cpp_type_support_prototype()
 std::shared_ptr<rosidl_message_type_support_t>
 create_constrained_message_type_support(
   const rosidl_message_type_support_t * base_typesupport,
-  const rosidl_message_type_constraints_t * constraints)
+  const rosidl_typesupport_xcdr_c__constraints_t * constraints)
 {
   if (!base_typesupport) {
     RCUTILS_SET_ERROR_MSG("base_typesupport is nullptr");
@@ -462,7 +462,9 @@ create_constrained_message_type_support(
     RCUTILS_SET_ERROR_MSG("create_constrained callback not available");
     return nullptr;
   }
-  auto * raw = xcdr->create_constrained(xcdr, constraints);
+  auto * raw =
+    rosidl_typesupport_xcdr_c_create_constrained_message_type_support(
+    base_typesupport, constraints);
   if (nullptr == raw) {
     return nullptr;
   }
@@ -593,7 +595,7 @@ get_backing_storage(
 rcutils_ret_t
 validate_message(
   const rosidl_message_type_support_t * typesupport,
-  const rosidl_message_type_constraints_t * constraints,
+  const rosidl_typesupport_xcdr_c__constraints_t * constraints,
   const void * message,
   rosidl_runtime_cpp::ConstraintReportCallback report_cb)
 {
@@ -619,8 +621,8 @@ validate_message(
 bool
 compare_constraints(
   const rosidl_message_type_support_t * typesupport,
-  const rosidl_message_type_constraints_t * candidate,
-  const rosidl_message_type_constraints_t * baseline,
+  const rosidl_typesupport_xcdr_c__constraints_t * candidate,
+  const rosidl_typesupport_xcdr_c__constraints_t * baseline,
   rosidl_runtime_cpp::ConstraintReportCallback report_cb)
 {
   using CCallback = rosidl_typesupport_xcdr_c_constraint_report_callback_t;

@@ -348,14 +348,16 @@ TEST_F(WriterParserIntegrationTest, EmptySequences)
 
   const auto & layout = *layout_result;
 
-  // The empty primitive sequence IS representable (the element kind is known
-  // via the one-shot shortcut), so it becomes one member.  The empty general
-  // sequence (no element type information) is skipped by the builder.
-  EXPECT_EQ(layout.member_count(), 1);
+  EXPECT_EQ(layout.member_count(), 2);
   auto field0 = layout.get_member(0);
   ASSERT_TRUE(field0);
   ASSERT_TRUE(std::holds_alternative<XCdrPrimitiveSequenceLayout>(field0->get().layout()));
   EXPECT_EQ(std::get<XCdrPrimitiveSequenceLayout>(field0->get().layout()).actual_count(), 0);
+  auto field1 = layout.get_member(1);
+  ASSERT_TRUE(field1);
+  ASSERT_TRUE(std::holds_alternative<XCdrSequenceLayout>(field1->get().layout()));
+  EXPECT_EQ(std::get<XCdrSequenceLayout>(field1->get().layout()).actual_count(), 0);
+  EXPECT_EQ(layout.total_size(), buffer.size());
 }
 
 int main(int argc, char ** argv)

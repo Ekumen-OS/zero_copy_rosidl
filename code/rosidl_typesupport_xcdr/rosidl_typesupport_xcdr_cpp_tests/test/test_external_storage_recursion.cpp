@@ -139,6 +139,8 @@ TEST(TestExternalStorageRecursion, SingleNested)
   // Verify nested fields
   EXPECT_NE(nullptr, ext.members.single.members.id.data());
   EXPECT_NE(nullptr, ext.members.single.members.value.data());
+  EXPECT_EQ(ext.members.int_buf.size(), 3u * sizeof(int32_t));
+  EXPECT_EQ(ext.members.int_buf.capacity(), 3u);
   EXPECT_EQ(buf.data(), ext.block.data());
 }
 

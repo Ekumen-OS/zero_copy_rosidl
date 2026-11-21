@@ -19,10 +19,14 @@ find_package(rosidl_typesupport_xcdr_c REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/experimental/BasicTypes.msg"
   "msg/experimental/BoundedMessage.msg"
+  "msg/experimental/BoundedVariable.msg"
   "msg/experimental/UnboundedMessage.msg"
   "msg/experimental/InnerValue.msg"
   "msg/experimental/NestedContainers.msg"
+  "msg/experimental/NestedBounded.msg"
+  "msg/experimental/VariableContainers.msg"
   "msg/InnerMessage.msg"
+  "msg/NestedLast.msg"
   "msg/NestedMessage.msg"
   "srv/AddTwoInts.srv"
 )
@@ -48,6 +52,13 @@ if(BUILD_TESTING)
     endif()
   endmacro()
 
+  if(_runtime_constraints_header)
+    message(STATUS "Using Rolling region-view XCDR integration tests")
+    add_xcdr_test(test_region_xcdr test/test_region_xcdr.cpp)
+    target_compile_features(test_region_xcdr PRIVATE cxx_std_20)
+    rosidl_get_typesupport_target(dispatch_target ${PROJECT_NAME} "rosidl_typesupport_cpp")
+    target_link_libraries(test_region_xcdr ${dispatch_target})
+  else()
   # --- Typesupport handle lookup ---
   add_xcdr_test(test_typesupport_handle
     test/test_typesupport_handle.cpp
@@ -97,6 +108,7 @@ if(BUILD_TESTING)
   add_xcdr_test(test_external_storage_recursion
     test/test_external_storage_recursion.cpp
   )
+  endif()
 
 endif()
 

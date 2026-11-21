@@ -128,7 +128,18 @@ XCdrPrimitiveSequenceLayout::XCdrPrimitiveSequenceLayout(
   XCdrPrimitiveKind element_kind,
   size_t actual_count,
   std::pmr::memory_resource * mr)
+: XCdrPrimitiveSequenceLayout(element_kind, actual_count, mr, 0)
+{
+}
+
+XCdrPrimitiveSequenceLayout::XCdrPrimitiveSequenceLayout(
+  XCdrPrimitiveKind element_kind,
+  size_t actual_count,
+  std::pmr::memory_resource * mr,
+  size_t wire_offset)
 : element_kind_(element_kind), actual_count_(actual_count),
+  data_offset_(align_to(wire_offset + kSequenceLengthPrefixSize,
+    get_primitive_alignment(element_kind)) - wire_offset),
   memory_resource_(mr ? mr : std::pmr::new_delete_resource())
 {
 }
@@ -256,6 +267,64 @@ XCdrResult<XCdrStructLayout::MemberConstRef> XCdrStructLayout::get_member(size_t
   return ok(std::cref(members_[index]));
 }
 
+static XCdrStatus initialize_layout(
+  tcb::span<uint8_t> buffer, XCdrEndianness endianness,
+  const XCdrLayout & value, size_t offset)
+{
+  const auto size = std::visit([](const auto & entry) {return entry.size();}, value);
+  if (offset > buffer.size() || size > buffer.size() - offset) {
+    return error("Layout element exceeds buffer");
+  }
+  return std::visit([&](const auto & entry) -> XCdrStatus {
+             using T = std::decay_t<decltype(entry)>;
+             constexpr bool is_container =
+             std::is_same_v<T, XCdrArrayLayout>|| std::is_same_v<T, XCdrSequenceLayout>;
+             if constexpr (std::is_same_v<T, XCdrStringLayout>) {
+               const auto char_size = get_char_size(entry.char_kind());
+               if (entry.actual_length() >= UINT32_MAX / char_size) {
+                 return error("String length exceeds XCDR length prefix");
+               }
+               uint32_t length = static_cast<uint32_t>((entry.actual_length() + 1) * char_size);
+               write_to_bytes(buffer.subspan(offset, kStringLengthPrefixSize), length, endianness);
+             } else if constexpr (std::is_same_v<T, XCdrPrimitiveSequenceLayout>) {
+               if (entry.actual_count() > UINT32_MAX) {
+                 return error("Sequence length exceeds XCDR length prefix");
+               }
+               uint32_t count = static_cast<uint32_t>(entry.actual_count());
+               write_to_bytes(buffer.subspan(offset, kSequenceLengthPrefixSize), count, endianness);
+             } else if constexpr (is_container) {
+               size_t count;
+               size_t start = offset;
+               if constexpr (std::is_same_v<T, XCdrSequenceLayout>) {
+                 count = entry.actual_count();
+                 if (count > UINT32_MAX) {
+                   return error("Sequence length exceeds XCDR length prefix");
+                 }
+                 write_to_bytes(buffer.subspan(offset, kSequenceLengthPrefixSize),
+            static_cast<uint32_t>(count), endianness);
+                 start += kSequenceLengthPrefixSize;
+               } else {
+                 count = entry.count();
+               }
+               for (size_t i = 0; i < count; ++i) {
+                 auto element_offset = entry.element_offset(i);
+                 auto element_layout = entry.element_layout(i);
+                 if (!element_offset || !element_layout) {
+                   return error("Invalid container element layout");
+                 }
+                 auto status = initialize_layout(buffer, endianness, element_layout->get(),
+            start + *element_offset);
+                 if (!status) {
+                   return status;
+                 }
+               }
+             } else if constexpr (std::is_same_v<T, XCdrStructLayout>) {
+               return entry.apply(buffer.subspan(offset, size), false);
+             }
+             return ok();
+  }, value);
+}
+
 XCdrStatus XCdrStructLayout::apply(tcb::span<uint8_t> buffer, bool zero_initialize) const
 {
   if (buffer.size() < total_size_) {
@@ -275,42 +344,12 @@ XCdrStatus XCdrStructLayout::apply(tcb::span<uint8_t> buffer, bool zero_initiali
     data_offset = kXCdrHeaderSize;
   }
 
-  // Write length prefixes for all variable-length fields
   for (const auto & member : members_) {
-    std::visit([&](auto && layout) {
-        using T = std::decay_t<decltype(layout)>;
-
-        if constexpr (std::is_same_v<T, XCdrStringLayout>) {
-        // Write string length prefix
-          // Include null
-          uint32_t length = static_cast<uint32_t>(layout.actual_length() + 1);
-          size_t prefix_offset = data_offset + member.offset();
-          tcb::span<uint8_t> prefix_span(buffer.data() + prefix_offset, 4);
-          write_to_bytes(prefix_span, length, endianness_);
-
-        } else if constexpr (std::is_same_v<T, XCdrPrimitiveSequenceLayout>) {
-        // Write primitive sequence length prefix
-          uint32_t length = static_cast<uint32_t>(layout.actual_count());
-          size_t prefix_offset = data_offset + member.offset();
-          tcb::span<uint8_t> prefix_span(buffer.data() + prefix_offset, 4);
-          write_to_bytes(prefix_span, length, endianness_);
-
-        } else if constexpr (std::is_same_v<T, XCdrSequenceLayout>) {
-        // Write non-primitive sequence length prefix
-          uint32_t length = static_cast<uint32_t>(layout.actual_count());
-          size_t prefix_offset = data_offset + member.offset();
-          tcb::span<uint8_t> prefix_span(buffer.data() + prefix_offset, 4);
-          write_to_bytes(prefix_span, length, endianness_);
-
-        } else if constexpr (std::is_same_v<T, XCdrStructLayout>) {
-        // Recursively apply nested struct layout
-          size_t struct_offset = data_offset + member.offset();
-          tcb::span<uint8_t> struct_buffer(buffer.data() + struct_offset, layout.total_size());
-          auto status = layout.apply(struct_buffer, zero_initialize);
-          (void)status;  // Suppress unused variable warning
-        }
-      // Primitives and arrays don't need initialization
-    }, member.layout());
+    auto status = initialize_layout(buffer, endianness_, member.layout(),
+      data_offset + member.offset());
+    if (!status) {
+      return status;
+    }
   }
 
   return ok();

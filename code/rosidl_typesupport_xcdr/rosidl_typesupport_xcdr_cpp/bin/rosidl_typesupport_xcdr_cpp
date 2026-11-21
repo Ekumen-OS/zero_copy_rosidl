@@ -12,9 +12,10 @@ def main(argv=sys.argv[1:]):
         '--generator-arguments-file',
         required=True,
         help='The location of the file containing the generator arguments')
+    parser.add_argument('--region-views', action='store_true')
     args = parser.parse_args(argv)
     
-    generate_cpp(args.generator_arguments_file)
+    generate_cpp(args.generator_arguments_file, region_views=args.region_views)
 
 if __name__ == '__main__':
     sys.exit(main())

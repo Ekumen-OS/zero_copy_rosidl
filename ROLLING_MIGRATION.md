@@ -169,20 +169,20 @@ XCDR, but the XCDR generator needs their view and storage interfaces.
 Verifying an XCDR-backed view requires both. Integrate and test them together
 after Step 2 rather than requiring that verification before XCDR is ported.
 
-- [ ] Adapt the XCDR C interface to the Rolling constraint contracts while
+- [x] Adapt the XCDR C interface to the Rolling constraint contracts while
   retaining Jazzy compatibility; build and run its callback tests on both.
-- [ ] Generate method-based views backed by the Step 2 primitives, alongside
+- [x] Generate method-based views backed by the Step 2 primitives, alongside
   ordinary messages and plain-message adapters. Test nested fields, bounds,
   ownership and explicit mutability over controlled regions.
-- [ ] Port XCDR C++ layout, construction and casting for those views; test
+- [x] Port XCDR C++ layout, construction and casting for those views; test
   compatible representations and reject malformed or undersized storage.
-- [ ] Port storage query, destroy and release; test non-consuming queries,
+- [x] Port storage query, destroy and release; test non-consuming queries,
   exactly-once consumption and simulated loan lifetime. Actual middleware
   loan return is verified in Steps 4 through 6.
-- [ ] Port XCDR serialization and compaction and test ordinary-message copy
+- [x] Port XCDR serialization and compaction and test ordinary-message copy
   interoperability. Keep format-specific logic in this implementation, not
   a purported format-independent ABI.
-- [ ] Port necessary `rosidl_typesupport` dispatch and `rosidl_core`
+- [x] Port necessary `rosidl_typesupport` dispatch and `rosidl_core`
   integration; test ordinary support and verify constrained handles retain
   their constraints and derived metadata.
 

@@ -309,7 +309,7 @@ rosidl_typesupport_xcdr_c_get_backing_storage(
 rosidl_message_type_support_t *
 rosidl_typesupport_xcdr_c_create_constrained_message_type_support(
   const rosidl_message_type_support_t * base_typesupport,
-  const rosidl_message_type_constraints_t * constraints)
+  const rosidl_typesupport_xcdr_c__constraints_t * constraints)
 {
   if (NULL == base_typesupport) {
     RCUTILS_SET_ERROR_MSG("base_typesupport is nullptr");
@@ -333,10 +333,19 @@ rosidl_typesupport_xcdr_c_create_constrained_message_type_support(
     RCUTILS_SET_ERROR_MSG("create_constrained callback is nullptr");
     return NULL;
   }
-  return xcdr->create_constrained(xcdr, constraints);
+  rosidl_message_type_support_t * constrained = xcdr->create_constrained(xcdr, constraints);
+  if (NULL == constrained) {
+    return NULL;
+  }
+  constrained->func = base_typesupport->func;
+  constrained->get_type_hash_func = base_typesupport->get_type_hash_func;
+  constrained->get_type_description_func = base_typesupport->get_type_description_func;
+  constrained->get_type_description_sources_func =
+    base_typesupport->get_type_description_sources_func;
+  return constrained;
 }
 
-const rosidl_message_type_constraints_t *
+const rosidl_typesupport_xcdr_c__constraints_t *
 rosidl_typesupport_xcdr_c_get_constraints(
   const rosidl_message_type_support_t * type_support)
 {
@@ -381,8 +390,8 @@ rosidl_typesupport_xcdr_c_destroy_constrained_message_type_support(
 bool
 rosidl_typesupport_xcdr_c_compare_constraints(
   const rosidl_message_type_support_t * type_support,
-  const rosidl_message_type_constraints_t * candidate,
-  const rosidl_message_type_constraints_t * baseline,
+  const rosidl_typesupport_xcdr_c__constraints_t * candidate,
+  const rosidl_typesupport_xcdr_c__constraints_t * baseline,
   rosidl_typesupport_xcdr_c_constraint_report_callback_t report_cb,
   void * user_data)
 {
@@ -502,7 +511,7 @@ rosidl_typesupport_xcdr_c_compact_message_in_place(
 rcutils_ret_t
 rosidl_typesupport_xcdr_c_validate_message(
   const rosidl_message_type_support_t * type_support,
-  const rosidl_message_type_constraints_t * constraints,
+  const rosidl_typesupport_xcdr_c__constraints_t * constraints,
   const void * message,
   rosidl_typesupport_xcdr_c_constraint_report_callback_t report_cb,
   void * user_data)

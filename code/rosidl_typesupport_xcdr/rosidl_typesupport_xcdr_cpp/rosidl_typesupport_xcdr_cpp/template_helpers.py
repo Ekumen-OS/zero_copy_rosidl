@@ -89,12 +89,12 @@ def needs_constraints(member_type):
 
 
 # NOTE: generate_layout_field, generate_parser_field, generate_writer_field,
-# generate_reader_field, generate_external_storage_field, and
-# generate_size_calculation have been moved to msg__type_support.cpp.em
+# generate_reader_field and generate_external_storage_field have been moved to
+# msg__type_support.cpp.em
 # as EmPy @[def] macros.
 
 
-def get_message_type_name(namespaced_type, experimental_context=False):
+def get_message_type_name(namespaced_type, experimental_context=False, region_context=False):
     """
     Get fully qualified C++ type name for a message.
 
@@ -102,13 +102,17 @@ def get_message_type_name(namespaced_type, experimental_context=False):
     so that the type resolves to the experimental variant.
     """
     ns = list(namespaced_type.namespaced_name())
-    if experimental_context and 'experimental' not in ns:
+    if region_context:
+        ns.insert(-1, 'views')
+        ns[-1] += 'RegionView<true>'
+    elif experimental_context and 'experimental' not in ns:
         # Insert 'experimental' before the type name (last element)
         ns.insert(-1, 'experimental')
     return '::'.join(ns)
 
 
-def get_nested_typesupport_include(namespaced_type, experimental_context=False):
+def get_nested_typesupport_include(
+        namespaced_type, experimental_context=False, region_context=False):
     """
     Get include path for nested message's XCDR typesupport.
 
@@ -117,7 +121,9 @@ def get_nested_typesupport_include(namespaced_type, experimental_context=False):
     """
     from rosidl_pycommon import convert_camel_case_to_lower_case_underscore
     parts = list(namespaced_type.namespaces)
-    if experimental_context and 'experimental' not in parts:
+    if region_context:
+        parts.append('views')
+    elif experimental_context and 'experimental' not in parts:
         parts.append('experimental')
     filename = convert_camel_case_to_lower_case_underscore(namespaced_type.name)
     parts.append('detail')

@@ -18,11 +18,22 @@ if(NOT TARGET ${rosidl_generate_interfaces_TARGET}__rosidl_generator_cpp)
     "'rosidl_typesupport_xcdr_cpp' extension.")
 endif()
 
-find_package(ament_cmake_ros REQUIRED)
 find_package(rosidl_runtime_c REQUIRED)
 find_package(rosidl_runtime_cpp REQUIRED)
 find_package(rosidl_typesupport_interface REQUIRED)
 find_package(xcdr_buffers REQUIRED)
+
+get_target_property(_runtime_c_includes rosidl_runtime_c::rosidl_runtime_c
+  INTERFACE_INCLUDE_DIRECTORIES)
+find_file(_runtime_constraints_header rosidl_runtime_c/constraints.h
+  HINTS ${_runtime_c_includes} NO_DEFAULT_PATH)
+if(_runtime_constraints_header)
+  set(_xcdr_view_namespace "views")
+  set(_xcdr_region_argument "--region-views")
+else()
+  set(_xcdr_view_namespace "experimental")
+  set(_xcdr_region_argument "")
+endif()
 
 set(_output_path "${CMAKE_CURRENT_BINARY_DIR}/rosidl_typesupport_xcdr_cpp/${PROJECT_NAME}")
 
@@ -42,8 +53,8 @@ foreach(_abs_idl_file ${rosidl_generate_interfaces_ABS_IDL_FILES})
     "${_output_path}/${_parent_folder}/detail/xcdr/${_header_name}__type_support.cpp"
     "${_output_path}/${_parent_folder}/detail/${_header_name}__rosidl_typesupport_xcdr_cpp.hpp"
     # Experimental typesupport (goes to experimental/ subdirectory)
-    "${_output_path}/${_parent_folder}/experimental/detail/xcdr/${_header_name}__type_support.cpp"
-    "${_output_path}/${_parent_folder}/experimental/detail/${_header_name}__rosidl_typesupport_xcdr_cpp.hpp"
+    "${_output_path}/${_parent_folder}/${_xcdr_view_namespace}/detail/xcdr/${_header_name}__type_support.cpp"
+    "${_output_path}/${_parent_folder}/${_xcdr_view_namespace}/detail/${_header_name}__rosidl_typesupport_xcdr_cpp.hpp"
   )
 endforeach()
 
@@ -111,6 +122,7 @@ add_custom_command(
   COMMAND Python3::Interpreter
   ARGS ${rosidl_typesupport_xcdr_cpp_BIN}
   --generator-arguments-file "${generator_arguments_file}"
+  ${_xcdr_region_argument}
   DEPENDS ${target_dependencies}
   COMMENT "Generating C++ XCDR typesupport"
   VERBATIM
@@ -143,6 +155,9 @@ set_target_properties(${rosidl_generate_interfaces_TARGET}${_target_suffix}
   PROPERTIES
     DEFINE_SYMBOL "ROSIDL_TYPESUPPORT_XCDR_CPP_BUILDING_DLL_${PROJECT_NAME}"
     CXX_STANDARD 17)
+if(_runtime_constraints_header)
+  set_property(TARGET ${rosidl_generate_interfaces_TARGET}${_target_suffix} PROPERTY CXX_STANDARD 20)
+endif()
 
 # Set compiler flags
 if(NOT WIN32)

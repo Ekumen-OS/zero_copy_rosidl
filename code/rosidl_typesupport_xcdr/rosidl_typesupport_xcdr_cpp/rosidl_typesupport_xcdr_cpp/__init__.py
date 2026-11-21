@@ -17,19 +17,20 @@
 from rosidl_pycommon import generate_files
 
 
-def generate_cpp(generator_arguments_file):
+def generate_cpp(generator_arguments_file, *, region_views=False):
     """Generate XCDR C++ typesupport code."""
     mapping = {
         'idl__rosidl_typesupport_xcdr_cpp.hpp.em':
         'detail/%s__rosidl_typesupport_xcdr_cpp.hpp',
         'idl__type_support.cpp.em':
         'detail/xcdr/%s__type_support.cpp',
-        # Experimental message variants — always generated alongside standard ones.
-        # The output path goes under experimental/ to match the expected namespace
-        # (msg::experimental::MessageName).
+        # Generate the alternate representation alongside standard messages.
         'idl__experimental_rosidl_typesupport_xcdr_cpp.hpp.em':
-        'experimental/detail/%s__rosidl_typesupport_xcdr_cpp.hpp',
+        ('views' if region_views else 'experimental') +
+        '/detail/%s__rosidl_typesupport_xcdr_cpp.hpp',
         'idl__experimental_type_support.cpp.em':
-        'experimental/detail/xcdr/%s__type_support.cpp',
+        ('views' if region_views else 'experimental') +
+        '/detail/xcdr/%s__type_support.cpp',
     }
-    return generate_files(generator_arguments_file, mapping)
+    return generate_files(
+        generator_arguments_file, mapping, additional_context={'region_views': region_views})

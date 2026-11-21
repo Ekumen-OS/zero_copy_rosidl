@@ -156,7 +156,7 @@ void XCdrWriter::write(std::string_view str)
     }
 
     // Write string data + null terminator
-    std::memcpy(fixed_span_.data() + write_position_, str.data(), str.size());
+    std::memmove(fixed_span_.data() + write_position_, str.data(), str.size());
     write_position_ += str.size();
     fixed_span_[write_position_++] = '\0';
   } else {

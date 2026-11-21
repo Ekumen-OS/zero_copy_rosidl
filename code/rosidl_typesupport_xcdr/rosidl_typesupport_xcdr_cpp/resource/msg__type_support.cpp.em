@@ -1,8 +1,10 @@
 @# generated from rosidl_typesupport_xcdr_cpp/resource/msg__type_support.cpp.em
 @# generated code does not contain a copyright notice
-
+@
 @{
 from rosidl_pycommon import convert_camel_case_to_lower_case_underscore
+from rosidl_generator_c import idl_structure_type_to_c_typename
+from rosidl_generator_type_description import GET_DESCRIPTION_FUNC, GET_HASH_FUNC, GET_SOURCES_FUNC
 from rosidl_parser.definition import (
     AbstractNestedType,
     AbstractSequence,
@@ -32,17 +34,23 @@ try:
     force_experimental
 except NameError:
     force_experimental = False
+try:
+    region_views
+except NameError:
+    region_views = False
 
 # Check if this is an experimental message
 is_experimental = force_experimental or 'experimental' in '/'.join(message.structure.namespaced_type.namespaces)
+is_region_view = force_experimental and region_views
 
 # Determine namespace (includes 'experimental' when forced)
 msg_typename = message.structure.namespaced_type.name
 msg_namespace_parts = list(message.structure.namespaced_type.namespaces)
 if force_experimental and 'experimental' not in msg_namespace_parts:
-    msg_namespace_parts.append('experimental')
+    msg_namespace_parts.append('views' if is_region_view else 'experimental')
 msg_namespace = '::'.join(msg_namespace_parts)
-full_msg_typename = '::'.join(msg_namespace_parts + [msg_typename])
+full_msg_typename = '::'.join(msg_namespace_parts + [
+    msg_typename + 'RegionView<true>' if is_region_view else msg_typename])
 # DDS type identity: experimental messages are alternate runtime
 # representations of the same payload as their standard counterparts, so the
 # the XCDR handle message_namespace (which feeds the DDS type name) must NOT
@@ -53,7 +61,8 @@ effective_parent_parts = list(interface_path.parents[0].parts)
 if force_experimental:
     # Use a single token (e.g., 'msg_experimental') for C symbol names
     # to avoid breaking the 4-argument ROSIDL_TYPESUPPORT_INTERFACE__MESSAGE_SYMBOL_NAME macro
-    effective_parent_parts = [effective_parent_parts[0] + '_experimental']
+    effective_parent_parts = [
+        effective_parent_parts[0] + ('_views' if is_region_view else '_experimental')]
 # Effective include namespace for #include directives
 effective_include_ns = '/'.join(msg_namespace_parts)
 
@@ -84,6 +93,17 @@ for member in message.structure.members:
     if needs_constraints(member.type):
         has_constraints = True
         break
+requires_constraints = has_constraints
+has_variable_fields = False
+for member in message.structure.members:
+    if isinstance(member.type, (AbstractString, AbstractWString, AbstractSequence)) or (
+        isinstance(member.type, Array) and
+        isinstance(member.type.value_type, (AbstractString, AbstractWString))
+    ):
+        has_variable_fields = True
+        break
+if is_region_view and has_variable_fields:
+    has_constraints = True
 
 # Collect nested message includes (but skip service messages)
 nested_includes = set()
@@ -97,7 +117,7 @@ for member in message.structure.members:
                                  member_type.name.endswith(SERVICE_EVENT_MESSAGE_SUFFIX)))
         if not is_nested_service_msg:
             nested_includes.add(get_nested_typesupport_include(
-                member_type, experimental_context=is_experimental))
+                member_type, experimental_context=is_experimental, region_context=is_region_view))
     elif isinstance(member.type, (Array, AbstractSequence)):
         elem_type = member_type.value_type
         if isinstance(elem_type, NamespacedType):
@@ -108,7 +128,7 @@ for member in message.structure.members:
                                      elem_type.name.endswith(SERVICE_EVENT_MESSAGE_SUFFIX)))
             if not is_nested_service_msg:
                 nested_includes.add(get_nested_typesupport_include(
-                    elem_type, experimental_context=is_experimental))
+                    elem_type, experimental_context=is_experimental, region_context=is_region_view))
 
 }@
 @{
@@ -117,16 +137,23 @@ nested_decls = set()
 for member in message.structure.members:
     member_type = member.type
     if isinstance(member_type, NamespacedType):
-        full_name = get_message_type_name(member_type, experimental_context=is_experimental)
-        parts = full_name.split('::')
-        nested_decls.add(('::'.join(parts[:-1]), parts[-1]))
+        if is_region_view:
+            nested_decls.add(('::'.join(member_type.namespaces + ['views']), member_type.name))
+        else:
+            full_name = get_message_type_name(member_type, experimental_context=is_experimental, region_context=is_region_view)
+            parts = full_name.split('::')
+            nested_decls.add(('::'.join(parts[:-1]), parts[-1]))
     elif isinstance(member_type, (Array, AbstractSequence)):
         elem_type = member_type.value_type
         if isinstance(elem_type, NamespacedType):
-            full_name = get_message_type_name(elem_type, experimental_context=is_experimental)
-            parts = full_name.split('::')
-            nested_decls.add(('::'.join(parts[:-1]), parts[-1]))
+            if is_region_view:
+                nested_decls.add(('::'.join(elem_type.namespaces + ['views']), elem_type.name))
+            else:
+                full_name = get_message_type_name(elem_type, experimental_context=is_experimental, region_context=is_region_view)
+                parts = full_name.split('::')
+                nested_decls.add(('::'.join(parts[:-1]), parts[-1]))
 }@
+@[if not is_service_message or first_service_message]@
 // Copyright 2026 Ekumen Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -153,7 +180,11 @@ for member in message.structure.members:
 #include "rcutils/error_handling.h"
 #include "rcutils/types/rcutils_ret.h"
 #include "rosidl_runtime_c/message_type_support_struct.h"
+#if __has_include("rosidl_runtime_c/constraints.h")
+#include "rosidl_runtime_cpp/memory.hpp"
+#else
 #include "rosidl_runtime_cpp/experimental/memory.hpp"
+#endif
 #include "rosidl_typesupport_interface/macros.h"
 #include "rosidl_typesupport_xcdr_c/identifier.h"
 #include "rosidl_typesupport_xcdr_c/message_type_support.h"
@@ -171,6 +202,7 @@ for member in message.structure.members:
 #include "xcdr_buffers/serialization/writer.hpp"
 #include "xcdr_buffers/common/types.hpp"
 #include "xcdr_buffers/common/endianness.hpp"
+#include "@(package_name)/@('/'.join(interface_path.parents[0].parts))/detail/@(convert_camel_case_to_lower_case_underscore(interface_path.stem))__functions.h"
 
 @[if is_service_message and service_name]@
 @[  if is_experimental]@
@@ -179,56 +211,89 @@ for member in message.structure.members:
 #include "@(package_name)/srv/detail/@(convert_camel_case_to_lower_case_underscore(service_name))__struct.hpp"
 @[  end if]@
 @[else]@
-#include "@(effective_include_ns)/@(convert_camel_case_to_lower_case_underscore(msg_typename)).hpp"
+#include "@(effective_include_ns)/@(convert_camel_case_to_lower_case_underscore(msg_typename))@('__region' if is_region_view else '').hpp"
+@[end if]@
 @[end if]@
 
 @[for include in sorted(nested_includes)]@
+@[if not is_service_message or include not in emitted_nested_includes]@
 #include "@(include)"
+@[if is_service_message]@
+@{ emitted_nested_includes.add(include) }@
+@[end if]@
+@[end if]@
 @[end for]@
 @# ===== EmPy macros for field code generation =====
-
-@[def generate_layout_field(member, is_experimental=True, constraints_prefix='constraints')]@
+@
+@[def generate_layout_field(member, is_experimental=True, constraints_prefix='constraints', is_region_view=is_region_view, has_constraints=has_constraints)]@
 @{ from rosidl_parser.definition import BasicType, AbstractString, AbstractWString, BoundedString, BoundedWString, Array, BoundedSequence, AbstractSequence, NamespacedType }@ @
 @{ from rosidl_typesupport_xcdr_cpp.template_helpers import get_xcdr_primitive_kind, get_cpp_type, get_message_type_name, needs_constraints }@ @
 @[if isinstance(member.type, BasicType)]@
   builder.allocate_primitive("@(member.name)", @(get_xcdr_primitive_kind(member.type)));
 @[elif isinstance(member.type, (BoundedString, BoundedWString))]@
-  builder.allocate_string("@(member.name)", @(member.type.maximum_size));
+@[if is_region_view and has_constraints]@
+  {
+    auto limit = @(constraints_prefix).@(member.name).size;
+    if (limit > @(member.type.maximum_size)) {
+      ret = RCUTILS_RET_ERROR;
+    }
+    builder.allocate_string("@(member.name)", limit == 0 ? @(member.type.maximum_size) : limit@(', xcdr_buffers::XCdrCharKind::kChar16' if isinstance(member.type, AbstractWString) else ''));
+  }
+@[else]@
+  builder.allocate_string("@(member.name)", @(member.type.maximum_size)@(', xcdr_buffers::XCdrCharKind::kChar16' if isinstance(member.type, AbstractWString) else ''));
+@[end if]@
 @[elif isinstance(member.type, (AbstractString, AbstractWString))]@
-  builder.allocate_string("@(member.name)", @(constraints_prefix).@(member.name).size);
+  builder.allocate_string("@(member.name)", @(constraints_prefix).@(member.name).size@(', xcdr_buffers::XCdrCharKind::kChar16' if isinstance(member.type, AbstractWString) else ''));
 @[elif isinstance(member.type, Array)]@
 @[  if isinstance(member.type.value_type, BasicType)]@
   builder.allocate_primitive_array("@(member.name)", @(get_xcdr_primitive_kind(member.type.value_type)), @(member.type.size));
 @[  else]@
   builder.begin_allocate_array("@(member.name)", @(member.type.size));
+  for (size_t _i = 0; _i < @(member.type.size); ++_i) {
 @[    if isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
 @[      if isinstance(member.type.value_type, (BoundedString, BoundedWString))]@
-    builder.allocate_string(@(member.type.value_type.maximum_size));
+@[        if is_region_view and has_constraints]@
+    {
+      auto limit = @(constraints_prefix).@(member.name).size;
+      if (limit > @(member.type.value_type.maximum_size)) {
+        ret = RCUTILS_RET_ERROR;
+      }
+      builder.allocate_string(limit == 0 ? @(member.type.value_type.maximum_size) : limit@(', xcdr_buffers::XCdrCharKind::kChar16' if isinstance(member.type.value_type, AbstractWString) else ''));
+    }
+@[        else]@
+    builder.allocate_string(@(member.type.value_type.maximum_size)@(', xcdr_buffers::XCdrCharKind::kChar16' if isinstance(member.type.value_type, AbstractWString) else ''));
+@[        end if]@
 @[      else]@
-    builder.allocate_string(@(constraints_prefix).@(member.name).size);
+    builder.allocate_string(@(constraints_prefix).@(member.name).size@(', xcdr_buffers::XCdrCharKind::kChar16' if isinstance(member.type.value_type, AbstractWString) else ''));
 @[      end if]@
 @[    elif isinstance(member.type.value_type, NamespacedType)]@
     builder.begin_allocate_struct();
     {
-      auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental))>();
+      auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental, region_context=is_region_view))>();
       auto nested_outer_@(member.name) = static_cast<const rosidl_message_xcdr_type_support_t *>(nested_ts_@(member.name)->data);
       auto nested_inner_@(member.name) = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(nested_outer_@(member.name)->inner);
-      nested_inner_@(member.name)->build_layout_fields(builder, nullptr);
+      if (nested_inner_@(member.name)->build_layout_fields(
+          builder, &@(constraints_prefix).@(member.name)) != RCUTILS_RET_OK)
+      {
+        ret = RCUTILS_RET_ERROR;
+      }
     }
     builder.end_allocate_struct();
 @[    end if]@
+  }
   builder.end_allocate_array();
 @[  end if]@
 @[elif isinstance(member.type, (BoundedSequence, AbstractSequence))]@
 @[  if isinstance(member.type.value_type, BasicType)]@
 @[    if isinstance(member.type, BoundedSequence)]@
-@[      if needs_constraints(member.type)]@
+@[      if needs_constraints(member.type) or (is_region_view and has_constraints)]@
   {
     auto & @(member.name)_cs = @(constraints_prefix).@(member.name);
     if (@(member.name)_cs.size > @(member.type.maximum_size)) {
       ret = RCUTILS_RET_ERROR;
     }
-    builder.allocate_primitive_sequence("@(member.name)", @(get_xcdr_primitive_kind(member.type.value_type)), @(member.name)_cs.size);
+    builder.allocate_primitive_sequence("@(member.name)", @(get_xcdr_primitive_kind(member.type.value_type)),
+      @(member.name)_cs.size == 0 ? @(member.type.maximum_size) : @(member.name)_cs.size);
   }
 @[      else]@
   builder.allocate_primitive_sequence("@(member.name)", @(get_xcdr_primitive_kind(member.type.value_type)), @(member.type.maximum_size));
@@ -238,180 +303,237 @@ for member in message.structure.members:
 @[    end if]@
 @[  else]@
 @[    if isinstance(member.type, BoundedSequence)]@
-@[      if needs_constraints(member.type)]@
+@[      if needs_constraints(member.type) or (is_region_view and has_constraints)]@
   {
     auto & @(member.name)_cs = @(constraints_prefix).@(member.name);
     if (@(member.name)_cs.size > @(member.type.maximum_size)) {
       ret = RCUTILS_RET_ERROR;
     }
-    builder.begin_allocate_sequence("@(member.name)", @(member.name)_cs.size);
-  }
+    const size_t _count = @(member.name)_cs.size == 0 ?
+      @(member.type.maximum_size) : @(member.name)_cs.size;
 @[      else]@
-  builder.begin_allocate_sequence("@(member.name)", @(member.type.maximum_size));
+  {
+    const size_t _count = @(member.type.maximum_size);
 @[      end if]@
 @[    else]@
-  builder.begin_allocate_sequence("@(member.name)", @(constraints_prefix).@(member.name).size);
+  {
+    const size_t _count = @(constraints_prefix).@(member.name).size;
 @[    end if]@
+    builder.begin_allocate_sequence("@(member.name)", _count);
+    for (size_t _i = 0; _i < _count; ++_i) {
 @[    if isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
 @[      if isinstance(member.type.value_type, (BoundedString, BoundedWString))]@
-    builder.allocate_string(@(member.type.value_type.maximum_size));
+@[        if is_region_view and has_constraints]@
+      {
+        auto limit = @(constraints_prefix).@(member.name).element.size;
+        if (limit > @(member.type.value_type.maximum_size)) {
+          ret = RCUTILS_RET_ERROR;
+        }
+        builder.allocate_string(limit == 0 ? @(member.type.value_type.maximum_size) : limit@(', xcdr_buffers::XCdrCharKind::kChar16' if isinstance(member.type.value_type, AbstractWString) else ''));
+      }
+@[        else]@
+      builder.allocate_string(@(member.type.value_type.maximum_size)@(', xcdr_buffers::XCdrCharKind::kChar16' if isinstance(member.type.value_type, AbstractWString) else ''));
+@[        end if]@
 @[      else]@
-    builder.allocate_string(@(constraints_prefix).@(member.name).element.size);
+      builder.allocate_string(@(constraints_prefix).@(member.name).element.size@(', xcdr_buffers::XCdrCharKind::kChar16' if isinstance(member.type.value_type, AbstractWString) else ''));
 @[      end if]@
 @[    elif isinstance(member.type.value_type, NamespacedType)]@
-    builder.begin_allocate_struct();
-    {
-      auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental))>();
-      auto nested_outer_@(member.name) =
-        static_cast<const rosidl_message_xcdr_type_support_t *>(nested_ts_@(member.name)->data);
-      auto nested_inner_@(member.name) = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(nested_outer_@(member.name)->inner);
-      nested_inner_@(member.name)->build_layout_fields(builder, nullptr);
-    }
-    builder.end_allocate_struct();
+      builder.begin_allocate_struct();
+      {
+        auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental, region_context=is_region_view))>();
+        auto nested_outer_@(member.name) =
+          static_cast<const rosidl_message_xcdr_type_support_t *>(nested_ts_@(member.name)->data);
+        auto nested_inner_@(member.name) = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(nested_outer_@(member.name)->inner);
+        if (nested_inner_@(member.name)->build_layout_fields(
+          builder, &@(constraints_prefix).@(member.name).element) != RCUTILS_RET_OK)
+        {
+          ret = RCUTILS_RET_ERROR;
+        }
+      }
+      builder.end_allocate_struct();
 @[    end if]@
-  builder.end_allocate_sequence();
+    }
+    builder.end_allocate_sequence();
+  }
 @[  end if]@
 @[elif isinstance(member.type, NamespacedType)]@
   // Nested message: @(member.name)
   builder.begin_allocate_struct("@(member.name)");
   {
-    auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type, experimental_context=is_experimental))>();
+    auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type, experimental_context=is_experimental, region_context=is_region_view))>();
     auto nested_outer_@(member.name) =
       static_cast<const rosidl_message_xcdr_type_support_t *>(nested_ts_@(member.name)->data);
-      auto nested_inner_@(member.name) = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(nested_outer_@(member.name)->inner);
-    nested_inner_@(member.name)->build_layout_fields(builder, &@(constraints_prefix).@(member.name));
+    auto nested_inner_@(member.name) = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(nested_outer_@(member.name)->inner);
+    if (nested_inner_@(member.name)->build_layout_fields(
+        builder, &@(constraints_prefix).@(member.name)) != RCUTILS_RET_OK)
+    {
+      ret = RCUTILS_RET_ERROR;
+    }
   }
   builder.end_allocate_struct();
 @[else]@
   // TODO: Handle @(member.name) of type @(member.type)
 @[end if]@
 @[end def]@
+@
+@{
+def checked_parse(call, indent='  '):
+    return '\n'.join([
+        indent + '{',
+        indent + '  auto _status = ' + call + ';',
+        indent + '  if (!_status) {',
+        indent + '    RCUTILS_SET_ERROR_MSG(std::string(_status.error().message()).c_str());',
+        indent + '    return RCUTILS_RET_ERROR;',
+        indent + '  }',
+        indent + '}',
+    ])
+}@
 
-@[def generate_parser_field(member, is_experimental=False)]@
+@[def generate_parser_field(member, is_experimental=False, is_region_view=is_region_view, checked_parse=checked_parse)]@
 @{ from rosidl_parser.definition import BasicType, AbstractString, AbstractWString, BoundedString, BoundedWString, Array, BoundedSequence, AbstractSequence, NamespacedType }@ @
 @{ from rosidl_typesupport_xcdr_cpp.template_helpers import get_xcdr_primitive_kind, get_cpp_type, get_message_type_name }@ @
 @[if isinstance(member.type, BasicType)]@
-  parser.parse_primitive(@(get_xcdr_primitive_kind(member.type)));
+@(checked_parse('parser.parse_primitive(' + get_xcdr_primitive_kind(member.type) + ')'))
 @[elif isinstance(member.type, (AbstractString, AbstractWString))]@
-  parser.parse_string();
+@(checked_parse('parser.parse_string(xcdr_buffers::XCdrCharKind::kChar16)' if isinstance(member.type, AbstractWString) else 'parser.parse_string()'))
 @[elif isinstance(member.type, Array)]@
 @[  if isinstance(member.type.value_type, BasicType)]@
-  parser.parse_primitive_array(@(get_xcdr_primitive_kind(member.type.value_type)), @(member.type.size));
+@(checked_parse('parser.parse_primitive_array(' + get_xcdr_primitive_kind(member.type.value_type) + ', ' + str(member.type.size) + ')'))
 @[  else]@
-  parser.begin_parse_array(@(member.type.size));
+@(checked_parse('parser.begin_parse_array(' + str(member.type.size) + ')'))
+  for (size_t _i = 0; _i < @(member.type.size); ++_i) {
 @[    if isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
-    parser.parse_string();
+@(checked_parse('parser.parse_string(xcdr_buffers::XCdrCharKind::kChar16)' if isinstance(member.type.value_type, AbstractWString) else 'parser.parse_string()', '    '))
 @[    elif isinstance(member.type.value_type, NamespacedType)]@
-    parser.begin_parse_struct();
+@(checked_parse('parser.begin_parse_struct()', '    '))
     {
-      auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental))>();
+      auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental, region_context=is_region_view))>();
       auto nested_outer_@(member.name) = static_cast<const rosidl_message_xcdr_type_support_t *>(nested_ts_@(member.name)->data);
       auto nested_inner_@(member.name) = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(nested_outer_@(member.name)->inner);
       if (nullptr == nested_inner_@(member.name)->parse_fields) {
+        RCUTILS_SET_ERROR_MSG("Nested parse callback not available");
         return RCUTILS_RET_ERROR;
       }
       auto _ret_@(member.name) = nested_inner_@(member.name)->parse_fields(parser);
-      if (RCUTILS_RET_OK != _ret_@(member.name)) { return _ret_@(member.name); }
+      if (RCUTILS_RET_OK != _ret_@(member.name)) {return _ret_@(member.name);}
     }
-    parser.end_parse_struct();
+@(checked_parse('parser.end_parse_struct()', '    '))
 @[    end if]@
-  parser.end_parse_array();
+  }
+@(checked_parse('parser.end_parse_array()'))
 @[  end if]@
 @[elif isinstance(member.type, AbstractSequence)]@
 @[  if isinstance(member.type.value_type, BasicType)]@
 @[    if isinstance(member.type, BoundedSequence)]@
-  parser.parse_primitive_sequence(@(get_xcdr_primitive_kind(member.type.value_type)), @(member.type.maximum_size));
+@(checked_parse('parser.parse_primitive_sequence(' + get_xcdr_primitive_kind(member.type.value_type) + ', ' + str(member.type.maximum_size) + ')'))
 @[    else]@
-  parser.parse_primitive_sequence(@(get_xcdr_primitive_kind(member.type.value_type)));
+@(checked_parse('parser.parse_primitive_sequence(' + get_xcdr_primitive_kind(member.type.value_type) + ')'))
 @[    end if]@
 @[  else]@
-  auto @(member.name)_size = parser.begin_parse_sequence();
-@[    if isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
-    parser.parse_string();
-@[    elif isinstance(member.type.value_type, NamespacedType)]@
-    parser.begin_parse_struct();
-    {
-      auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental))>();
-      auto nested_outer_@(member.name) = static_cast<const rosidl_message_xcdr_type_support_t *>(nested_ts_@(member.name)->data);
-      auto nested_inner_@(member.name) = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(nested_outer_@(member.name)->inner);
-      if (nullptr == nested_inner_@(member.name)->parse_fields) {
-        return RCUTILS_RET_ERROR;
-      }
-      auto _ret_@(member.name) = nested_inner_@(member.name)->parse_fields(parser);
-      if (RCUTILS_RET_OK != _ret_@(member.name)) { return _ret_@(member.name); }
+  {
+    auto _size = parser.begin_parse_sequence();
+    if (!_size) {
+      RCUTILS_SET_ERROR_MSG(std::string(_size.error().message()).c_str());
+      return RCUTILS_RET_ERROR;
     }
-    parser.end_parse_struct();
+@[    if isinstance(member.type, BoundedSequence)]@
+    if (*_size > @(member.type.maximum_size)) {
+      RCUTILS_SET_ERROR_MSG("XCDR sequence exceeds its IDL bound");
+      return RCUTILS_RET_ERROR;
+    }
 @[    end if]@
-  parser.end_parse_sequence();
+    for (size_t _i = 0; _i < *_size; ++_i) {
+@[    if isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
+@(checked_parse('parser.parse_string(xcdr_buffers::XCdrCharKind::kChar16)' if isinstance(member.type.value_type, AbstractWString) else 'parser.parse_string()', '      '))
+@[    elif isinstance(member.type.value_type, NamespacedType)]@
+@(checked_parse('parser.begin_parse_struct()', '      '))
+      {
+        auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental, region_context=is_region_view))>();
+        auto nested_outer_@(member.name) = static_cast<const rosidl_message_xcdr_type_support_t *>(nested_ts_@(member.name)->data);
+        auto nested_inner_@(member.name) = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(nested_outer_@(member.name)->inner);
+        if (nullptr == nested_inner_@(member.name)->parse_fields) {
+          RCUTILS_SET_ERROR_MSG("Nested parse callback not available");
+          return RCUTILS_RET_ERROR;
+        }
+        auto _ret_@(member.name) = nested_inner_@(member.name)->parse_fields(parser);
+        if (RCUTILS_RET_OK != _ret_@(member.name)) {return _ret_@(member.name);}
+      }
+@(checked_parse('parser.end_parse_struct()', '      '))
+@[    end if]@
+    }
+@(checked_parse('parser.end_parse_sequence()', '    '))
+  }
 @[  end if]@
 @[elif isinstance(member.type, NamespacedType)]@
-  parser.begin_parse_struct("@(member.name)");
+@(checked_parse('parser.begin_parse_struct("' + member.name + '")'))
   {
-    auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type, experimental_context=is_experimental))>();
+    auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type, experimental_context=is_experimental, region_context=is_region_view))>();
     auto nested_outer_@(member.name) = static_cast<const rosidl_message_xcdr_type_support_t *>(nested_ts_@(member.name)->data);
     auto nested_inner_@(member.name) = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(nested_outer_@(member.name)->inner);
     if (nullptr == nested_inner_@(member.name)->parse_fields) {
+      RCUTILS_SET_ERROR_MSG("Nested parse callback not available");
       return RCUTILS_RET_ERROR;
     }
     auto _ret_@(member.name) = nested_inner_@(member.name)->parse_fields(parser);
-    if (RCUTILS_RET_OK != _ret_@(member.name)) { return _ret_@(member.name); }
+    if (RCUTILS_RET_OK != _ret_@(member.name)) {return _ret_@(member.name);}
   }
-  parser.end_parse_struct();
+@(checked_parse('parser.end_parse_struct()'))
 @[else]@
   // TODO: Parse @(member.name)
 @[end if]@
 @[end def]@
-
-@[def generate_writer_field(member, is_experimental, msg_prefix='msg')]@
+@
+@[def generate_writer_field(member, is_experimental, msg_prefix='msg', is_region_view=is_region_view)]@
 @{ from rosidl_parser.definition import BasicType, AbstractString, AbstractWString, BoundedString, BoundedWString, Array, BoundedSequence, AbstractSequence, NamespacedType }@ @
 @{ from rosidl_typesupport_xcdr_cpp.template_helpers import get_xcdr_primitive_kind, get_cpp_type, get_message_type_name }@ @
 @[if isinstance(member.type, BasicType)]@
-  writer.write<@(get_cpp_type(member.type))>(@(msg_prefix).@(member.name));
+  writer.write<@(get_cpp_type(member.type))>(@(msg_prefix).@(member.name)@('()' if is_region_view else ''));
 @[elif isinstance(member.type, AbstractWString)]@
 @[  if is_experimental]@
-  writer.write(std::u16string_view(@(msg_prefix).@(member.name).data(), @(msg_prefix).@(member.name).size()));
+  writer.write(std::u16string_view(@(msg_prefix).@(member.name)@('()' if is_region_view else '').data(), @(msg_prefix).@(member.name)@('()' if is_region_view else '').size()));
 @[  else]@
-  writer.write(std::u16string_view(@(msg_prefix).@(member.name)));
+  writer.write(std::u16string_view(@(msg_prefix).@(member.name)@('()' if is_region_view else '')));
 @[  end if]@
 @[elif isinstance(member.type, AbstractString)]@
 @[  if is_experimental]@
-  writer.write(std::string_view(@(msg_prefix).@(member.name).data(), @(msg_prefix).@(member.name).size()));
+  writer.write(std::string_view(@(msg_prefix).@(member.name)@('()' if is_region_view else '').data(), @(msg_prefix).@(member.name)@('()' if is_region_view else '').size()));
 @[  else]@
-  writer.write(std::string_view(@(msg_prefix).@(member.name)));
+  writer.write(std::string_view(@(msg_prefix).@(member.name)@('()' if is_region_view else '')));
 @[  end if]@
 @[elif isinstance(member.type, Array)]@
 @[  if isinstance(member.type.value_type, BasicType)]@
-  writer.write_array(tcb::span<const @(get_cpp_type(member.type.value_type))>(@(msg_prefix).@(member.name).data(), @(member.type.size)));
+  writer.write_array(tcb::span<const @(get_cpp_type(member.type.value_type))>(@(msg_prefix).@(member.name)@('()' if is_region_view else '').data(), @(member.type.size)));
 @[  else]@
   writer.begin_write_array(@(member.type.size));
 @[    if isinstance(member.type.value_type, AbstractWString)]@
 @[      if is_experimental]@
   for (size_t i = 0; i < @(member.type.size); ++i) {
-    writer.write(std::u16string_view(@(msg_prefix).@(member.name)[i].data(), @(msg_prefix).@(member.name)[i].size()));
+    writer.write(std::u16string_view(@(msg_prefix).@(member.name)@('()' if is_region_view else '')[i].data(), @(msg_prefix).@(member.name)@('()' if is_region_view else '')[i].size()));
   }
 @[      else]@
-  for (const auto & elem : @(msg_prefix).@(member.name)) {
+  for (const auto & elem : @(msg_prefix).@(member.name)@('()' if is_region_view else '')) {
     writer.write(std::u16string_view(elem));
   }
 @[      end if]@
 @[    elif isinstance(member.type.value_type, AbstractString)]@
 @[      if is_experimental]@
   for (size_t i = 0; i < @(member.type.size); ++i) {
-    writer.write(std::string_view(@(msg_prefix).@(member.name)[i].data(), @(msg_prefix).@(member.name)[i].size()));
+    writer.write(std::string_view(@(msg_prefix).@(member.name)@('()' if is_region_view else '')[i].data(), @(msg_prefix).@(member.name)@('()' if is_region_view else '')[i].size()));
   }
 @[      else]@
-  for (const auto & elem : @(msg_prefix).@(member.name)) {
+  for (const auto & elem : @(msg_prefix).@(member.name)@('()' if is_region_view else '')) {
     writer.write(std::string_view(elem));
   }
 @[      end if]@
 @[    elif isinstance(member.type.value_type, NamespacedType)]@
   {
-    auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental))>();
+    auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental, region_context=is_region_view))>();
     auto nested_outer_@(member.name) =
       static_cast<const rosidl_message_xcdr_type_support_t *>(nested_ts_@(member.name)->data);
-      auto nested_inner_@(member.name) = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(nested_outer_@(member.name)->inner);
+    auto nested_inner_@(member.name) = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(nested_outer_@(member.name)->inner);
     for (size_t i = 0; i < @(member.type.size); ++i) {
-      nested_inner_@(member.name)->serialize_fields(&@(msg_prefix).@(member.name)[i], writer);
+      auto ret = nested_inner_@(member.name)->serialize_fields(&@(msg_prefix).@(member.name)@('()' if is_region_view else '')[i], writer);
+      if (ret != RCUTILS_RET_OK) {return ret;}
     }
   }
 @[    end if]@
@@ -420,44 +542,45 @@ for member in message.structure.members:
 @[elif isinstance(member.type, AbstractSequence)]@
 @[  if isinstance(member.type.value_type, BasicType)]@
 @[    if get_cpp_type(member.type.value_type) == 'bool']@
-  writer.begin_write_sequence(@(msg_prefix).@(member.name).size());
-  for (const auto & elem : @(msg_prefix).@(member.name)) {
+  writer.begin_write_sequence(@(msg_prefix).@(member.name)@('()' if is_region_view else '').size());
+  for (const auto & elem : @(msg_prefix).@(member.name)@('()' if is_region_view else '')) {
     writer.write(static_cast<uint8_t>(elem));
   }
   writer.end_write_sequence();
 @[    else]@
-  writer.write_sequence(tcb::span<const @(get_cpp_type(member.type.value_type))>(@(msg_prefix).@(member.name).data(), @(msg_prefix).@(member.name).size()));
+  writer.write_sequence(tcb::span<const @(get_cpp_type(member.type.value_type))>(@(msg_prefix).@(member.name)@('()' if is_region_view else '').data(), @(msg_prefix).@(member.name)@('()' if is_region_view else '').size()));
 @[    end if]@
 @[  else]@
-  writer.begin_write_sequence(@(msg_prefix).@(member.name).size());
+  writer.begin_write_sequence(@(msg_prefix).@(member.name)@('()' if is_region_view else '').size());
 @[    if isinstance(member.type.value_type, AbstractWString)]@
 @[      if is_experimental]@
-  for (size_t i = 0; i < @(msg_prefix).@(member.name).size(); ++i) {
-    writer.write(std::u16string_view(@(msg_prefix).@(member.name)[i].data(), @(msg_prefix).@(member.name)[i].size()));
+  for (size_t i = 0; i < @(msg_prefix).@(member.name)@('()' if is_region_view else '').size(); ++i) {
+    writer.write(std::u16string_view(@(msg_prefix).@(member.name)@('()' if is_region_view else '')[i].data(), @(msg_prefix).@(member.name)@('()' if is_region_view else '')[i].size()));
   }
 @[      else]@
-  for (const auto & elem : @(msg_prefix).@(member.name)) {
+  for (const auto & elem : @(msg_prefix).@(member.name)@('()' if is_region_view else '')) {
     writer.write(std::u16string_view(elem));
   }
 @[      end if]@
 @[    elif isinstance(member.type.value_type, AbstractString)]@
 @[      if is_experimental]@
-  for (size_t i = 0; i < @(msg_prefix).@(member.name).size(); ++i) {
-    writer.write(std::string_view(@(msg_prefix).@(member.name)[i].data(), @(msg_prefix).@(member.name)[i].size()));
+  for (size_t i = 0; i < @(msg_prefix).@(member.name)@('()' if is_region_view else '').size(); ++i) {
+    writer.write(std::string_view(@(msg_prefix).@(member.name)@('()' if is_region_view else '')[i].data(), @(msg_prefix).@(member.name)@('()' if is_region_view else '')[i].size()));
   }
 @[      else]@
-  for (const auto & elem : @(msg_prefix).@(member.name)) {
+  for (const auto & elem : @(msg_prefix).@(member.name)@('()' if is_region_view else '')) {
     writer.write(std::string_view(elem));
   }
 @[      end if]@
 @[    elif isinstance(member.type.value_type, NamespacedType)]@
   {
-    auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental))>();
+    auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental, region_context=is_region_view))>();
     auto nested_outer_@(member.name) =
       static_cast<const rosidl_message_xcdr_type_support_t *>(nested_ts_@(member.name)->data);
-      auto nested_inner_@(member.name) = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(nested_outer_@(member.name)->inner);
-    for (const auto & elem : @(msg_prefix).@(member.name)) {
-      nested_inner_@(member.name)->serialize_fields(&elem, writer);
+    auto nested_inner_@(member.name) = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(nested_outer_@(member.name)->inner);
+    for (const auto & elem : @(msg_prefix).@(member.name)@('()' if is_region_view else '')) {
+      auto ret = nested_inner_@(member.name)->serialize_fields(&elem, writer);
+      if (ret != RCUTILS_RET_OK) {return ret;}
     }
   }
 @[    end if]@
@@ -466,39 +589,40 @@ for member in message.structure.members:
 @[elif isinstance(member.type, NamespacedType)]@
   // Nested message: @(member.name)
   {
-    auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type, experimental_context=is_experimental))>();
+    auto nested_ts_@(member.name) = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type, experimental_context=is_experimental, region_context=is_region_view))>();
     auto nested_outer_@(member.name) =
       static_cast<const rosidl_message_xcdr_type_support_t *>(nested_ts_@(member.name)->data);
-      auto nested_inner_@(member.name) = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(nested_outer_@(member.name)->inner);
-    nested_inner_@(member.name)->serialize_fields(&@(msg_prefix).@(member.name), writer);
+    auto nested_inner_@(member.name) = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(nested_outer_@(member.name)->inner);
+    auto ret = nested_inner_@(member.name)->serialize_fields(&@(msg_prefix).@(member.name)@('()' if is_region_view else ''), writer);
+    if (ret != RCUTILS_RET_OK) {return ret;}
   }
 @[else]@
   // TODO: Write @(member.name)
 @[end if]@
 @[end def]@
-
-@[def generate_reader_field(member, is_experimental, msg_prefix='msg')]@
+@
+@[def generate_reader_field(member, is_experimental, msg_prefix='msg', is_region_view=is_region_view)]@
 @{ from rosidl_parser.definition import BasicType, AbstractString, AbstractWString, BoundedString, BoundedWString, Array, BoundedSequence, AbstractSequence, NamespacedType }@ @
 @{ from rosidl_typesupport_xcdr_cpp.template_helpers import get_xcdr_primitive_kind, get_cpp_type, get_message_type_name }@ @
 @[if isinstance(member.type, BasicType)]@
   {
     auto @(member.name)_result = reader.read<@(get_cpp_type(member.type))>();
-    if (!@(member.name)_result) { return RCUTILS_RET_ERROR; }
-    @(msg_prefix).@(member.name) = *@(member.name)_result;
+    if (!@(member.name)_result) {return RCUTILS_RET_ERROR;}
+    @(msg_prefix).@(member.name)@('()' if is_region_view else '') = *@(member.name)_result;
   }
 @[elif isinstance(member.type, AbstractWString)]@
   {
     auto @(member.name)_result = reader.read<std::u16string_view>();
-    if (!@(member.name)_result) { return RCUTILS_RET_ERROR; }
+    if (!@(member.name)_result) {return RCUTILS_RET_ERROR;}
     auto @(member.name)_view = *@(member.name)_result;
-    @(msg_prefix).@(member.name).assign(@(member.name)_view);
+    @(msg_prefix).@(member.name)@('()' if is_region_view else '').assign(@(member.name)_view);
   }
 @[elif isinstance(member.type, AbstractString)]@
   {
     auto @(member.name)_result = reader.read<std::string_view>();
-    if (!@(member.name)_result) { return RCUTILS_RET_ERROR; }
+    if (!@(member.name)_result) {return RCUTILS_RET_ERROR;}
     auto @(member.name)_view = *@(member.name)_result;
-    @(msg_prefix).@(member.name).assign(@(member.name)_view);
+    @(msg_prefix).@(member.name)@('()' if is_region_view else '').assign(@(member.name)_view);
   }
 @[elif isinstance(member.type, Array)]@
 @[  if isinstance(member.type.value_type, BasicType)]@
@@ -506,9 +630,9 @@ for member in message.structure.members:
     // Zero-copy fixed-extent span view + bulk copy: one memcpy into the
     // member (the std::array path materialized + copied the array).  The
     // span read is a non-owning view and rejects mismatched endianness.
-    auto @(member.name)_result = reader.read<tcb::span<const @(get_cpp_type(member.type.value_type)), @(member.type.size)> >();
-    if (!@(member.name)_result) { return RCUTILS_RET_ERROR; }
-    std::memcpy(@(msg_prefix).@(member.name).data(), @(member.name)_result->data(),
+    auto @(member.name)_result = reader.read<tcb::span<const @(get_cpp_type(member.type.value_type)), @(member.type.size)>>();
+    if (!@(member.name)_result) {return RCUTILS_RET_ERROR;}
+    std::memcpy(@(msg_prefix).@(member.name)@('()' if is_region_view else '').data(), @(member.name)_result->data(),
       @(member.type.size) * sizeof(@(get_cpp_type(member.type.value_type))));
   }
 @[  else]@
@@ -516,26 +640,32 @@ for member in message.structure.members:
 @[    if isinstance(member.type.value_type, AbstractWString)]@
   for (size_t i = 0; i < @(member.type.size); ++i) {
     auto @(member.name)_elem_result = reader.read<std::u16string_view>();
-    if (!@(member.name)_elem_result) { return RCUTILS_RET_ERROR; }
+    if (!@(member.name)_elem_result) {return RCUTILS_RET_ERROR;}
     auto elem_view = *@(member.name)_elem_result;
-    @(msg_prefix).@(member.name)[i].assign(elem_view);
+    @(msg_prefix).@(member.name)@('()' if is_region_view else '')[i].assign(elem_view);
   }
 @[    elif isinstance(member.type.value_type, AbstractString)]@
   for (size_t i = 0; i < @(member.type.size); ++i) {
     auto @(member.name)_elem_result = reader.read<std::string_view>();
-    if (!@(member.name)_elem_result) { return RCUTILS_RET_ERROR; }
+    if (!@(member.name)_elem_result) {return RCUTILS_RET_ERROR;}
     auto elem_view = *@(member.name)_elem_result;
-    @(msg_prefix).@(member.name)[i].assign(elem_view);
+    @(msg_prefix).@(member.name)@('()' if is_region_view else '')[i].assign(elem_view);
   }
 @[    elif isinstance(member.type.value_type, NamespacedType)]@
   {
     auto nested_ts_@(member.name) =
-      rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental))>();
+      rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental, region_context=is_region_view))>();
     auto nested_outer_@(member.name) =
       static_cast<const rosidl_message_xcdr_type_support_t *>(nested_ts_@(member.name)->data);
-      auto nested_inner_@(member.name) = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(nested_outer_@(member.name)->inner);
+    auto nested_inner_@(member.name) = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(nested_outer_@(member.name)->inner);
     for (size_t i = 0; i < @(member.type.size); ++i) {
-      nested_inner_@(member.name)->deserialize_fields(reader, &@(msg_prefix).@(member.name)[i]);
+      auto ret = nested_inner_@(member.name)->deserialize_fields(reader, &@(msg_prefix).@(member.name)@('()' if is_region_view else '')[i]);
+      if (ret != RCUTILS_RET_OK) {
+        if (!rcutils_error_is_set()) {
+          RCUTILS_SET_ERROR_MSG("Failed to deserialize nested field");
+        }
+        return ret;
+      }
     }
   }
 @[    end if]@
@@ -551,10 +681,10 @@ for member in message.structure.members:
     // the payload).  The span read is a non-owning view and rejects
     // mismatched endianness (the XCDR backend is little-endian only).
     auto @(member.name)_result = reader.read<tcb::span<const @(get_cpp_type(member.type.value_type))>>();
-    if (!@(member.name)_result) { return RCUTILS_RET_ERROR; }
+    if (!@(member.name)_result) {return RCUTILS_RET_ERROR;}
     auto @(member.name)_span = *@(member.name)_result;
-    @(msg_prefix).@(member.name).resize(@(member.name)_span.size());
-    std::memcpy(@(msg_prefix).@(member.name).data(), @(member.name)_span.data(),
+    @(msg_prefix).@(member.name)@('()' if is_region_view else '').resize(@(member.name)_span.size());
+    std::memcpy(@(msg_prefix).@(member.name)@('()' if is_region_view else '').data(), @(member.name)_span.data(),
       @(member.name)_span.size() * sizeof(@(get_cpp_type(member.type.value_type))));
   }
 @[    else]@
@@ -562,39 +692,46 @@ for member in message.structure.members:
     // bool sequences: the generated container has no data() (bit-packed
     // storage), so fall back to the element-wise vector read.
     auto @(member.name)_result = reader.read<std::vector<bool>>();
-    if (!@(member.name)_result) { return RCUTILS_RET_ERROR; }
-    @(msg_prefix).@(member.name) = std::move(*@(member.name)_result);
+    if (!@(member.name)_result) {return RCUTILS_RET_ERROR;}
+    @(msg_prefix).@(member.name)@('()' if is_region_view else '').assign(
+      @(member.name)_result->begin(), @(member.name)_result->end());
   }
 @[    end if]@
 @[  else]@
   {
     auto @(member.name)_size_result = reader.begin_read_sequence();
-    if (!@(member.name)_size_result) { return RCUTILS_RET_ERROR; }
+    if (!@(member.name)_size_result) {return RCUTILS_RET_ERROR;}
     auto @(member.name)_size = *@(member.name)_size_result;
-    @(msg_prefix).@(member.name).resize(@(member.name)_size);
+    @(msg_prefix).@(member.name)@('()' if is_region_view else '').resize(@(member.name)_size);
 @[    if isinstance(member.type.value_type, AbstractWString)]@
     for (size_t i = 0; i < @(member.name)_size; ++i) {
       auto @(member.name)_elem_result = reader.read<std::u16string_view>();
-      if (!@(member.name)_elem_result) { return RCUTILS_RET_ERROR; }
+      if (!@(member.name)_elem_result) {return RCUTILS_RET_ERROR;}
       auto elem_view = *@(member.name)_elem_result;
-      @(msg_prefix).@(member.name)[i].assign(elem_view);
+      @(msg_prefix).@(member.name)@('()' if is_region_view else '')[i].assign(elem_view);
     }
 @[    elif isinstance(member.type.value_type, AbstractString)]@
     for (size_t i = 0; i < @(member.name)_size; ++i) {
       auto @(member.name)_elem_result = reader.read<std::string_view>();
-      if (!@(member.name)_elem_result) { return RCUTILS_RET_ERROR; }
+      if (!@(member.name)_elem_result) {return RCUTILS_RET_ERROR;}
       auto elem_view = *@(member.name)_elem_result;
-      @(msg_prefix).@(member.name)[i].assign(elem_view);
+      @(msg_prefix).@(member.name)@('()' if is_region_view else '')[i].assign(elem_view);
     }
 @[    elif isinstance(member.type.value_type, NamespacedType)]@
     {
       auto nested_ts_@(member.name) =
-        rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental))>();
+        rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental, region_context=is_region_view))>();
       auto nested_outer_@(member.name) =
         static_cast<const rosidl_message_xcdr_type_support_t *>(nested_ts_@(member.name)->data);
       auto nested_inner_@(member.name) = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(nested_outer_@(member.name)->inner);
       for (size_t i = 0; i < @(member.name)_size; ++i) {
-        nested_inner_@(member.name)->deserialize_fields(reader, &@(msg_prefix).@(member.name)[i]);
+        auto ret = nested_inner_@(member.name)->deserialize_fields(reader, &@(msg_prefix).@(member.name)@('()' if is_region_view else '')[i]);
+        if (ret != RCUTILS_RET_OK) {
+          if (!rcutils_error_is_set()) {
+            RCUTILS_SET_ERROR_MSG("Failed to deserialize nested field");
+          }
+          return ret;
+        }
       }
     }
 @[    end if]@
@@ -605,49 +742,109 @@ for member in message.structure.members:
   // Nested message: @(member.name)
   {
     auto nested_ts_@(member.name) =
-      rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type, experimental_context=is_experimental))>();
+      rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type, experimental_context=is_experimental, region_context=is_region_view))>();
     auto nested_outer_@(member.name) =
       static_cast<const rosidl_message_xcdr_type_support_t *>(nested_ts_@(member.name)->data);
-      auto nested_inner_@(member.name) = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(nested_outer_@(member.name)->inner);
-    nested_inner_@(member.name)->deserialize_fields(reader, &@(msg_prefix).@(member.name));
+    auto nested_inner_@(member.name) = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(nested_outer_@(member.name)->inner);
+    auto ret = nested_inner_@(member.name)->deserialize_fields(reader, &@(msg_prefix).@(member.name)@('()' if is_region_view else ''));
+    if (ret != RCUTILS_RET_OK) {
+      if (!rcutils_error_is_set()) {
+        RCUTILS_SET_ERROR_MSG("Failed to deserialize nested field");
+      }
+      return ret;
+    }
   }
 @[else]@
   // TODO: Read @(member.name)
 @[end if]@
 @[end def]@
-
-@[def generate_external_storage_field(member, index, _is_experimental=is_experimental)]@
+@
+@[def validate_region_string(data, width, nested=False, is_region_view=is_region_view)]@
+@[if is_region_view]@
+@('  ' if nested else '')    if (ext_storage.prepopulated) {
+@('  ' if nested else '')      if (@(data).size() < @(width) || @(data).size() % @(width) != 0) {
+@('  ' if nested else '')        RCUTILS_SET_ERROR_MSG("Malformed XCDR string storage");
+@('  ' if nested else '')        return RCUTILS_RET_ERROR;
+@('  ' if nested else '')      }
+@('  ' if nested else '')      for (size_t _j = 0; _j < @(width); ++_j) {
+@('  ' if nested else '')        if (@(data)[@(data).size() - @(width) + _j] != 0) {
+@('  ' if nested else '')          RCUTILS_SET_ERROR_MSG("XCDR string has a missing null terminator");
+@('  ' if nested else '')          return RCUTILS_RET_ERROR;
+@('  ' if nested else '')        }
+@('  ' if nested else '')      }
+@('  ' if nested else '')    }
+@[end if]@
+@[end def]@
+@
+@[def generate_external_storage_field(member, index, _is_experimental=is_experimental, is_region_view=is_region_view, validate_region_string=validate_region_string)]@
 @{ from rosidl_parser.definition import BasicType, AbstractString, AbstractWString, BoundedString, BoundedWString, Array, BoundedSequence, AbstractSequence, NamespacedType }@ @
 @{ from rosidl_typesupport_xcdr_cpp.template_helpers import get_xcdr_primitive_kind, get_cpp_type, get_message_type_name }@ @
 @[if isinstance(member.type, BasicType)]@
   {
     auto _@(member.name)_slice = accessor[@(index)].slice();
+@[if is_region_view]@
+    if (_@(member.name)_slice.size() < sizeof(@(get_cpp_type(member.type))) ||
+      reinterpret_cast<std::uintptr_t>(_@(member.name)_slice.data()) %
+      alignof(@(get_cpp_type(member.type))) != 0)
+    {
+      RCUTILS_SET_ERROR_MSG("Scalar storage is undersized or misaligned");
+      return RCUTILS_RET_ERROR;
+    }
+@[end if]@
     ext_storage.members.@(member.name) = rosidl_runtime_cpp::Memory<@(get_cpp_type(member.type))>(
-      static_cast<@(get_cpp_type(member.type))*>(const_cast<void*>(static_cast<const void*>(_@(member.name)_slice.data()))), 0);
+      static_cast<@(get_cpp_type(member.type)) *>(const_cast<void *>(static_cast<const void *>(_@(member.name)_slice.data()))), 0);
   }
 @[elif isinstance(member.type, AbstractWString)]@
   {
     auto _@(member.name)_slice = accessor[@(index)].slice();
     auto _@(member.name)_data = _@(member.name)_slice.subspan(xcdr_buffers::kStringLengthPrefixSize);
+@[if is_region_view]@
+    if (reinterpret_cast<std::uintptr_t>(_@(member.name)_data.data()) % alignof(char16_t) != 0) {
+      RCUTILS_SET_ERROR_MSG("Wide string storage is misaligned");
+      return RCUTILS_RET_ERROR;
+    }
+@[end if]@
+@(validate_region_string('_' + member.name + '_data', 2))
     ext_storage.members.@(member.name) = rosidl_runtime_cpp::MemoryRegion<char16_t>(
-      static_cast<char16_t*>(const_cast<void*>(static_cast<const void*>(_@(member.name)_data.data()))),
+      static_cast<char16_t *>(const_cast<void *>(static_cast<const void *>(_@(member.name)_data.data()))),
       _@(member.name)_data.size());
+@[if is_region_view]@
+    if (ext_storage.prepopulated) {
+      ext_storage.members.@(member.name).size = _@(member.name)_data.size() / sizeof(char16_t) - 1;
+    }
+@[end if]@
   }
 @[elif isinstance(member.type, AbstractString)]@
   {
     auto _@(member.name)_slice = accessor[@(index)].slice();
     auto _@(member.name)_data = _@(member.name)_slice.subspan(xcdr_buffers::kStringLengthPrefixSize);
+@(validate_region_string('_' + member.name + '_data', 1))
     ext_storage.members.@(member.name) = rosidl_runtime_cpp::MemoryRegion<char>(
-      static_cast<char*>(const_cast<void*>(static_cast<const void*>(_@(member.name)_data.data()))),
+      static_cast<char *>(const_cast<void *>(static_cast<const void *>(_@(member.name)_data.data()))),
       _@(member.name)_data.size());
+@[if is_region_view]@
+    if (ext_storage.prepopulated) {
+      ext_storage.members.@(member.name).size = _@(member.name)_data.size() - 1;
+    }
+@[end if]@
   }
 @[elif isinstance(member.type, Array)]@
 @[  if isinstance(member.type.value_type, BasicType)]@
   {
     auto _@(member.name)_slice = accessor[@(index)].slice();
+@[if is_region_view]@
+    if (_@(member.name)_slice.size() <
+      @(member.type.size) * sizeof(@(get_cpp_type(member.type.value_type))) ||
+      reinterpret_cast<std::uintptr_t>(_@(member.name)_slice.data()) %
+      alignof(@(get_cpp_type(member.type.value_type))) != 0)
+    {
+      RCUTILS_SET_ERROR_MSG("Array storage is undersized or misaligned");
+      return RCUTILS_RET_ERROR;
+    }
+@[end if]@
     ext_storage.members.@(member.name) = rosidl_runtime_cpp::MemoryRegion<@(get_cpp_type(member.type.value_type))>(
-      static_cast<@(get_cpp_type(member.type.value_type))*>(const_cast<void*>(static_cast<const void*>(_@(member.name)_slice.data()))),
-      @(member.type.size));
+      static_cast<@(get_cpp_type(member.type.value_type)) *>(const_cast<void *>(static_cast<const void *>(_@(member.name)_slice.data()))),
+      @(member.type.size) * sizeof(@(get_cpp_type(member.type.value_type))));
   }
 @[  elif isinstance(member.type.value_type, AbstractString)]@
   {
@@ -655,9 +852,15 @@ for member in message.structure.members:
     for (size_t _@(member.name)_j = 0; _@(member.name)_j < @(member.type.size); ++_@(member.name)_j) {
       auto _@(member.name)_elem_slice = _@(member.name)_arr[_@(member.name)_j].slice();
       auto _@(member.name)_elem_data = _@(member.name)_elem_slice.subspan(xcdr_buffers::kStringLengthPrefixSize);
+@(validate_region_string('_' + member.name + '_elem_data', 1, True))
       ext_storage.members.@(member.name)[_@(member.name)_j] = rosidl_runtime_cpp::MemoryRegion<char>(
-        static_cast<char*>(const_cast<void*>(static_cast<const void*>(_@(member.name)_elem_data.data()))),
+        static_cast<char *>(const_cast<void *>(static_cast<const void *>(_@(member.name)_elem_data.data()))),
         _@(member.name)_elem_data.size());
+@[if is_region_view]@
+      if (ext_storage.prepopulated) {
+        ext_storage.members.@(member.name)[_@(member.name)_j].size = _@(member.name)_elem_data.size() - 1;
+      }
+@[end if]@
     }
   }
 @[  elif isinstance(member.type.value_type, AbstractWString)]@
@@ -666,15 +869,30 @@ for member in message.structure.members:
     for (size_t _@(member.name)_j = 0; _@(member.name)_j < @(member.type.size); ++_@(member.name)_j) {
       auto _@(member.name)_elem_slice = _@(member.name)_arr[_@(member.name)_j].slice();
       auto _@(member.name)_elem_data = _@(member.name)_elem_slice.subspan(xcdr_buffers::kStringLengthPrefixSize);
+@[if is_region_view]@
+      if (reinterpret_cast<std::uintptr_t>(_@(member.name)_elem_data.data()) % alignof(char16_t) != 0) {
+        RCUTILS_SET_ERROR_MSG("Wide string array storage is misaligned");
+        return RCUTILS_RET_ERROR;
+      }
+@[end if]@
+@(validate_region_string('_' + member.name + '_elem_data', 2, True))
       ext_storage.members.@(member.name)[_@(member.name)_j] = rosidl_runtime_cpp::MemoryRegion<char16_t>(
-        static_cast<char16_t*>(const_cast<void*>(static_cast<const void*>(_@(member.name)_elem_data.data()))),
+        static_cast<char16_t *>(const_cast<void *>(static_cast<const void *>(_@(member.name)_elem_data.data()))),
         _@(member.name)_elem_data.size());
+@[if is_region_view]@
+      if (ext_storage.prepopulated) {
+        ext_storage.members.@(member.name)[_@(member.name)_j].size =
+          _@(member.name)_elem_data.size() / sizeof(char16_t) - 1;
+      }
+@[end if]@
     }
   }
 @[  elif isinstance(member.type.value_type, NamespacedType)]@
 @{
-_ns_arr_fn_full = get_message_type_name(member.type.value_type, experimental_context=_is_experimental)
-_ns_arr_fn_parts = _ns_arr_fn_full.split('::')
+_ns_arr_fn_full = get_message_type_name(member.type.value_type, experimental_context=_is_experimental, region_context=is_region_view)
+_ns_arr_fn_parts = (
+    list(member.type.value_type.namespaces) + ['views', member.type.value_type.name]
+    if is_region_view else _ns_arr_fn_full.split('::'))
 _ns_arr_fn_ns = '::'.join(_ns_arr_fn_parts[:-1])
 _ns_arr_fn_name = _ns_arr_fn_parts[-1]
 }@
@@ -682,8 +900,11 @@ _ns_arr_fn_name = _ns_arr_fn_parts[-1]
     auto _@(member.name)_arr = accessor[@(index)];
     for (size_t _@(member.name)_j = 0; _@(member.name)_j < @(member.type.size); ++_@(member.name)_j) {
       auto _@(member.name)_elem = _@(member.name)_arr[_@(member.name)_j];
+@[if is_region_view]@
+      ext_storage.members.@(member.name)[_@(member.name)_j].prepopulated = ext_storage.prepopulated;
+@[end if]@
       auto _ret = @(_ns_arr_fn_ns)::populate_external_storage_@(_ns_arr_fn_name)(_@(member.name)_elem, &ext_storage.members.@(member.name)[_@(member.name)_j]);
-      if (_ret != RCUTILS_RET_OK) { return _ret; }
+      if (_ret != RCUTILS_RET_OK) {return _ret;}
     }
   }
 @[  end if]@
@@ -691,148 +912,146 @@ _ns_arr_fn_name = _ns_arr_fn_parts[-1]
 @[  if isinstance(member.type.value_type, BasicType)]@
   {
     auto _@(member.name)_slice = accessor[@(index)].slice();
-    auto _@(member.name)_data = _@(member.name)_slice.subspan(xcdr_buffers::kSequenceLengthPrefixSize);
-    ext_storage.members.@(member.name) = rosidl_runtime_cpp::MemoryRegion<@(get_cpp_type(member.type.value_type))>(
-      static_cast<@(get_cpp_type(member.type.value_type))*>(const_cast<void*>(static_cast<const void*>(_@(member.name)_data.data()))),
-      *accessor[@(index)].size() * sizeof(@(get_cpp_type(member.type.value_type))));
+    auto _@(member.name)_size = accessor[@(index)].size();
+    if (!_@(member.name)_size) {
+      RCUTILS_SET_ERROR_MSG("Unable to read sequence size");
+      return RCUTILS_RET_ERROR;
+    }
+    auto _@(member.name)_offset = *_@(member.name)_size == 0 ?
+      xcdr_buffers::kSequenceLengthPrefixSize :
+      std::get<xcdr_buffers::XCdrPrimitiveSequenceLayout>(
+      accessor[@(index)].layout()).data_offset();
+    if (_@(member.name)_offset > _@(member.name)_slice.size()) {
+      RCUTILS_SET_ERROR_MSG("Sequence storage is undersized");
+      return RCUTILS_RET_ERROR;
+    }
+    auto _@(member.name)_data = _@(member.name)_slice.subspan(_@(member.name)_offset);
+@[if is_region_view]@
+    if (
+      *_@(member.name)_size > _@(member.name)_data.size() / sizeof(@(get_cpp_type(member.type.value_type))) ||
+      (*_@(member.name)_size != 0 &&
+      reinterpret_cast<std::uintptr_t>(_@(member.name)_data.data()) %
+      alignof(@(get_cpp_type(member.type.value_type))) != 0))
+@[else]@
+    if (
+      *_@(member.name)_size > _@(member.name)_data.size() / sizeof(@(get_cpp_type(member.type.value_type))))
+@[end if]@
+    {
+      RCUTILS_SET_ERROR_MSG("Sequence storage is undersized or misaligned");
+      return RCUTILS_RET_ERROR;
+    }
+    ext_storage.members.@(member.name)@('.region' if is_region_view else '') = rosidl_runtime_cpp::MemoryRegion<@(get_cpp_type(member.type.value_type))>(
+      static_cast<@(get_cpp_type(member.type.value_type)) *>(const_cast<void *>(static_cast<const void *>(_@(member.name)_data.data()))),
+      *_@(member.name)_size * sizeof(@(get_cpp_type(member.type.value_type))));
+@[if is_region_view]@
+    ext_storage.members.@(member.name).size =
+      ext_storage.prepopulated ? *_@(member.name)_size : 0;
+@[end if]@
   }
 @[  elif isinstance(member.type.value_type, AbstractString)]@
   {
     auto _@(member.name)_seq = accessor[@(index)];
     auto _@(member.name)_size_result = _@(member.name)_seq.size();
-    if (!_@(member.name)_size_result) { return RCUTILS_RET_ERROR; }
+    if (!_@(member.name)_size_result) {return RCUTILS_RET_ERROR;}
     size_t _@(member.name)_size = *_@(member.name)_size_result;
-    ext_storage.members.@(member.name).resize(_@(member.name)_size);
+    ext_storage.members.@(member.name)@('.elements' if is_region_view else '').resize(_@(member.name)_size);
+@[if is_region_view]@
+    ext_storage.members.@(member.name).size = ext_storage.prepopulated ? _@(member.name)_size : 0;
+@[end if]@
     for (size_t _@(member.name)_j = 0; _@(member.name)_j < _@(member.name)_size; ++_@(member.name)_j) {
       auto _@(member.name)_elem_slice = _@(member.name)_seq[_@(member.name)_j].slice();
       auto _@(member.name)_elem_data = _@(member.name)_elem_slice.subspan(xcdr_buffers::kStringLengthPrefixSize);
-      ext_storage.members.@(member.name)[_@(member.name)_j] = rosidl_runtime_cpp::MemoryRegion<char>(
-        static_cast<char*>(const_cast<void*>(static_cast<const void*>(_@(member.name)_elem_data.data()))),
+@(validate_region_string('_' + member.name + '_elem_data', 1, True))
+      ext_storage.members.@(member.name)@('.elements' if is_region_view else '')[_@(member.name)_j] = rosidl_runtime_cpp::MemoryRegion<char>(
+        static_cast<char *>(const_cast<void *>(static_cast<const void *>(_@(member.name)_elem_data.data()))),
         _@(member.name)_elem_data.size());
+@[if is_region_view]@
+      if (ext_storage.prepopulated) {
+        ext_storage.members.@(member.name).elements[_@(member.name)_j].size = _@(member.name)_elem_data.size() - 1;
+      }
+@[end if]@
     }
   }
 @[  elif isinstance(member.type.value_type, AbstractWString)]@
   {
     auto _@(member.name)_seq = accessor[@(index)];
     auto _@(member.name)_size_result = _@(member.name)_seq.size();
-    if (!_@(member.name)_size_result) { return RCUTILS_RET_ERROR; }
+    if (!_@(member.name)_size_result) {return RCUTILS_RET_ERROR;}
     size_t _@(member.name)_size = *_@(member.name)_size_result;
-    ext_storage.members.@(member.name).resize(_@(member.name)_size);
+    ext_storage.members.@(member.name)@('.elements' if is_region_view else '').resize(_@(member.name)_size);
+@[if is_region_view]@
+    ext_storage.members.@(member.name).size = ext_storage.prepopulated ? _@(member.name)_size : 0;
+@[end if]@
     for (size_t _@(member.name)_j = 0; _@(member.name)_j < _@(member.name)_size; ++_@(member.name)_j) {
       auto _@(member.name)_elem_slice = _@(member.name)_seq[_@(member.name)_j].slice();
       auto _@(member.name)_elem_data = _@(member.name)_elem_slice.subspan(xcdr_buffers::kStringLengthPrefixSize);
-      ext_storage.members.@(member.name)[_@(member.name)_j] = rosidl_runtime_cpp::MemoryRegion<char16_t>(
-        static_cast<char16_t*>(const_cast<void*>(static_cast<const void*>(_@(member.name)_elem_data.data()))),
+@[if is_region_view]@
+      if (reinterpret_cast<std::uintptr_t>(_@(member.name)_elem_data.data()) % alignof(char16_t) != 0) {
+        RCUTILS_SET_ERROR_MSG("Wide string sequence storage is misaligned");
+        return RCUTILS_RET_ERROR;
+      }
+@[end if]@
+@(validate_region_string('_' + member.name + '_elem_data', 2, True))
+      ext_storage.members.@(member.name)@('.elements' if is_region_view else '')[_@(member.name)_j] = rosidl_runtime_cpp::MemoryRegion<char16_t>(
+        static_cast<char16_t *>(const_cast<void *>(static_cast<const void *>(_@(member.name)_elem_data.data()))),
         _@(member.name)_elem_data.size());
+@[if is_region_view]@
+      if (ext_storage.prepopulated) {
+        ext_storage.members.@(member.name).elements[_@(member.name)_j].size =
+          _@(member.name)_elem_data.size() / sizeof(char16_t) - 1;
+      }
+@[end if]@
     }
   }
 @[  elif isinstance(member.type.value_type, NamespacedType)]@
 @{
-_ns_seq_fn_full = get_message_type_name(member.type.value_type, experimental_context=_is_experimental)
-_ns_seq_fn_parts = _ns_seq_fn_full.split('::')
+_ns_seq_fn_full = get_message_type_name(member.type.value_type, experimental_context=_is_experimental, region_context=is_region_view)
+_ns_seq_fn_parts = (
+    list(member.type.value_type.namespaces) + ['views', member.type.value_type.name]
+    if is_region_view else _ns_seq_fn_full.split('::'))
 _ns_seq_fn_ns = '::'.join(_ns_seq_fn_parts[:-1])
 _ns_seq_fn_name = _ns_seq_fn_parts[-1]
 }@
   {
     auto _@(member.name)_seq = accessor[@(index)];
     auto _@(member.name)_size_result = _@(member.name)_seq.size();
-    if (!_@(member.name)_size_result) { return RCUTILS_RET_ERROR; }
+    if (!_@(member.name)_size_result) {return RCUTILS_RET_ERROR;}
     size_t _@(member.name)_size = *_@(member.name)_size_result;
-    ext_storage.members.@(member.name).resize(_@(member.name)_size);
+    ext_storage.members.@(member.name)@('.elements' if is_region_view else '').resize(_@(member.name)_size);
+@[if is_region_view]@
+    ext_storage.members.@(member.name).size = ext_storage.prepopulated ? _@(member.name)_size : 0;
+@[end if]@
     for (size_t _@(member.name)_j = 0; _@(member.name)_j < _@(member.name)_size; ++_@(member.name)_j) {
       auto _@(member.name)_elem = _@(member.name)_seq[_@(member.name)_j];
-      auto _ret = @(_ns_seq_fn_ns)::populate_external_storage_@(_ns_seq_fn_name)(_@(member.name)_elem, &ext_storage.members.@(member.name)[_@(member.name)_j]);
-      if (_ret != RCUTILS_RET_OK) { return _ret; }
+@[if is_region_view]@
+      ext_storage.members.@(member.name).elements[_@(member.name)_j].prepopulated =
+        ext_storage.prepopulated;
+@[end if]@
+      auto _ret = @(_ns_seq_fn_ns)::populate_external_storage_@(_ns_seq_fn_name)(_@(member.name)_elem, &ext_storage.members.@(member.name)@('.elements' if is_region_view else '')[_@(member.name)_j]);
+      if (_ret != RCUTILS_RET_OK) {return _ret;}
     }
   }
 @[  end if]@
 @[elif isinstance(member.type, NamespacedType)]@
 @{
-_ns_fn_full = get_message_type_name(member.type, experimental_context=_is_experimental)
-_ns_fn_parts = _ns_fn_full.split('::')
+_ns_fn_full = get_message_type_name(member.type, experimental_context=_is_experimental, region_context=is_region_view)
+_ns_fn_parts = (
+    list(member.type.namespaces) + ['views', member.type.name]
+    if is_region_view else _ns_fn_full.split('::'))
 _ns_fn_ns = '::'.join(_ns_fn_parts[:-1])
 _ns_fn_name = _ns_fn_parts[-1]
 }@
   {
     auto _@(member.name)_nested_acc = accessor[@(index)];
+@[if is_region_view]@
+    ext_storage.members.@(member.name).prepopulated = ext_storage.prepopulated;
+@[end if]@
     auto _ret = @(_ns_fn_ns)::populate_external_storage_@(_ns_fn_name)(_@(member.name)_nested_acc, &ext_storage.members.@(member.name));
-    if (_ret != RCUTILS_RET_OK) { return _ret; }
+    if (_ret != RCUTILS_RET_OK) {return _ret;}
   }
 @[end if]@
 @[end def]@
-
-@[def generate_size_calculation(member, is_experimental=False, msg_prefix='msg')]@
-@{ from rosidl_parser.definition import BasicType, AbstractString, AbstractWString, BoundedString, BoundedWString, Array, BoundedSequence, AbstractSequence, NamespacedType }@ @
-@{ from rosidl_typesupport_xcdr_cpp.template_helpers import get_xcdr_primitive_kind, get_cpp_type, get_message_type_name }@ @
-@[if isinstance(member.type, BasicType)]@
-  data_offset = xcdr_buffers::align_to(data_offset, sizeof(@(get_cpp_type(member.type))));
-  data_offset += sizeof(@(get_cpp_type(member.type)));
-@[elif isinstance(member.type, (AbstractString, AbstractWString))]@
-  data_offset = xcdr_buffers::align_to(data_offset, xcdr_buffers::kStringLengthPrefixSize);
-  data_offset += xcdr_buffers::kStringLengthPrefixSize;  // length prefix
-  data_offset += @(msg_prefix).@(member.name).size();
-  data_offset += xcdr_buffers::kStringNullTerminatorSize;  // null terminator
-@[elif isinstance(member.type, Array)]@
-@[  if isinstance(member.type.value_type, BasicType)]@
-  data_offset = xcdr_buffers::align_to(data_offset, sizeof(@(get_cpp_type(member.type.value_type))));
-  data_offset += sizeof(@(get_cpp_type(member.type.value_type))) * @(member.type.size);
-@[  elif isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
-  for (size_t i = 0; i < @(member.type.size); ++i) {
-    data_offset = xcdr_buffers::align_to(data_offset, xcdr_buffers::kStringLengthPrefixSize);
-    data_offset += xcdr_buffers::kStringLengthPrefixSize;  // length prefix
-    data_offset += @(msg_prefix).@(member.name)[i].size();
-    data_offset += xcdr_buffers::kStringNullTerminatorSize;  // null terminator
-  }
-@[  elif isinstance(member.type.value_type, NamespacedType)]@
-  {
-    auto nested_ts = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental))>();
-    for (size_t i = 0; i < @(member.type.size); ++i) {
-      size_t nested_size = 0;
-      rosidl_typesupport_xcdr_cpp::get_message_size(nested_ts, &@(msg_prefix).@(member.name)[i], &nested_size);
-      data_offset += nested_size - xcdr_buffers::kXCdrHeaderSize;  // Inline without XCDR header
-    }
-  }
-@[  end if]@
-@[elif isinstance(member.type, AbstractSequence)]@
-@[  if isinstance(member.type.value_type, BasicType)]@
-  data_offset = xcdr_buffers::align_to(data_offset, xcdr_buffers::kSequenceLengthPrefixSize);
-  data_offset += xcdr_buffers::kSequenceLengthPrefixSize;  // sequence length prefix
-  data_offset = xcdr_buffers::align_to(data_offset, sizeof(@(get_cpp_type(member.type.value_type))));
-  data_offset += sizeof(@(get_cpp_type(member.type.value_type))) * @(msg_prefix).@(member.name).size();
-@[  elif isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
-  data_offset = xcdr_buffers::align_to(data_offset, xcdr_buffers::kSequenceLengthPrefixSize);
-  data_offset += xcdr_buffers::kSequenceLengthPrefixSize;  // sequence length prefix
-  for (const auto & elem : @(msg_prefix).@(member.name)) {
-    data_offset = xcdr_buffers::align_to(data_offset, xcdr_buffers::kStringLengthPrefixSize);
-    data_offset += xcdr_buffers::kStringLengthPrefixSize;  // length prefix
-    data_offset += elem.size();
-    data_offset += xcdr_buffers::kStringNullTerminatorSize;
-  }
-@[  elif isinstance(member.type.value_type, NamespacedType)]@
-  data_offset = xcdr_buffers::align_to(data_offset, xcdr_buffers::kSequenceLengthPrefixSize);
-  data_offset += xcdr_buffers::kSequenceLengthPrefixSize;  // sequence length prefix
-  {
-    auto nested_ts = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental))>();
-    for (const auto & elem : @(msg_prefix).@(member.name)) {
-      size_t nested_size = 0;
-      rosidl_typesupport_xcdr_cpp::get_message_size(nested_ts, &elem, &nested_size);
-      data_offset += nested_size - xcdr_buffers::kXCdrHeaderSize;  // Inline without XCDR header
-    }
-  }
-@[  end if]@
-@[elif isinstance(member.type, NamespacedType)]@
-  {
-    auto nested_ts = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type, experimental_context=is_experimental))>();
-    size_t nested_size = 0;
-    rosidl_typesupport_xcdr_cpp::get_message_size(nested_ts, &@(msg_prefix).@(member.name), &nested_size);
-    data_offset += nested_size - xcdr_buffers::kXCdrHeaderSize;  // Inline without XCDR header
-  }
-@[else]@
-  // TODO: Size calculation for @(member.name)
-@[end if]@
-@[end def]@
-
-
+@
 @[if is_experimental and nested_decls]@
 @# Forward-declare nested populate_external_storage functions
 @[for ns, name in nested_decls]@
@@ -859,6 +1078,12 @@ build_layout_@(msg_typename)(const void * constraints_ptr)
 
   auto & constraints = *static_cast<const @(full_msg_typename)::Constraints *>(constraints_ptr);
 
+@[    if is_region_view]@
+  if (!constraints.CheckCompatible(@(full_msg_typename)::Constraints{})) {
+    return nullptr;
+  }
+
+@[    end if]@
   xcdr_buffers::XCdrLayoutBuilder builder;
   rcutils_ret_t ret = RCUTILS_RET_OK;
 @[    for member in message.structure.members]@
@@ -889,18 +1114,22 @@ build_layout_fields_@(msg_typename)(
   return ret;
 }
 @[  else]@
+xcdr_buffers::XCdrStructLayout
+make_layout_@(msg_typename)()
+{
+  xcdr_buffers::XCdrLayoutBuilder builder;
+@[    for member in message.structure.members]@
+@(generate_layout_field(member, 'constraints'))
+@[    end for]@
+  return builder.finalize();
+}
+
 // Get singleton layout (for fully bounded messages)
 std::shared_ptr<xcdr_buffers::XCdrStructLayout>
 get_layout_@(msg_typename)()
 {
-  static auto layout = std::make_shared<xcdr_buffers::XCdrStructLayout>([]() {
-    xcdr_buffers::XCdrLayoutBuilder builder;
-@[    for member in message.structure.members]@
-@(generate_layout_field(member, 'constraints'))
-@[    end for]@
-
-    return builder.finalize();
-  }());
+  static auto layout = std::make_shared<xcdr_buffers::XCdrStructLayout>(
+    make_layout_@(msg_typename)());
   return layout;
 }
 
@@ -927,6 +1156,7 @@ serialize_fields_into_writer_@(msg_typename)(
 extern "C" rosidl_memory_region_t
 release_message_@(msg_typename)(void * message_ptr);
 
+@[if not has_variable_fields]@
 // ============================================================================
 // compact_fields — internal recursive workhorse (fully bounded, no constraints)
 // All fields are fixed-size, so emit never flips — all fields are skipped or
@@ -948,7 +1178,7 @@ compact_fields_@(msg_typename)(
 @[  for member in message.structure.members]@
 @[    if isinstance(member.type, BasicType)]@
   if (emit) {
-    writer.write<@(get_cpp_type(member.type))>(msg.@(member.name));
+    writer.write<@(get_cpp_type(member.type))>(msg.@(member.name)@('()' if is_region_view else ''));
   } else {
     writer.skip<@(get_cpp_type(member.type))>();
   }
@@ -956,14 +1186,14 @@ compact_fields_@(msg_typename)(
 @[    elif isinstance(member.type, Array)]@
 @[      if isinstance(member.type.value_type, BasicType)]@
   if (emit) {
-    writer.write_array(tcb::span<const @(get_cpp_type(member.type.value_type))>(msg.@(member.name).data(), @(member.type.size)));
+    writer.write_array(tcb::span<const @(get_cpp_type(member.type.value_type))>(msg.@(member.name)@('()' if is_region_view else '').data(), @(member.type.size)));
   } else {
     writer.skip_array<@(get_cpp_type(member.type.value_type))>(@(member.type.size));
   }
 
 @[      elif isinstance(member.type.value_type, NamespacedType)]@
 @{
-nested_fn_arr = get_message_type_name(member.type.value_type, experimental_context=is_experimental)
+nested_fn_arr = get_message_type_name(member.type.value_type, experimental_context=is_experimental, region_context=is_region_view)
 }@
   {
     auto _nested_ts = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(nested_fn_arr)>();
@@ -975,7 +1205,7 @@ nested_fn_arr = get_message_type_name(member.type.value_type, experimental_conte
       const auto & _elem_layout = std::get<xcdr_buffers::XCdrStructLayout>(
         _arr_layout.element_layout(_j)->get());
       _nested_inner->compact_fields_recursive(
-        &msg.@(member.name)[_j], _elem_layout, writer, emit);
+        &msg.@(member.name)@('()' if is_region_view else '')[_j], _elem_layout, writer, emit);
     }
   }
 
@@ -983,7 +1213,7 @@ nested_fn_arr = get_message_type_name(member.type.value_type, experimental_conte
 
 @[    elif isinstance(member.type, NamespacedType)]@
 @{
-nested_fn = get_message_type_name(member.type, experimental_context=is_experimental)
+nested_fn = get_message_type_name(member.type, experimental_context=is_experimental, region_context=is_region_view)
 }@
   {
     auto _nested_ts = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(nested_fn)>();
@@ -992,10 +1222,10 @@ nested_fn = get_message_type_name(member.type, experimental_context=is_experimen
     const auto & _nested_layout = std::get<xcdr_buffers::XCdrStructLayout>(
       layout.get_member(@(i))->get().layout());
     if (emit) {
-      _nested_inner->serialize_fields(&msg.@(member.name), writer);
+      _nested_inner->serialize_fields(&msg.@(member.name)@('()' if is_region_view else ''), writer);
     } else {
       _nested_inner->compact_fields_recursive(
-        &msg.@(member.name), _nested_layout, writer, emit);
+        &msg.@(member.name)@('()' if is_region_view else ''), _nested_layout, writer, emit);
     }
   }
 
@@ -1017,12 +1247,17 @@ compact_message_@(msg_typename)(
     return null_region;
   }
   auto & msg = *static_cast<@(full_msg_typename) *>(message_ptr);
+@[if is_region_view]@
+  if (!msg.backing_storage().data()) {
+@[else]@
   if (!msg._external_storage.has_value()) {
+@[end if]@
     RCUTILS_SET_ERROR_MSG("no external storage to release");
     return null_region;
   }
   return release_message_@(msg_typename)(message_ptr);
 }
+@[end if]@
 @[  end if]@
 
 // Forward declaration for populate_external_storage (defined below in shared section).
@@ -1067,22 +1302,30 @@ construct_message_at_@(msg_typename)(
   void ** message_ptr)
 {
   if (!impl || !impl->cached_layout) {
-    // Error:("Layout not available (message needs constraints)");
+    RCUTILS_SET_ERROR_MSG("Layout not available (message needs constraints)");
+    return RCUTILS_RET_ERROR;
+  }
+  if (!message_ptr || !storage.data() || storage.size() < impl->cached_layout->total_size()) {
+    RCUTILS_SET_ERROR_MSG("Message output or storage is null, or storage is too small");
     return RCUTILS_RET_ERROR;
   }
 
   // 1. Initialize buffer with XCDR layout
   auto buffer_span = tcb::span<uint8_t>(
-    static_cast<uint8_t*>(storage.data()),
+    static_cast<uint8_t *>(storage.data()),
     impl->cached_layout->total_size());
-  impl->cached_layout->apply(buffer_span);
+  auto apply_result = impl->cached_layout->apply(buffer_span);
+  if (!apply_result) {
+    RCUTILS_SET_ERROR_MSG(std::string(apply_result.error().message()).c_str());
+    return RCUTILS_RET_ERROR;
+  }
 
   // 2. Create const accessor for populating external storage
   auto const_accessor_result = xcdr_buffers::XCdrConstAccessor::wrap(
     tcb::span<const uint8_t>(buffer_span.data(), buffer_span.size()),
     *impl->cached_layout);
   if (!const_accessor_result) {
-    // Error:("Failed to create const accessor");
+    RCUTILS_SET_ERROR_MSG(std::string(const_accessor_result.error().message()).c_str());
     return RCUTILS_RET_ERROR;
   }
   auto accessor = *const_accessor_result;
@@ -1091,20 +1334,40 @@ construct_message_at_@(msg_typename)(
   @(full_msg_typename)::ExternalStorage ext_storage;
   ext_storage.block = rosidl_runtime_cpp::MemoryRegion<void>(
     storage.data(),
-    impl->cached_layout->total_size());
+    impl->cached_layout->total_size(),
+    storage.attributes());
 
   // Populate external storage from accessor
   {
     auto _populate_ret = populate_external_storage_@(msg_typename)(accessor, &ext_storage);
-    if (_populate_ret != RCUTILS_RET_OK) { return _populate_ret; }
+    if (_populate_ret != RCUTILS_RET_OK) {return _populate_ret;}
   }
 
   // 4. Construct message from external storage (prepopulated=false by default)
-  *message_ptr = new @(full_msg_typename)(ext_storage, rosidl_runtime_cpp::MessageInitialization::SKIP);
+  try {
+    *message_ptr = new @(full_msg_typename)(ext_storage@('' if is_region_view else ', rosidl_runtime_cpp::MessageInitialization::SKIP'));
+  } catch (const std::logic_error & error) {
+    RCUTILS_SET_ERROR_MSG(error.what());
+    return RCUTILS_RET_ERROR;
+  } catch (const std::bad_alloc & error) {
+    RCUTILS_SET_ERROR_MSG(error.what());
+    return RCUTILS_RET_ERROR;
+  }
 
   return RCUTILS_RET_OK;
 }
 
+@[for idx, member in enumerate(message.structure.members)]@
+static rcutils_ret_t
+populate_@(msg_typename)_@(member.name)(
+  const xcdr_buffers::XCdrConstAccessor & accessor,
+  @(full_msg_typename)::ExternalStorage & ext_storage)
+{
+@(generate_external_storage_field(member, idx))
+  return RCUTILS_RET_OK;
+}
+
+@[end for]@
 // Populate external storage from accessor (shared between construct and cast)
 rcutils_ret_t
 populate_external_storage_@(msg_typename)(
@@ -1114,7 +1377,9 @@ populate_external_storage_@(msg_typename)(
   auto & ext_storage = *static_cast<@(full_msg_typename)::ExternalStorage *>(ext_storage_ptr);
 
 @[  for idx, member in enumerate(message.structure.members)]@
-@(generate_external_storage_field(member, idx))
+  if (populate_@(msg_typename)_@(member.name)(accessor, ext_storage) != RCUTILS_RET_OK) {
+    return RCUTILS_RET_ERROR;
+  }
 @[  end for]@
 
   return RCUTILS_RET_OK;
@@ -1143,9 +1408,13 @@ cast_message_at_@(msg_typename)(
   rosidl_runtime_cpp::MemoryRegion<void> storage,
   void ** message_ptr)
 {
+  if (!impl || !impl->parse_fields || !storage.data() || !message_ptr) {
+    RCUTILS_SET_ERROR_MSG("Invalid message output, storage, or parse callback");
+    return RCUTILS_RET_ERROR;
+  }
   // 1. Parse layout from buffer
   auto buffer_span = tcb::span<const uint8_t>(
-    static_cast<const uint8_t*>(storage.data()),
+    static_cast<const uint8_t *>(storage.data()),
     storage.size());
 
   // Stack-backed pool for the temporary layout: every layout allocation
@@ -1158,9 +1427,14 @@ cast_message_at_@(msg_typename)(
   std::pmr::monotonic_buffer_resource _cast_pool(
     _cast_pool_buffer, sizeof(_cast_pool_buffer));
 
-  xcdr_buffers::XCdrLayoutParser parser(buffer_span, &_cast_pool);
-  if (nullptr == impl || nullptr == impl->parse_fields) {
-    RCUTILS_SET_ERROR_MSG("parse_fields callback not available");
+  auto parser_result = xcdr_buffers::XCdrLayoutParser::create(buffer_span, &_cast_pool);
+  if (!parser_result) {
+    RCUTILS_SET_ERROR_MSG(std::string(parser_result.error().message()).c_str());
+    return RCUTILS_RET_ERROR;
+  }
+  auto & parser = *parser_result;
+  if (parser.endianness() != xcdr_buffers::kSystemEndianness) {
+    RCUTILS_SET_ERROR_MSG("XCDR endianness is incompatible with borrowed storage");
     return RCUTILS_RET_ERROR;
   }
   auto _parse_ret = impl->parse_fields(parser);
@@ -1170,14 +1444,14 @@ cast_message_at_@(msg_typename)(
 
   auto layout_result = parser.finalize();
   if (!layout_result) {
-    // Error:("Failed to parse layout from buffer");
+    RCUTILS_SET_ERROR_MSG(std::string(layout_result.error().message()).c_str());
     return RCUTILS_RET_ERROR;
   }
 
   // 2. Create accessor from parsed layout
   auto accessor_result = xcdr_buffers::XCdrConstAccessor::wrap(buffer_span, *layout_result);
   if (!accessor_result) {
-    // Error:("Failed to create accessor from parsed layout");
+    RCUTILS_SET_ERROR_MSG(std::string(accessor_result.error().message()).c_str());
     return RCUTILS_RET_ERROR;
   }
   auto accessor = *accessor_result;
@@ -1185,20 +1459,33 @@ cast_message_at_@(msg_typename)(
   // 3. Build external storage from accessor
   @(full_msg_typename)::ExternalStorage ext_storage;
   ext_storage.block = rosidl_runtime_cpp::MemoryRegion<void>(
-    const_cast<void*>(storage.data()),
-    storage.size());
+    const_cast<void *>(storage.data()),
+    storage.size(),
+    storage.attributes());
+@[if is_region_view]@
+  ext_storage.prepopulated = true;
+@[end if]@
 
   // Populate external storage from accessor
   {
     auto _populate_ret = populate_external_storage_@(msg_typename)(accessor, &ext_storage);
-    if (_populate_ret != RCUTILS_RET_OK) { return _populate_ret; }
+    if (_populate_ret != RCUTILS_RET_OK) {return _populate_ret;}
   }
 
   // 4. Mark external storage as prepopulated (data already in buffer)
   ext_storage.prepopulated = true;
 
   // 5. Construct message from external storage
-  auto * msg = new @(full_msg_typename)(ext_storage, rosidl_runtime_cpp::MessageInitialization::SKIP);
+  @(full_msg_typename) * msg;
+  try {
+    msg = new @(full_msg_typename)(ext_storage@('' if is_region_view else ', rosidl_runtime_cpp::MessageInitialization::SKIP'));
+  } catch (const std::logic_error & error) {
+    RCUTILS_SET_ERROR_MSG(error.what());
+    return RCUTILS_RET_ERROR;
+  } catch (const std::bad_alloc & error) {
+    RCUTILS_SET_ERROR_MSG(error.what());
+    return RCUTILS_RET_ERROR;
+  }
 
   // 6. Validate against constraints if the handle carries owned constraint state.
   // When rmw creates a per-loan constrained handle, owned_constraints is set
@@ -1231,12 +1518,19 @@ release_message_@(msg_typename)(void * message_ptr)
 
   // Extract storage before destruction
   rosidl_memory_region_t region{{nullptr, 0}, 0};
+@[if is_region_view]@
+  auto block = msg->backing_storage();
+  region.location.address = block.data();
+  region.size = block.size();
+  region.location.attributes = block.attributes();
+@[else]@
   if (msg->_external_storage.has_value()) {
     auto & block = msg->_external_storage.value().block;
     region.location.address = block.data();
     region.size = block.size();
     region.location.attributes = block.attributes();
   }
+@[end if]@
 
   // Destroy message
   delete msg;
@@ -1252,12 +1546,19 @@ get_backing_storage_@(msg_typename)(const void * message_ptr)
   auto * msg = static_cast<const @(full_msg_typename) *>(message_ptr);
 
   rosidl_memory_region_t region{{nullptr, 0}, 0};
+@[if is_region_view]@
+  auto block = msg->backing_storage();
+  region.location.address = block.data();
+  region.size = block.size();
+  region.location.attributes = block.attributes();
+@[else]@
   if (msg->_external_storage.has_value()) {
     const auto & block = msg->_external_storage.value().block;
     region.location.address = const_cast<void *>(block.data());
     region.size = block.size();
     region.location.attributes = block.attributes();
   }
+@[end if]@
   // For inline-only messages (no external storage), return message pointer
   // with size 0 as a zero-length marker.
   if (nullptr == region.location.address) {
@@ -1279,21 +1580,34 @@ compute_serialized_size_@(msg_typename)(
   auto & msg = *static_cast<const @(full_msg_typename) *>(message_ptr);
 
   // Fast path: external storage already knows the size.
+@[if is_region_view]@
+  auto block = msg.backing_storage();
+  if (block.data()) {
+    *size = block.size();
+    return RCUTILS_RET_OK;
+  }
+@[else]@
   if (msg._external_storage.has_value()) {
     *size = msg._external_storage.value().block.size();
     return RCUTILS_RET_OK;
   }
+@[end if]@
 
-  // Compute size with XCDR alignment.
-  size_t data_offset = 0;
-@[for member in message.structure.members]@
-@(generate_size_calculation(member, is_experimental))
-@[end for]@
-  *size = xcdr_buffers::kXCdrHeaderSize + data_offset;
+  try {
+    xcdr_buffers::XCdrWriter writer;
+    auto ret = serialize_fields_into_writer_@(msg_typename)(message_ptr, writer);
+    if (ret != RCUTILS_RET_OK) {
+      return ret;
+    }
+    *size = writer.bytes_written();
+  } catch (const std::bad_alloc & error) {
+    RCUTILS_SET_ERROR_MSG(error.what());
+    return RCUTILS_RET_ERROR;
+  }
   return RCUTILS_RET_OK;
 }
-
 @[  if has_constraints]@
+
 // Compare type-specific constraints using generated CheckCompatible API.
 extern "C" bool
 compare_type_specific_constraints_@(msg_typename)(
@@ -1336,17 +1650,17 @@ validate_message_@(msg_typename)(
     // std::string data, so they are guaranteed null-terminated.  Passing
     // .data() directly is safe.
     cb = [report_cb, user_data](std::string_view path, int reason_code) -> void {
-      report_cb(user_data, path.data(), reason_code);
-    };
+        report_cb(user_data, path.data(), reason_code);
+      };
   }
-  return constraints.CheckCompatible(msg, cb)
-    ? RCUTILS_RET_OK : RCUTILS_RET_ERROR;
+  return constraints.@('CheckCompatibleView' if is_region_view else 'CheckCompatible')(msg, cb) ?
+         RCUTILS_RET_OK : RCUTILS_RET_ERROR;
 }
 
 // Clone full constraints (blanket + type-specific) into handle-owned storage.
-extern "C" std::shared_ptr<rosidl_message_type_constraints_t>
+extern "C" std::shared_ptr<rosidl_typesupport_xcdr_c__constraints_t>
 clone_constraints_@(msg_typename)(
-  const rosidl_message_type_constraints_t * src)
+  const rosidl_typesupport_xcdr_c__constraints_t * src)
 {
   if (nullptr == src) {
     return nullptr;
@@ -1354,19 +1668,21 @@ clone_constraints_@(msg_typename)(
   // Deep-copy type_specific into a typed clone.
   auto * ts = new @(full_msg_typename)::Constraints(
     *static_cast<const @(full_msg_typename)::Constraints *>(src->type_specific));
-  auto * clone = new rosidl_message_type_constraints_t();
+  auto * clone = new rosidl_typesupport_xcdr_c__constraints_t();
   clone->type_specific = ts;
   clone->max_string_length = src->max_string_length;
   clone->max_total_size = src->max_total_size;
   clone->strict = src->strict;
-  return std::shared_ptr<rosidl_message_type_constraints_t>(
+  return std::shared_ptr<rosidl_typesupport_xcdr_c__constraints_t>(
     clone,
-    [](rosidl_message_type_constraints_t * p) {
-      delete static_cast<@(full_msg_typename)::Constraints *>(p->type_specific);
+    [](rosidl_typesupport_xcdr_c__constraints_t * p) {
+      delete static_cast<const @(full_msg_typename)::Constraints *>(p->type_specific);
       delete p;
     });
 }
+@[  end if]@
 
+@[  if has_constraints or has_variable_fields]@
 // ============================================================================
 // compact_fields — internal recursive workhorse
 //
@@ -1392,92 +1708,76 @@ compact_fields_@(msg_typename)(
 @[  if isinstance(member.type, BasicType)]@
 @# Primitive field: no constraint check needed
   if (emit) {
-    writer.write<@(get_cpp_type(member.type))>(msg.@(member.name));
+    writer.write<@(get_cpp_type(member.type))>(msg.@(member.name)@('()' if is_region_view else ''));
   } else {
     writer.skip<@(get_cpp_type(member.type))>();
   }
 
 @[  elif isinstance(member.type, AbstractString)]@
-@[    if isinstance(member.type, BoundedString)]@
-@# Bounded string: always at max, just skip or write
-  if (emit) {
-    writer.write(msg.@(member.name).view());
-  } else {
-    writer.skip_string(msg.@(member.name).size());
-  }
-
-@[    else]@
-@# Unbounded string: check bound from layout
   {
-    auto _actual_sz = msg.@(member.name).size();
+    auto _actual_sz = msg.@(member.name)@('()' if is_region_view else '').size();
     auto _bound = std::get<xcdr_buffers::XCdrStringLayout>(
       layout.get_member(@(i))->get().layout()).actual_length();
-    if (_actual_sz > _bound) { return RCUTILS_RET_ERROR; }
-    if (!emit && _actual_sz < _bound) { emit = true; }
+    if (_actual_sz > _bound) {return RCUTILS_RET_ERROR;}
+    if (!emit && _actual_sz < _bound) {emit = true;}
     if (emit) {
-      writer.write(std::string_view(msg.@(member.name).data(), msg.@(member.name).size()));
+      writer.write(std::string_view(msg.@(member.name)@('()' if is_region_view else '').data(), msg.@(member.name)@('()' if is_region_view else '').size()));
     } else {
       writer.skip_string(_actual_sz);
     }
   }
 
-@[    end if]@
 @[  elif isinstance(member.type, AbstractWString)]@
-@[    if isinstance(member.type, BoundedWString)]@
-@# Bounded wstring: always at max
-  if (emit) {
-    writer.write(msg.@(member.name).view());
-  } else {
-    writer.skip_wstring(msg.@(member.name).size());
-  }
-
-@[    else]@
-@# Unbounded wstring: check bound from layout
   {
-    auto _actual_sz = msg.@(member.name).size();
+    auto _actual_sz = msg.@(member.name)@('()' if is_region_view else '').size();
     auto _bound = std::get<xcdr_buffers::XCdrStringLayout>(
       layout.get_member(@(i))->get().layout()).actual_length();
-    if (_actual_sz > _bound) { return RCUTILS_RET_ERROR; }
-    if (!emit && _actual_sz < _bound) { emit = true; }
+    if (_actual_sz > _bound) {return RCUTILS_RET_ERROR;}
+    if (!emit && _actual_sz < _bound) {emit = true;}
     if (emit) {
-      writer.write(std::u16string_view(msg.@(member.name).data(), msg.@(member.name).size()));
+      writer.write(std::u16string_view(msg.@(member.name)@('()' if is_region_view else '').data(), msg.@(member.name)@('()' if is_region_view else '').size()));
     } else {
       writer.skip_wstring(_actual_sz);
     }
   }
 
-@[    end if]@
 @[  elif isinstance(member.type, Array)]@
 @# Array: fixed size, no constraint check; skip or write elements
 @[    if isinstance(member.type.value_type, BasicType)]@
 @# Array of primitives
   if (emit) {
-    writer.write_array(tcb::span<const @(get_cpp_type(member.type.value_type))>(msg.@(member.name).data(), @(member.type.size)));
+    writer.write_array(tcb::span<const @(get_cpp_type(member.type.value_type))>(msg.@(member.name)@('()' if is_region_view else '').data(), @(member.type.size)));
   } else {
     writer.skip_array<@(get_cpp_type(member.type.value_type))>(@(member.type.size));
   }
 
 @[    elif isinstance(member.type.value_type, AbstractString)]@
 @# Array of strings
-  if (emit) {
-    for (const auto & _elem : msg.@(member.name)) {
-      writer.write(_elem.view());
-    }
-  } else {
-    for (const auto & _elem : msg.@(member.name)) {
-      writer.skip_string(_elem.size());
+  {
+    const auto & _array_layout = std::get<xcdr_buffers::XCdrArrayLayout>(
+      layout.get_member(@(i))->get().layout());
+    for (size_t _j = 0; _j < @(member.type.size); ++_j) {
+      const auto & _elem = msg.@(member.name)@('()' if is_region_view else '')[_j];
+      size_t _bound = std::get<xcdr_buffers::XCdrStringLayout>(
+        _array_layout.element_layout(_j)->get()).actual_length();
+      if (_elem.size() > _bound) {return RCUTILS_RET_ERROR;}
+      if (_elem.size() < _bound) {emit = true;}
+      if (emit) {writer.write(_elem.view());} else {writer.skip_string(_elem.size());}
     }
   }
 
 @[    elif isinstance(member.type.value_type, AbstractWString)]@
 @# Array of wstrings
-  if (emit) {
-    for (const auto & _elem : msg.@(member.name)) {
-      writer.write(_elem.view());
-    }
-  } else {
-    for (const auto & _elem : msg.@(member.name)) {
-      writer.skip_wstring(_elem.size());
+  {
+    const auto & _array_layout = std::get<xcdr_buffers::XCdrArrayLayout>(
+      layout.get_member(@(i))->get().layout());
+    for (size_t _j = 0; _j < @(member.type.size); ++_j) {
+      const auto & _elem = msg.@(member.name)@('()' if is_region_view else '')[_j];
+      size_t _bound = std::get<xcdr_buffers::XCdrStringLayout>(
+        _array_layout.element_layout(_j)->get()).actual_length();
+      if (_elem.size() > _bound) {return RCUTILS_RET_ERROR;}
+      if (_elem.size() < _bound) {emit = true;}
+      if (emit) {writer.write(_elem.view());} else {writer.skip_wstring(_elem.size());}
     }
   }
 
@@ -1490,7 +1790,7 @@ compact_fields_@(msg_typename)(
 @{
 nested_ns_arr = '::'.join(member.type.value_type.namespaces)
 nested_short_arr = member.type.value_type.name
-nested_ts_name_arr = get_message_type_name(member.type.value_type, experimental_context=is_experimental)
+nested_ts_name_arr = get_message_type_name(member.type.value_type, experimental_context=is_experimental, region_context=is_region_view)
 }@
   {
     auto _nested_ts_arr = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(nested_ts_name_arr)>();
@@ -1502,11 +1802,12 @@ nested_ts_name_arr = get_message_type_name(member.type.value_type, experimental_
       const auto & _elem_layout = std::get<xcdr_buffers::XCdrStructLayout>(
         _arr_layout.element_layout(_j)->get());
       if (emit) {
-        _nested_inner_arr->serialize_fields(&msg.@(member.name)[_j], writer);
+        auto _ret = _nested_inner_arr->serialize_fields(&msg.@(member.name)@('()' if is_region_view else '')[_j], writer);
+        if (_ret != RCUTILS_RET_OK) {return _ret;}
       } else {
         auto _ret = _nested_inner_arr->compact_fields_recursive(
-          &msg.@(member.name)[_j], _elem_layout, writer, emit);
-        if (_ret != RCUTILS_RET_OK) { return _ret; }
+          &msg.@(member.name)@('()' if is_region_view else '')[_j], _elem_layout, writer, emit);
+        if (_ret != RCUTILS_RET_OK) {return _ret;}
       }
     }
   }
@@ -1514,10 +1815,10 @@ nested_ts_name_arr = get_message_type_name(member.type.value_type, experimental_
 @[      else]@
 @# Non-experimental nested in array: no savings possible, just serialize
   {
-    auto _nested_ts_arr2 = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental))>();
+    auto _nested_ts_arr2 = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental, region_context=is_region_view))>();
     auto _nested_outer_arr2 = static_cast<const rosidl_message_xcdr_type_support_t *>(_nested_ts_arr2->data);
     auto _nested_inner_arr2 = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(_nested_outer_arr2->inner);
-    for (const auto & _elem : msg.@(member.name)) {
+    for (const auto & _elem : msg.@(member.name)@('()' if is_region_view else '')) {
       _nested_inner_arr2->serialize_fields(&_elem, writer);
     }
   }
@@ -1527,73 +1828,73 @@ nested_ts_name_arr = get_message_type_name(member.type.value_type, experimental_
 
 @[  elif isinstance(member.type, AbstractSequence)]@
 @# Sequence: may have constraint check on count
-@[    if isinstance(member.type, BoundedSequence)]@
-@# Bounded sequence: count is always at max, no constraint check
-@[    else]@
-@# Unbounded sequence: check count from layout
+@# Check the actual count against the reserved layout.
 @[    if isinstance(member.type.value_type, BasicType)]@
   {
-    size_t _actual_cnt = msg.@(member.name).size();
+    size_t _actual_cnt = msg.@(member.name)@('()' if is_region_view else '').size();
     size_t _bound = std::get<xcdr_buffers::XCdrPrimitiveSequenceLayout>(
       layout.get_member(@(i))->get().layout()).actual_count();
-    if (_actual_cnt > _bound) { return RCUTILS_RET_ERROR; }
-    if (!emit && _actual_cnt < _bound) { emit = true; }
+    if (_actual_cnt > _bound) {return RCUTILS_RET_ERROR;}
+    if (!emit && _actual_cnt < _bound) {emit = true;}
   }
 @[    else]@
   {
-    size_t _actual_cnt = msg.@(member.name).size();
+    size_t _actual_cnt = msg.@(member.name)@('()' if is_region_view else '').size();
     size_t _bound = std::get<xcdr_buffers::XCdrSequenceLayout>(
       layout.get_member(@(i))->get().layout()).actual_count();
-    if (_actual_cnt > _bound) { return RCUTILS_RET_ERROR; }
-    if (!emit && _actual_cnt < _bound) { emit = true; }
+    if (_actual_cnt > _bound) {return RCUTILS_RET_ERROR;}
+    if (!emit && _actual_cnt < _bound) {emit = true;}
   }
-@[    end if]@
 @[    end if]@
 @[    if isinstance(member.type.value_type, BasicType)]@
 @# Primitive sequence
   if (emit) {
 @[      if get_cpp_type(member.type.value_type) == 'bool']@
-    writer.begin_write_sequence(msg.@(member.name).size());
-    for (const auto & _elem : msg.@(member.name)) {
+    writer.begin_write_sequence(msg.@(member.name)@('()' if is_region_view else '').size());
+    for (const auto & _elem : msg.@(member.name)@('()' if is_region_view else '')) {
       writer.write(static_cast<uint8_t>(_elem));
     }
     writer.end_write_sequence();
 @[      else]@
     writer.write_sequence(tcb::span<const @(get_cpp_type(member.type.value_type))>(
-      msg.@(member.name).data(), msg.@(member.name).size()));
+      msg.@(member.name)@('()' if is_region_view else '').data(), msg.@(member.name)@('()' if is_region_view else '').size()));
 @[      end if]@
   } else {
-    writer.skip_sequence<@(get_cpp_type(member.type.value_type))>(msg.@(member.name).size());
+    writer.skip_sequence<@(get_cpp_type(member.type.value_type))>(msg.@(member.name)@('()' if is_region_view else '').size());
   }
 
 @[    elif isinstance(member.type.value_type, AbstractString)]@
 @# Sequence of strings
-  if (emit) {
-    writer.begin_write_sequence(msg.@(member.name).size());
-    for (const auto & _elem : msg.@(member.name)) {
-      writer.write(_elem.view());
-    }
-    writer.end_write_sequence();
-  } else {
-    writer.begin_skip_sequence(msg.@(member.name).size());
-    for (const auto & _elem : msg.@(member.name)) {
-      writer.skip_string(_elem.size());
+  {
+    const auto & _seq_layout = std::get<xcdr_buffers::XCdrSequenceLayout>(
+      layout.get_member(@(i))->get().layout());
+    const auto & _seq = msg.@(member.name)@('()' if is_region_view else '');
+    if (emit) {writer.begin_write_sequence(_seq.size());} else {writer.begin_skip_sequence(_seq.size());}
+    for (size_t _j = 0; _j < _seq.size(); ++_j) {
+      const auto & _elem = _seq[_j];
+      size_t _bound = std::get<xcdr_buffers::XCdrStringLayout>(
+        _seq_layout.element_layout(_j)->get()).actual_length();
+      if (_elem.size() > _bound) {return RCUTILS_RET_ERROR;}
+      if (_elem.size() < _bound) {emit = true;}
+      if (emit) {writer.write(_elem.view());} else {writer.skip_string(_elem.size());}
     }
     writer.end_write_sequence();
   }
 
 @[    elif isinstance(member.type.value_type, AbstractWString)]@
 @# Sequence of wstrings
-  if (emit) {
-    writer.begin_write_sequence(msg.@(member.name).size());
-    for (const auto & _elem : msg.@(member.name)) {
-      writer.write(_elem.view());
-    }
-    writer.end_write_sequence();
-  } else {
-    writer.begin_skip_sequence(msg.@(member.name).size());
-    for (const auto & _elem : msg.@(member.name)) {
-      writer.skip_wstring(_elem.size());
+  {
+    const auto & _seq_layout = std::get<xcdr_buffers::XCdrSequenceLayout>(
+      layout.get_member(@(i))->get().layout());
+    const auto & _seq = msg.@(member.name)@('()' if is_region_view else '');
+    if (emit) {writer.begin_write_sequence(_seq.size());} else {writer.begin_skip_sequence(_seq.size());}
+    for (size_t _j = 0; _j < _seq.size(); ++_j) {
+      const auto & _elem = _seq[_j];
+      size_t _bound = std::get<xcdr_buffers::XCdrStringLayout>(
+        _seq_layout.element_layout(_j)->get()).actual_length();
+      if (_elem.size() > _bound) {return RCUTILS_RET_ERROR;}
+      if (_elem.size() < _bound) {emit = true;}
+      if (emit) {writer.write(_elem.view());} else {writer.skip_wstring(_elem.size());}
     }
     writer.end_write_sequence();
   }
@@ -1607,7 +1908,7 @@ nested_ts_name_arr = get_message_type_name(member.type.value_type, experimental_
 @{
 nested_ns_seq = '::'.join(member.type.value_type.namespaces)
 nested_short_seq = member.type.value_type.name
-nested_ts_name_seq = get_message_type_name(member.type.value_type, experimental_context=is_experimental)
+nested_ts_name_seq = get_message_type_name(member.type.value_type, experimental_context=is_experimental, region_context=is_region_view)
 }@
   {
     auto _nested_ts_seq = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(nested_ts_name_seq)>();
@@ -1616,19 +1917,20 @@ nested_ts_name_seq = get_message_type_name(member.type.value_type, experimental_
     const auto & _seq_layout = std::get<xcdr_buffers::XCdrSequenceLayout>(
       layout.get_member(@(i))->get().layout());
     if (emit) {
-      writer.begin_write_sequence(msg.@(member.name).size());
-      for (const auto & _elem : msg.@(member.name)) {
-        _nested_inner_seq->serialize_fields(&_elem, writer);
+      writer.begin_write_sequence(msg.@(member.name)@('()' if is_region_view else '').size());
+      for (const auto & _elem : msg.@(member.name)@('()' if is_region_view else '')) {
+        auto _ret = _nested_inner_seq->serialize_fields(&_elem, writer);
+        if (_ret != RCUTILS_RET_OK) {return _ret;}
       }
       writer.end_write_sequence();
     } else {
-      writer.begin_skip_sequence(msg.@(member.name).size());
-      for (size_t _sj = 0; _sj < msg.@(member.name).size(); ++_sj) {
+      writer.begin_skip_sequence(msg.@(member.name)@('()' if is_region_view else '').size());
+      for (size_t _sj = 0; _sj < msg.@(member.name)@('()' if is_region_view else '').size(); ++_sj) {
         const auto & _elem_layout = std::get<xcdr_buffers::XCdrStructLayout>(
           _seq_layout.element_layout(_sj)->get());
         auto _ret = _nested_inner_seq->compact_fields_recursive(
-          &msg.@(member.name)[_sj], _elem_layout, writer, emit);
-        if (_ret != RCUTILS_RET_OK) { return _ret; }
+          &msg.@(member.name)@('()' if is_region_view else '')[_sj], _elem_layout, writer, emit);
+        if (_ret != RCUTILS_RET_OK) {return _ret;}
       }
       writer.end_write_sequence();
     }
@@ -1637,11 +1939,11 @@ nested_ts_name_seq = get_message_type_name(member.type.value_type, experimental_
 @[      else]@
 @# Non-experimental nested in sequence: no savings possible, always serialize
   {
-    auto _nested_ts_seq2 = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental))>();
+    auto _nested_ts_seq2 = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type.value_type, experimental_context=is_experimental, region_context=is_region_view))>();
     auto _nested_outer_seq2 = static_cast<const rosidl_message_xcdr_type_support_t *>(_nested_ts_seq2->data);
     auto _nested_inner_seq2 = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(_nested_outer_seq2->inner);
-    writer.begin_write_sequence(msg.@(member.name).size());
-    for (const auto & _elem : msg.@(member.name)) {
+    writer.begin_write_sequence(msg.@(member.name)@('()' if is_region_view else '').size());
+    for (const auto & _elem : msg.@(member.name)@('()' if is_region_view else '')) {
       _nested_inner_seq2->serialize_fields(&_elem, writer);
     }
     writer.end_write_sequence();
@@ -1661,7 +1963,7 @@ nested_ts_name_seq = get_message_type_name(member.type.value_type, experimental_
 @{
 nested_ns = '::'.join(member.type.namespaces)
 nested_short = member.type.name
-nested_ts_name = get_message_type_name(member.type, experimental_context=is_experimental)
+nested_ts_name = get_message_type_name(member.type, experimental_context=is_experimental, region_context=is_region_view)
 }@
   {
     const auto & _nested_layout = std::get<xcdr_buffers::XCdrStructLayout>(
@@ -1670,31 +1972,32 @@ nested_ts_name = get_message_type_name(member.type, experimental_context=is_expe
     auto _nested_outer = static_cast<const rosidl_message_xcdr_type_support_t *>(_nested_ts->data);
     auto _nested_inner = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(_nested_outer->inner);
     if (emit) {
-      _nested_inner->serialize_fields(&msg.@(member.name), writer);
+      auto _ret = _nested_inner->serialize_fields(&msg.@(member.name)@('()' if is_region_view else ''), writer);
+      if (_ret != RCUTILS_RET_OK) {return _ret;}
     } else {
       auto _ret = _nested_inner->compact_fields_recursive(
-        &msg.@(member.name), _nested_layout, writer, emit);
-      if (_ret != RCUTILS_RET_OK) { return _ret; }
+        &msg.@(member.name)@('()' if is_region_view else ''), _nested_layout, writer, emit);
+      if (_ret != RCUTILS_RET_OK) {return _ret;}
     }
   }
 
 @[    else]@
 @# Non-experimental nested: no savings possible (all fixed-size)
   {
-    auto _nested_ts3 = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type, experimental_context=is_experimental))>();
+    auto _nested_ts3 = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(get_message_type_name(member.type, experimental_context=is_experimental, region_context=is_region_view))>();
     auto _nested_outer3 = static_cast<const rosidl_message_xcdr_type_support_t *>(_nested_ts3->data);
     auto _nested_inner3 = static_cast<const rosidl_typesupport_xcdr_cpp::rosidl_message_xcdr_cpp_type_support_t *>(_nested_outer3->inner);
     if (emit) {
-      _nested_inner3->serialize_fields(&msg.@(member.name), writer);
+      _nested_inner3->serialize_fields(&msg.@(member.name)@('()' if is_region_view else ''), writer);
     } else {
       // Fixed-size nested — no compaction possible; skip the whole struct
-      _nested_inner3->serialize_fields(&msg.@(member.name), writer);
+      _nested_inner3->serialize_fields(&msg.@(member.name)@('()' if is_region_view else ''), writer);
     }
   }
 
 @[    end if]@
 @[  end if]@
-
+@
 @[end for]@
   return RCUTILS_RET_OK;
 }
@@ -1723,11 +2026,19 @@ compact_message_@(msg_typename)(
   auto & msg = *static_cast<@(full_msg_typename) *>(message_ptr);
 
   // Get backing buffer from external storage.
+@[if is_region_view]@
+  auto block = msg.backing_storage();
+  if (!block.data()) {
+    RCUTILS_SET_ERROR_MSG("message has no external storage to compact");
+    return null_region;
+  }
+@[else]@
   if (!msg._external_storage.has_value()) {
     RCUTILS_SET_ERROR_MSG("message has no external storage to compact");
     return null_region;
   }
   auto & block = msg._external_storage.value().block;
+@[end if]@
 
   auto buffer_span = tcb::span<uint8_t>(
     static_cast<uint8_t *>(const_cast<void *>(block.data())), block.size());
@@ -1750,6 +2061,9 @@ compact_message_@(msg_typename)(
   auto ret = compact_fields_@(msg_typename)(&msg, *cached_layout, writer, emit);
   if (ret != RCUTILS_RET_OK) {
     // Layout-bound violation — message is NOT consumed.
+    if (!rcutils_error_is_set()) {
+      RCUTILS_SET_ERROR_MSG("Failed to compact message fields");
+    }
     return null_region;
   }
 
@@ -1765,10 +2079,11 @@ compact_message_@(msg_typename)(
   }
 
   void * blob = const_cast<void *>(block.data());
+  int attributes = block.attributes();
   size_t compacted_size = writer.bytes_written();
   delete &msg;
 
-  rosidl_memory_region_t result = {{blob, 0}, compacted_size};
+  rosidl_memory_region_t result = {{blob, attributes}, compacted_size};
   return result;
 }
 @[  end if]@
@@ -1830,14 +2145,17 @@ compute_serialized_size_@(msg_typename)(
   if (nullptr == message_ptr || nullptr == size) {
     return RCUTILS_RET_ERROR;
   }
-  auto & msg = *static_cast<const @(full_msg_typename) *>(message_ptr);
-  (void)msg;
-
-  size_t data_offset = 0;
-@[for member in message.structure.members]@
-@(generate_size_calculation(member, is_experimental))
-@[end for]@
-  *size = xcdr_buffers::kXCdrHeaderSize + data_offset;
+  try {
+    xcdr_buffers::XCdrWriter writer;
+    auto ret = serialize_fields_into_writer_@(msg_typename)(message_ptr, writer);
+    if (ret != RCUTILS_RET_OK) {
+      return ret;
+    }
+    *size = writer.bytes_written();
+  } catch (const std::bad_alloc & error) {
+    RCUTILS_SET_ERROR_MSG(error.what());
+    return RCUTILS_RET_ERROR;
+  }
   return RCUTILS_RET_OK;
 }
 
@@ -1857,27 +2175,31 @@ namespace
 inline const rosidl_message_xcdr_cpp_type_support_t & get_inner_@(msg_typename)()
 {
   static const auto inner = []() {
-    auto tmp = rosidl_message_xcdr_cpp_type_support_t{};
-    tmp.build_constrained = &@(msg_namespace)::build_layout_@(msg_typename);
-    tmp.clone_constraints = &@(msg_namespace)::clone_constraints_@(msg_typename);
-    tmp.build_layout_fields = &@(msg_namespace)::build_layout_fields_@(msg_typename);
-    tmp.serialize_fields = &@(msg_namespace)::serialize_fields_into_writer_@(msg_typename);
-    tmp.deserialize_fields = &@(msg_namespace)::deserialize_fields_from_reader_@(msg_typename);
-    tmp.parse_fields = &@(msg_namespace)::parse_fields_@(msg_typename);
-    tmp.construct_message = [](const rosidl_message_xcdr_cpp_type_support_t * impl,
-                                rosidl_runtime_cpp::MemoryRegion<void> & s, void ** m) {
-      return @(msg_namespace)::construct_message_at_@(msg_typename)(impl, s, m);
-    };
-    tmp.cast_message = [](const rosidl_message_xcdr_cpp_type_support_t * impl,
-                           rosidl_runtime_cpp::MemoryRegion<void> s, void ** m) {
-      return @(msg_namespace)::cast_message_at_@(msg_typename)(impl, s, m);
-    };
-    tmp.compute_serialized_size = &@(msg_namespace)::compute_serialized_size_@(msg_typename);
-    tmp.validate_fields = &@(msg_namespace)::validate_message_@(msg_typename);
-    tmp.compact_fields = &@(msg_namespace)::compact_message_@(msg_typename);
-    tmp.compact_fields_recursive = &@(msg_namespace)::compact_fields_@(msg_typename);
-    return tmp;
-  }();
+      auto tmp = rosidl_message_xcdr_cpp_type_support_t{};
+@[    if is_region_view and not requires_constraints]@
+      static const @(full_msg_typename)::Constraints default_constraints;
+      tmp.cached_layout = @(msg_namespace)::build_layout_@(msg_typename)(&default_constraints);
+@[    end if]@
+      tmp.build_constrained = &@(msg_namespace)::build_layout_@(msg_typename);
+      tmp.clone_constraints = &@(msg_namespace)::clone_constraints_@(msg_typename);
+      tmp.build_layout_fields = &@(msg_namespace)::build_layout_fields_@(msg_typename);
+      tmp.serialize_fields = &@(msg_namespace)::serialize_fields_into_writer_@(msg_typename);
+      tmp.deserialize_fields = &@(msg_namespace)::deserialize_fields_from_reader_@(msg_typename);
+      tmp.parse_fields = &@(msg_namespace)::parse_fields_@(msg_typename);
+      tmp.construct_message = [](const rosidl_message_xcdr_cpp_type_support_t * impl,
+        rosidl_runtime_cpp::MemoryRegion<void> & s, void ** m) {
+          return @(msg_namespace)::construct_message_at_@(msg_typename)(impl, s, m);
+        };
+      tmp.cast_message = [](const rosidl_message_xcdr_cpp_type_support_t * impl,
+        rosidl_runtime_cpp::MemoryRegion<void> s, void ** m) {
+          return @(msg_namespace)::cast_message_at_@(msg_typename)(impl, s, m);
+        };
+      tmp.compute_serialized_size = &@(msg_namespace)::compute_serialized_size_@(msg_typename);
+      tmp.validate_fields = &@(msg_namespace)::validate_message_@(msg_typename);
+      tmp.compact_fields = &@(msg_namespace)::compact_message_@(msg_typename);
+      tmp.compact_fields_recursive = &@(msg_namespace)::compact_fields_@(msg_typename);
+      return tmp;
+    }();
   return inner;
 }
 @[  else]@
@@ -1885,25 +2207,25 @@ inline const rosidl_message_xcdr_cpp_type_support_t & get_inner_@(msg_typename)(
 inline const rosidl_message_xcdr_cpp_type_support_t & get_inner_@(msg_typename)()
 {
   static const auto inner = []() {
-    auto tmp = rosidl_message_xcdr_cpp_type_support_t{};
-    tmp.cached_layout = @(msg_namespace)::get_layout_@(msg_typename)();
-    tmp.build_layout_fields = &@(msg_namespace)::build_layout_fields_@(msg_typename);
-    tmp.serialize_fields = &@(msg_namespace)::serialize_fields_into_writer_@(msg_typename);
-    tmp.deserialize_fields = &@(msg_namespace)::deserialize_fields_from_reader_@(msg_typename);
-    tmp.parse_fields = &@(msg_namespace)::parse_fields_@(msg_typename);
-    tmp.construct_message = [](const rosidl_message_xcdr_cpp_type_support_t * impl,
-                                rosidl_runtime_cpp::MemoryRegion<void> & s, void ** m) {
-      return @(msg_namespace)::construct_message_at_@(msg_typename)(impl, s, m);
-    };
-    tmp.cast_message = [](const rosidl_message_xcdr_cpp_type_support_t * impl,
-                           rosidl_runtime_cpp::MemoryRegion<void> s, void ** m) {
-      return @(msg_namespace)::cast_message_at_@(msg_typename)(impl, s, m);
-    };
-    tmp.compute_serialized_size = &@(msg_namespace)::compute_serialized_size_@(msg_typename);
-    tmp.compact_fields = &@(msg_namespace)::compact_message_@(msg_typename);
-    tmp.compact_fields_recursive = &@(msg_namespace)::compact_fields_@(msg_typename);
-    return tmp;
-  }();
+      auto tmp = rosidl_message_xcdr_cpp_type_support_t{};
+      tmp.cached_layout = @(msg_namespace)::get_layout_@(msg_typename)();
+      tmp.build_layout_fields = &@(msg_namespace)::build_layout_fields_@(msg_typename);
+      tmp.serialize_fields = &@(msg_namespace)::serialize_fields_into_writer_@(msg_typename);
+      tmp.deserialize_fields = &@(msg_namespace)::deserialize_fields_from_reader_@(msg_typename);
+      tmp.parse_fields = &@(msg_namespace)::parse_fields_@(msg_typename);
+      tmp.construct_message = [](const rosidl_message_xcdr_cpp_type_support_t * impl,
+        rosidl_runtime_cpp::MemoryRegion<void> & s, void ** m) {
+          return @(msg_namespace)::construct_message_at_@(msg_typename)(impl, s, m);
+        };
+      tmp.cast_message = [](const rosidl_message_xcdr_cpp_type_support_t * impl,
+        rosidl_runtime_cpp::MemoryRegion<void> s, void ** m) {
+          return @(msg_namespace)::cast_message_at_@(msg_typename)(impl, s, m);
+        };
+      tmp.compute_serialized_size = &@(msg_namespace)::compute_serialized_size_@(msg_typename);
+      tmp.compact_fields = &@(msg_namespace)::compact_message_@(msg_typename);
+      tmp.compact_fields_recursive = &@(msg_namespace)::compact_fields_@(msg_typename);
+      return tmp;
+    }();
   return inner;
 }
 @[  end if]@
@@ -1912,13 +2234,13 @@ inline const rosidl_message_xcdr_cpp_type_support_t & get_inner_@(msg_typename)(
 inline const rosidl_message_xcdr_cpp_type_support_t & get_inner_@(msg_typename)()
 {
   static const auto inner = []() {
-    auto tmp = rosidl_message_xcdr_cpp_type_support_t{};
-    tmp.build_layout_fields = &@(msg_namespace)::build_layout_fields_@(msg_typename);
-    tmp.serialize_fields = &@(msg_namespace)::serialize_fields_into_writer_@(msg_typename);
-    tmp.deserialize_fields = &@(msg_namespace)::deserialize_fields_from_reader_@(msg_typename);
-    tmp.compute_serialized_size = &@(msg_namespace)::compute_serialized_size_@(msg_typename);
-    return tmp;
-  }();
+      auto tmp = rosidl_message_xcdr_cpp_type_support_t{};
+      tmp.build_layout_fields = &@(msg_namespace)::build_layout_fields_@(msg_typename);
+      tmp.serialize_fields = &@(msg_namespace)::serialize_fields_into_writer_@(msg_typename);
+      tmp.deserialize_fields = &@(msg_namespace)::deserialize_fields_from_reader_@(msg_typename);
+      tmp.compute_serialized_size = &@(msg_namespace)::compute_serialized_size_@(msg_typename);
+      return tmp;
+    }();
   return inner;
 }
 @[end if]@
@@ -1933,28 +2255,28 @@ get_message_type_support_handle<@(full_msg_typename)>()
   static const auto & inner = get_inner_@(msg_typename)();
 
   static const rosidl_message_xcdr_type_support_t outer = []() {
-    auto tmp = *rosidl_typesupport_xcdr_cpp::get_xcdr_cpp_type_support_prototype();
-    tmp.inner = const_cast<rosidl_message_xcdr_cpp_type_support_t *>(&inner);
-    tmp.message_namespace = "@(dds_namespace)";
-    tmp.message_name = "@(msg_typename)";
+      auto tmp = *rosidl_typesupport_xcdr_cpp::get_xcdr_cpp_type_support_prototype();
+      tmp.inner = const_cast<rosidl_message_xcdr_cpp_type_support_t *>(&inner);
+      tmp.message_namespace = "@(dds_namespace)";
+      tmp.message_name = "@(msg_typename)";
 @[if is_experimental]@
-    tmp.destroy_message = &@(msg_namespace)::destroy_message_@(msg_typename);
-    tmp.release_message = &@(msg_namespace)::release_message_@(msg_typename);
-    tmp.get_backing_storage = &@(msg_namespace)::get_backing_storage_@(msg_typename);
+      tmp.destroy_message = &@(msg_namespace)::destroy_message_@(msg_typename);
+      tmp.release_message = &@(msg_namespace)::release_message_@(msg_typename);
+      tmp.get_backing_storage = &@(msg_namespace)::get_backing_storage_@(msg_typename);
 @[  if has_constraints]@
-    tmp.compare_type_specific_constraints = &@(msg_namespace)::compare_type_specific_constraints_@(msg_typename);
+      tmp.compare_type_specific_constraints = &@(msg_namespace)::compare_type_specific_constraints_@(msg_typename);
 @[  end if]@
 @[end if]@
-    return tmp;
-  }();
+      return tmp;
+    }();
 
   static const rosidl_message_type_support_t handle = {
     rosidl_typesupport_xcdr_cpp__identifier,
     &outer,
     get_message_typesupport_handle_function,
-    xcdr_default_get_type_hash,            // safe fallback (returns zero hash)
-    xcdr_default_get_type_description,     // safe fallback (returns nullptr)
-    xcdr_default_get_type_description_sources,  // safe fallback (returns nullptr)
+    &@(idl_structure_type_to_c_typename(message.structure.namespaced_type))__@(GET_HASH_FUNC),
+    &@(idl_structure_type_to_c_typename(message.structure.namespaced_type))__@(GET_DESCRIPTION_FUNC),
+    &@(idl_structure_type_to_c_typename(message.structure.namespaced_type))__@(GET_SOURCES_FUNC),
   };
 
   return &handle;

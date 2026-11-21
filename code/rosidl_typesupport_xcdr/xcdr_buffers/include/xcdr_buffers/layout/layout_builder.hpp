@@ -265,6 +265,7 @@ private:
   std::pmr::vector<XCdrStructLayout::Member> members_;
   std::pmr::map<std::pmr::string, size_t, std::less<>> name_to_index_;
   size_t current_offset_;
+  size_t origin_offset_;
   size_t max_alignment_;
   XCdrEndianness endianness_;
   std::pmr::memory_resource * memory_resource_;

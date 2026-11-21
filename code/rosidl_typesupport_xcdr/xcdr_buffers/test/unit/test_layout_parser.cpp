@@ -349,6 +349,16 @@ TEST_F(LayoutParserTest, ParseBufferOverflow)
   EXPECT_NE(status.error().message().find("overflow"), std::string::npos);
 }
 
+TEST_F(LayoutParserTest, RejectsTruncatedPrimitiveContainers)
+{
+  writer_.write(static_cast<uint32_t>(2));
+  auto buffer = writer_.flush();
+  XCdrLayoutParser array_parser(buffer);
+  EXPECT_FALSE(array_parser.parse_primitive_array(XCdrPrimitiveKind::kUint32, 2));
+  XCdrLayoutParser sequence_parser(buffer);
+  EXPECT_FALSE(sequence_parser.parse_primitive_sequence(XCdrPrimitiveKind::kUint32));
+}
+
 TEST_F(LayoutParserTest, FinalizeResetsState)
 {
   writer_.write(static_cast<uint32_t>(42));

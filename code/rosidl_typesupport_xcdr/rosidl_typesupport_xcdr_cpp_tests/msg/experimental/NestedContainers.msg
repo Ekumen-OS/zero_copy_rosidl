@@ -2,3 +2,4 @@
 # Only uses single namespaced type + primitive arrays to avoid builder array layout bug
 InnerValue single
 uint8[16] char_buf
+int32[3] int_buf

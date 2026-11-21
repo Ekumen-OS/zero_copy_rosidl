@@ -1,7 +1,7 @@
 @# generated from rosidl_typesupport_xcdr_cpp/resource/idl__rosidl_typesupport_xcdr_cpp.hpp.em
 @# with input from @(package_name):@(interface_path)
 @# generated code does not contain a copyright notice
-
+@
 @{
 from rosidl_pycommon import convert_camel_case_to_lower_case_underscore
 from rosidl_parser.definition import Message, Service
@@ -9,8 +9,17 @@ from rosidl_parser.definition import Message, Service
 include_parts = [package_name] + list(interface_path.parents[0].parts) + [
     'detail', convert_camel_case_to_lower_case_underscore(interface_path.stem)]
 include_base = '/'.join(include_parts)
+empty_guard = '__'.join(part.upper() for part in include_parts + [
+    'rosidl_typesupport_xcdr_cpp']) + '_HPP_'
 }@
+@[if not content.get_elements_of_type(Message) and not content.get_elements_of_type(Service)]@
+// generated code does not contain a copyright notice
+#ifndef @(empty_guard)
+#define @(empty_guard)
 
+#endif  // @(empty_guard)
+@[end if]@
+@
 @#######################################################################
 @# Handle messages
 @#######################################################################
@@ -20,7 +29,7 @@ for message in content.get_elements_of_type(Message):
         'msg__rosidl_typesupport_xcdr_cpp.hpp.em',
         package_name=package_name, interface_path=interface_path, message=message)
 }@
-
+@
 @#######################################################################
 @# Handle services
 @#######################################################################

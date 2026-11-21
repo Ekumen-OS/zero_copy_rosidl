@@ -20,8 +20,13 @@
 
 #include "rcutils/types/rcutils_ret.h"
 #include "rosidl_runtime_c/message_type_support_struct.h"
+#if __has_include("rosidl_runtime_c/constraints.h")
+#include "rosidl_runtime_cpp/constraints.hpp"
+#include "rosidl_runtime_cpp/memory.hpp"
+#else
 #include "rosidl_runtime_cpp/experimental/constraints.hpp"
 #include "rosidl_runtime_cpp/experimental/memory.hpp"
+#endif
 #include "rosidl_typesupport_xcdr_c/message_type_support.h"
 #include "rosidl_typesupport_xcdr_cpp/visibility_control.h"
 
@@ -60,7 +65,7 @@ struct rosidl_message_xcdr_cpp_type_support_t
   /// or unconstrained instances).  Populated at constrained handle creation
   /// time via the clone_constraints callback.  The custom deleter frees both
   /// the type_specific clone and the constraints struct itself.
-  std::shared_ptr<rosidl_message_type_constraints_t> owned_constraints{nullptr};
+  std::shared_ptr<rosidl_typesupport_xcdr_c__constraints_t> owned_constraints{nullptr};
 
   /// Whether this inner struct was dynamically allocated.
   bool is_dynamically_allocated{false};
@@ -102,8 +107,8 @@ struct rosidl_message_xcdr_cpp_type_support_t
    * type_specific clone before releasing the constraints struct itself.
    * Only set on generated inner structs for constrained experimental messages.
    */
-  std::shared_ptr<rosidl_message_type_constraints_t>(*clone_constraints)(
-    const rosidl_message_type_constraints_t * src) = nullptr;
+  std::shared_ptr<rosidl_typesupport_xcdr_c__constraints_t>(*clone_constraints)(
+    const rosidl_typesupport_xcdr_c__constraints_t * src) = nullptr;
 
   /// Per-type message validation callback.
   /**
@@ -242,7 +247,7 @@ ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC
 std::shared_ptr<rosidl_message_type_support_t>
 create_constrained_message_type_support(
   const rosidl_message_type_support_t * base_typesupport,
-  const rosidl_message_type_constraints_t * constraints);
+  const rosidl_typesupport_xcdr_c__constraints_t * constraints);
 
 /// Destroy a constrained typesupport handle.
 /**
@@ -335,7 +340,7 @@ ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC
 rcutils_ret_t
 validate_message(
   const rosidl_message_type_support_t * typesupport,
-  const rosidl_message_type_constraints_t * constraints,
+  const rosidl_typesupport_xcdr_c__constraints_t * constraints,
   const void * message,
   rosidl_runtime_cpp::ConstraintReportCallback report_cb = nullptr);
 
@@ -401,8 +406,8 @@ ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC
 bool
 compare_constraints(
   const rosidl_message_type_support_t * typesupport,
-  const rosidl_message_type_constraints_t * candidate,
-  const rosidl_message_type_constraints_t * baseline,
+  const rosidl_typesupport_xcdr_c__constraints_t * candidate,
+  const rosidl_typesupport_xcdr_c__constraints_t * baseline,
   rosidl_runtime_cpp::ConstraintReportCallback report_cb = nullptr);
 
 }  // namespace rosidl_typesupport_xcdr_cpp

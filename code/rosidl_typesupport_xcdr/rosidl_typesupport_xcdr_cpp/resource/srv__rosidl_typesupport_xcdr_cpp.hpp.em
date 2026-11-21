@@ -63,21 +63,21 @@ extern "C"
 // Declare message typesupport for Request, Response, and Event
 ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC_@(package_name.upper())
 const rosidl_message_type_support_t *
-ROSIDL_TYPESUPPORT_INTERFACE__MESSAGE_SYMBOL_NAME(
+  ROSIDL_TYPESUPPORT_INTERFACE__MESSAGE_SYMBOL_NAME(
   rosidl_typesupport_xcdr_cpp,
   @(', '.join([package_name] + symbol_parent_parts)),
   @(service_typename)@(SERVICE_REQUEST_MESSAGE_SUFFIX))();
 
 ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC_@(package_name.upper())
 const rosidl_message_type_support_t *
-ROSIDL_TYPESUPPORT_INTERFACE__MESSAGE_SYMBOL_NAME(
+  ROSIDL_TYPESUPPORT_INTERFACE__MESSAGE_SYMBOL_NAME(
   rosidl_typesupport_xcdr_cpp,
   @(', '.join([package_name] + symbol_parent_parts)),
   @(service_typename)@(SERVICE_RESPONSE_MESSAGE_SUFFIX))();
 
 ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC_@(package_name.upper())
 const rosidl_message_type_support_t *
-ROSIDL_TYPESUPPORT_INTERFACE__MESSAGE_SYMBOL_NAME(
+  ROSIDL_TYPESUPPORT_INTERFACE__MESSAGE_SYMBOL_NAME(
   rosidl_typesupport_xcdr_cpp,
   @(', '.join([package_name] + symbol_parent_parts)),
   @(service_typename)@(SERVICE_EVENT_MESSAGE_SUFFIX))();
@@ -85,7 +85,7 @@ ROSIDL_TYPESUPPORT_INTERFACE__MESSAGE_SYMBOL_NAME(
 // Declare service typesupport
 ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC_@(package_name.upper())
 const rosidl_service_type_support_t *
-ROSIDL_TYPESUPPORT_INTERFACE__SERVICE_SYMBOL_NAME(
+  ROSIDL_TYPESUPPORT_INTERFACE__SERVICE_SYMBOL_NAME(
   rosidl_typesupport_xcdr_cpp,
   @(', '.join([package_name] + symbol_parent_parts)),
   @(service_typename))();

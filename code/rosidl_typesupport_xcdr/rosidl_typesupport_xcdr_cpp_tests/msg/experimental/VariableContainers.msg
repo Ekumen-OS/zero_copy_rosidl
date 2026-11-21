@@ -1,0 +1,9 @@
+string<=8[2] labels
+string<=8[<=3] names
+InnerValue[<=2] items
+uint32 tail
+uint64[<=2] numbers
+wstring<=8 wide
+wstring<=8[2] wide_labels
+wstring<=8[<=2] wide_names
+UnboundedMessage[<=2] nested_variable

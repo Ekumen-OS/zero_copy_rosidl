@@ -170,33 +170,31 @@ public:
     XCdrPrimitiveKind element_kind,
     size_t actual_count,
     std::pmr::memory_resource * mr = nullptr);
+  XCdrPrimitiveSequenceLayout(
+    XCdrPrimitiveKind element_kind,
+    size_t actual_count,
+    std::pmr::memory_resource * mr,
+    size_t wire_offset);
 
   XCdrPrimitiveKind element_kind() const {return element_kind_;}
   size_t actual_count() const {return actual_count_;}
   size_t size() const
   {
-    // Account for alignment padding after length prefix
-    size_t element_size = get_primitive_size(element_kind_);
-    size_t element_alignment = get_primitive_alignment(element_kind_);
-    size_t first_elem_offset = align_to(kSequenceLengthPrefixSize, element_alignment);
-    size_t padding = first_elem_offset - kSequenceLengthPrefixSize;
-    return kSequenceLengthPrefixSize + padding + actual_count_ * element_size;
+    return actual_count_ == 0 ? kSequenceLengthPrefixSize :
+           data_offset_ + actual_count_ * get_primitive_size(element_kind_);
   }
   size_t alignment() const {return kSequenceLengthPrefixSize;}
-  size_t data_offset() const {return kSequenceLengthPrefixSize;}
+  size_t data_offset() const {return data_offset_;}
 
   size_t element_offset(size_t index) const
   {
-    // First element is aligned after the length prefix
-    size_t element_size = get_primitive_size(element_kind_);
-    size_t element_alignment = get_primitive_alignment(element_kind_);
-    size_t first_elem_offset = align_to(kSequenceLengthPrefixSize, element_alignment);
-    return first_elem_offset + index * element_size;
+    return data_offset_ + index * get_primitive_size(element_kind_);
   }
 
 private:
   XCdrPrimitiveKind element_kind_;
   size_t actual_count_;
+  size_t data_offset_;
   std::pmr::memory_resource * memory_resource_;
 };
 

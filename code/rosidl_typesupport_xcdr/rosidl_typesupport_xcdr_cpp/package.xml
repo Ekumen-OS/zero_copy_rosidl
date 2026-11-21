@@ -29,6 +29,8 @@
   <buildtool_export_depend>rosidl_cmake</buildtool_export_depend>
 
   <exec_depend>rosidl_pycommon</exec_depend>
+  <exec_depend>rosidl_generator_c</exec_depend>
+  <exec_depend>rosidl_generator_type_description</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

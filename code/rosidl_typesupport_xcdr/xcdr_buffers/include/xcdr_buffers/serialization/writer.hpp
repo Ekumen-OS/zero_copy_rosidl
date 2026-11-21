@@ -102,7 +102,7 @@ public:
    *
    * @return Total bytes written from the start of the buffer.
    */
-  size_t bytes_written() const {return write_position_;}
+  size_t bytes_written() const {return is_fixed_mode_ ? write_position_ : buffer_.size();}
 
   /**
    * @brief Write a primitive value.
@@ -438,7 +438,11 @@ void XCdrWriter::write_pod_span(tcb::span<const T> values)
   }
 
   // Bulk copy when the wire endianness matches the host; byte-swap otherwise.
-  write_to_bytes(dst, values, endianness_);
+  if (is_fixed_mode_ && (sizeof(T) == 1 || endianness_ == kSystemEndianness)) {
+    std::memmove(dst.data(), values.data(), total);
+  } else {
+    write_to_bytes(dst, values, endianness_);
+  }
 }
 
 template<typename T>

@@ -25,15 +25,23 @@
 #include <gtest/gtest.h>
 
 #include <cstring>
+#include <type_traits>
 #include <vector>
 
 #include "rcutils/error_handling.h"
 
 #include "rosidl_runtime_c/message_type_support_struct.h"
-#include "rosidl_runtime_c/experimental/memory.h"
-
 #include "rosidl_typesupport_xcdr_c/identifier.h"
 #include "rosidl_typesupport_xcdr_c/message_type_support.h"
+
+#if __has_include("rosidl_runtime_c/constraints.h")
+static_assert(std::is_same_v<
+    rosidl_typesupport_xcdr_c__constraints_t,
+    rosidl_runtime_c__message_type_constraints_t>);
+#else
+static_assert(std::is_same_v<
+    rosidl_typesupport_xcdr_c__constraints_t, rosidl_message_type_constraints_t>);
+#endif
 
 // =============================================================================
 // Helpers
@@ -130,7 +138,7 @@ mock_release_message(void * msg)
 static rosidl_message_type_support_t *
 mock_create_constrained(
   const rosidl_message_xcdr_type_support_t * outer,
-  const rosidl_message_type_constraints_t * constraints)
+  const rosidl_typesupport_xcdr_c__constraints_t * constraints)
 {
   (void)outer;
   (void)constraints;
@@ -162,7 +170,7 @@ mock_compare_ts(const void * lhs, const void * rhs)
 static rcutils_ret_t
 mock_validate_message(
   const rosidl_message_xcdr_type_support_t * outer,
-  const rosidl_message_type_constraints_t * constraints,
+  const rosidl_typesupport_xcdr_c__constraints_t * constraints,
   const void * message,
   rosidl_typesupport_xcdr_c_constraint_report_callback_t report_cb,
   void * user_data)
@@ -183,7 +191,7 @@ mock_destroy_inner(const rosidl_message_xcdr_type_support_t * outer)
   last_called = 12;
 }
 
-static const rosidl_message_type_constraints_t *
+static const rosidl_typesupport_xcdr_c__constraints_t *
 mock_get_constraints(const rosidl_message_xcdr_type_support_t * outer)
 {
   (void)outer;
@@ -439,7 +447,7 @@ TEST_F(TestXcdrCMockDispatch, ReleaseMessage)
 TEST_F(TestXcdrCMockDispatch, CreateConstrained)
 {
   // constraints is opaque to the C layer — pass a non-null dummy value.
-  rosidl_message_type_constraints_t dummy_constraint{};
+  rosidl_typesupport_xcdr_c__constraints_t dummy_constraint{};
   auto * constrained =
     rosidl_typesupport_xcdr_c_create_constrained_message_type_support(
       &handle_, &dummy_constraint);
@@ -454,7 +462,7 @@ TEST_F(TestXcdrCMockDispatch, DestroyConstrained)
   rosidl_typesupport_xcdr_c_destroy_constrained_message_type_support(nullptr);
   EXPECT_EQ(-1, last_called);  // destroy_constrained(nullptr) must be a no-op.
 
-  rosidl_message_type_constraints_t dummy_constraint{};
+  rosidl_typesupport_xcdr_c__constraints_t dummy_constraint{};
   auto * constrained =
     rosidl_typesupport_xcdr_c_create_constrained_message_type_support(
       &handle_, &dummy_constraint);
@@ -467,8 +475,8 @@ TEST_F(TestXcdrCMockDispatch, DestroyConstrained)
 TEST_F(TestXcdrCMockDispatch, CompareTypeSpecificConstraints)
 {
   int ts_a{}, ts_b{};
-  rosidl_message_type_constraints_t candidate{};
-  rosidl_message_type_constraints_t baseline{};
+  rosidl_typesupport_xcdr_c__constraints_t candidate{};
+  rosidl_typesupport_xcdr_c__constraints_t baseline{};
   candidate.type_specific = &ts_a;
   baseline.type_specific = &ts_b;
 
@@ -552,8 +560,8 @@ TEST_F(TestXcdrCWrongIdentifier, CreateConstrained)
 TEST_F(TestXcdrCWrongIdentifier, CompareConstraints)
 {
   int ts_a{}, ts_b{};
-  rosidl_message_type_constraints_t candidate{};
-  rosidl_message_type_constraints_t baseline{};
+  rosidl_typesupport_xcdr_c__constraints_t candidate{};
+  rosidl_typesupport_xcdr_c__constraints_t baseline{};
   candidate.type_specific = &ts_a;
   baseline.type_specific = &ts_b;
   // Wrong identifier (doesn't contain "xcdr") => fails.
@@ -611,8 +619,8 @@ TEST(TestXcdrCNullCallbacks, CompareConstraints_NullCallback)
   ts.data = &null_cb;
 
   int ts_a{}, ts_b{};
-  rosidl_message_type_constraints_t candidate{};
-  rosidl_message_type_constraints_t baseline{};
+  rosidl_typesupport_xcdr_c__constraints_t candidate{};
+  rosidl_typesupport_xcdr_c__constraints_t baseline{};
   candidate.type_specific = &ts_a;
   baseline.type_specific = &ts_b;
   EXPECT_FALSE(
@@ -628,7 +636,7 @@ TEST(TestXcdrCNullCallbacks, CreateConstrained_NullCallback)
   ts.typesupport_identifier = rosidl_typesupport_xcdr_c__identifier;
   ts.data = &null_cb;
 
-  rosidl_message_type_constraints_t constraints{};
+  rosidl_typesupport_xcdr_c__constraints_t constraints{};
   EXPECT_EQ(nullptr,
     rosidl_typesupport_xcdr_c_create_constrained_message_type_support(
       &ts, &constraints));
@@ -640,7 +648,7 @@ TEST(TestXcdrCNullCallbacks, CreateConstrained_NullCallback)
 
 TEST(TestXcdrCConstraints, NullBaselineIsAlwaysCompatible)
 {
-  rosidl_message_type_constraints_t candidate{};
+  rosidl_typesupport_xcdr_c__constraints_t candidate{};
   EXPECT_TRUE(
     rosidl_typesupport_xcdr_c_compare_constraints(
       nullptr, &candidate, nullptr, nullptr, nullptr));
@@ -648,7 +656,7 @@ TEST(TestXcdrCConstraints, NullBaselineIsAlwaysCompatible)
 
 TEST(TestXcdrCConstraints, NullCandidateIsLooser)
 {
-  rosidl_message_type_constraints_t baseline{};
+  rosidl_typesupport_xcdr_c__constraints_t baseline{};
   baseline.max_string_length = 100;
   EXPECT_FALSE(
     rosidl_typesupport_xcdr_c_compare_constraints(
@@ -657,10 +665,10 @@ TEST(TestXcdrCConstraints, NullCandidateIsLooser)
 
 TEST(TestXcdrCConstraints, BlanketStringLengthCheck)
 {
-  rosidl_message_type_constraints_t baseline{};
+  rosidl_typesupport_xcdr_c__constraints_t baseline{};
   baseline.max_string_length = 100;
 
-  rosidl_message_type_constraints_t candidate{};
+  rosidl_typesupport_xcdr_c__constraints_t candidate{};
   candidate.max_string_length = 200;
 
   EXPECT_FALSE(
@@ -670,10 +678,10 @@ TEST(TestXcdrCConstraints, BlanketStringLengthCheck)
 
 TEST(TestXcdrCConstraints, BlanketTotalSizeCheck)
 {
-  rosidl_message_type_constraints_t baseline{};
+  rosidl_typesupport_xcdr_c__constraints_t baseline{};
   baseline.max_total_size = 1000;
 
-  rosidl_message_type_constraints_t candidate{};
+  rosidl_typesupport_xcdr_c__constraints_t candidate{};
   candidate.max_total_size = 2000;
 
   EXPECT_FALSE(
@@ -686,10 +694,10 @@ TEST(TestXcdrCConstraints, TypeSpecificNoHandleFails)
   int ts_a{};
   int ts_b{};
 
-  rosidl_message_type_constraints_t baseline{};
+  rosidl_typesupport_xcdr_c__constraints_t baseline{};
   baseline.type_specific = &ts_a;
 
-  rosidl_message_type_constraints_t candidate{};
+  rosidl_typesupport_xcdr_c__constraints_t candidate{};
   candidate.type_specific = &ts_b;
 
   // Without a handle, different type_specific pointers => incompatible.
@@ -700,11 +708,11 @@ TEST(TestXcdrCConstraints, TypeSpecificNoHandleFails)
 
 TEST(TestXcdrCConstraints, Compatible)
 {
-  rosidl_message_type_constraints_t baseline{};
+  rosidl_typesupport_xcdr_c__constraints_t baseline{};
   baseline.max_string_length = 100;
   baseline.max_total_size = 1000;
 
-  rosidl_message_type_constraints_t candidate{};
+  rosidl_typesupport_xcdr_c__constraints_t candidate{};
   candidate.max_string_length = 50;
   candidate.max_total_size = 500;
 
@@ -717,10 +725,10 @@ TEST(TestXcdrCConstraints, SameTypeSpecificPointerCompatibleWithoutHandle)
 {
   int ts_val{};
 
-  rosidl_message_type_constraints_t baseline{};
+  rosidl_typesupport_xcdr_c__constraints_t baseline{};
   baseline.type_specific = &ts_val;
 
-  rosidl_message_type_constraints_t candidate{};
+  rosidl_typesupport_xcdr_c__constraints_t candidate{};
   candidate.type_specific = &ts_val;  // same pointer => identity match
 
   EXPECT_TRUE(

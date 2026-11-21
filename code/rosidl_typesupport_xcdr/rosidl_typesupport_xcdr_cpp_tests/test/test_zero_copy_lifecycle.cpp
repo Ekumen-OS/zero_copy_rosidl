@@ -33,12 +33,35 @@
 
 #include <vector>
 
+#include "rcutils/error_handling.h"
+
 // =============================================================================
 // BoundedMessage  (experimental)
 // =============================================================================
 
 using BoundedMessage = rosidl_typesupport_xcdr_cpp_tests::msg::experimental::BoundedMessage;
 using UnboundedMessage = rosidl_typesupport_xcdr_cpp_tests::msg::experimental::UnboundedMessage;
+
+TEST(TestZeroCopyLifecycle, ConstructRejectsUndersizedRegion)
+{
+  using BasicTypes = rosidl_typesupport_xcdr_cpp_tests::msg::experimental::BasicTypes;
+  auto ts = rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<BasicTypes>();
+  size_t expected_size = 0;
+  ASSERT_EQ(
+    RCUTILS_RET_OK, rosidl_typesupport_xcdr_cpp::get_expected_message_size(ts, &expected_size));
+  ASSERT_GT(expected_size, 0u);
+
+  std::vector<uint8_t> buffer(expected_size);
+  rosidl_runtime_cpp::MemoryRegion<void> storage{buffer.data(), expected_size - 1};
+  void * message = nullptr;
+  auto ret = rosidl_typesupport_xcdr_cpp::construct_message_at(ts, storage, &message);
+  EXPECT_NE(RCUTILS_RET_OK, ret);
+  EXPECT_EQ(nullptr, message);
+  if (message) {
+    rosidl_typesupport_xcdr_cpp::destroy_message(ts, message);
+  }
+  rcutils_reset_error();
+}
 
 // =============================================================================
 // deserialize_message_from — pre-allocated message

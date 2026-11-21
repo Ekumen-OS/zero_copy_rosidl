@@ -1,0 +1,2 @@
+BoundedVariable nested
+BoundedVariable[] items

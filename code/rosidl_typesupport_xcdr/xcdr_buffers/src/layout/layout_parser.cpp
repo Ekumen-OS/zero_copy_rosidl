@@ -181,12 +181,12 @@ XCdrStatus XCdrLayoutParser::parse_primitive_array(
         "Array name must not be empty. Use no-argument overload for auto-generated names");
   }
 
-  // Use builder's one-shot method
-  builder_.allocate_primitive_array(name, kind, count);
-
-  // Advance read offset
   size_t element_size = get_primitive_size(kind);
   align_read_offset(element_size);
+  if (count > bytes_remaining() / element_size) {
+    return error("Buffer too small for primitive array");
+  }
+  builder_.allocate_primitive_array(name, kind, count);
   read_offset_ += element_size * count;
 
   return ok();
@@ -198,12 +198,12 @@ XCdrStatus XCdrLayoutParser::parse_primitive_array(XCdrPrimitiveKind kind, size_
     return error("Must call parse_header() before parsing arrays");
   }
 
-  // Unnamed field (not registered in the name-to-index map)
-  builder_.allocate_primitive_array("", kind, count);
-
-  // Advance read offset
   size_t element_size = get_primitive_size(kind);
   align_read_offset(element_size);
+  if (count > bytes_remaining() / element_size) {
+    return error("Buffer too small for primitive array");
+  }
+  builder_.allocate_primitive_array("", kind, count);
   read_offset_ += element_size * count;
 
   return ok();
@@ -244,12 +244,14 @@ XCdrStatus XCdrLayoutParser::parse_primitive_sequence(
                  ", got " + std::to_string(sequence_count));
   }
 
-  // Use builder's one-shot method with the wire count
-  builder_.allocate_primitive_sequence(name, kind, sequence_count);
-
-  // Align for first element, then advance read offset for all element data
   size_t element_size = get_primitive_size(kind);
-  align_read_offset(element_size);
+  if (sequence_count != 0) {
+    align_read_offset(element_size);
+  }
+  if (sequence_count > bytes_remaining() / element_size) {
+    return error("Buffer too small for primitive sequence");
+  }
+  builder_.allocate_primitive_sequence(name, kind, sequence_count);
   read_offset_ += element_size * sequence_count;
 
   return ok();
@@ -285,12 +287,14 @@ XCdrStatus XCdrLayoutParser::parse_primitive_sequence(
                  ", got " + std::to_string(sequence_count));
   }
 
-  // Use builder's one-shot method with the wire count
-  builder_.allocate_primitive_sequence("", kind, sequence_count);
-
-  // Align for first element, then advance read offset for all element data
   size_t element_size = get_primitive_size(kind);
-  align_read_offset(element_size);
+  if (sequence_count != 0) {
+    align_read_offset(element_size);
+  }
+  if (sequence_count > bytes_remaining() / element_size) {
+    return error("Buffer too small for primitive sequence");
+  }
+  builder_.allocate_primitive_sequence("", kind, sequence_count);
   read_offset_ += element_size * sequence_count;
 
   return ok();

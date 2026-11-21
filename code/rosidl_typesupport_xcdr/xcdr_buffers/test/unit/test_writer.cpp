@@ -507,7 +507,6 @@ TEST(XCdrWriter_Skip, SkipArray_GrowingMode)
   for (int i = 0; i < 8; ++i) {
     per_element_writer.skip<uint16_t>();
                                                                      }
-  per_element_writer.flush();
   size_t per_element_size = per_element_writer.bytes_written();
 
   XCdrWriter bulk_writer;

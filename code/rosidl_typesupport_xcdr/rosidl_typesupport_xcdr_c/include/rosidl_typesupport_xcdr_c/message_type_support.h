@@ -21,7 +21,14 @@
 #include "rcutils/types/rcutils_ret.h"
 
 #include "rosidl_runtime_c/message_type_support_struct.h"
+#if __has_include("rosidl_runtime_c/constraints.h")
+#include "rosidl_runtime_c/constraints.h"
+#include "rosidl_runtime_c/memory.h"
+typedef rosidl_runtime_c__message_type_constraints_t rosidl_typesupport_xcdr_c__constraints_t;
+#else
 #include "rosidl_runtime_c/experimental/memory.h"
+typedef rosidl_message_type_constraints_t rosidl_typesupport_xcdr_c__constraints_t;
+#endif
 
 #include "rosidl_typesupport_xcdr_c/visibility_control.h"
 
@@ -215,7 +222,7 @@ typedef struct rosidl_message_xcdr_type_support_s
    */
   rosidl_message_type_support_t * (*create_constrained)(
     const struct rosidl_message_xcdr_type_support_s * outer,
-    const rosidl_message_type_constraints_t * constraints);
+    const rosidl_typesupport_xcdr_c__constraints_t * constraints);
 
   /// Destroy a constrained typesupport handle previously returned by `create_constrained`.
   /** Releases the outer callback instance, its inner state, and the handle itself.
@@ -251,7 +258,7 @@ typedef struct rosidl_message_xcdr_type_support_s
    *          RCUTILS_RET_ERROR if a constraint is violated. */
   rcutils_ret_t (*validate_message)(
     const struct rosidl_message_xcdr_type_support_s * type_support,
-    const rosidl_message_type_constraints_t * constraints,
+    const rosidl_typesupport_xcdr_c__constraints_t * constraints,
     const void * message,
     rosidl_typesupport_xcdr_c_constraint_report_callback_t report_cb,
     void * user_data);
@@ -263,7 +270,7 @@ typedef struct rosidl_message_xcdr_type_support_s
    *  \param[in] type_support  XCDR type support to query.
    *  \return Pointer to the baseline constraints, or NULL if unconstrained.
    */
-  const rosidl_message_type_constraints_t * (*get_constraints)(
+  const rosidl_typesupport_xcdr_c__constraints_t * (*get_constraints)(
     const struct rosidl_message_xcdr_type_support_s * type_support);
 
   /// Destroy the language-specific inner state (only set for dynamically allocated instances).
@@ -427,7 +434,7 @@ ROSIDL_TYPESUPPORT_XCDR_C_PUBLIC
 rosidl_message_type_support_t *
 rosidl_typesupport_xcdr_c_create_constrained_message_type_support(
   const rosidl_message_type_support_t * base_typesupport,
-  const rosidl_message_type_constraints_t * constraints);
+  const rosidl_typesupport_xcdr_c__constraints_t * constraints);
 
 ROSIDL_TYPESUPPORT_XCDR_C_PUBLIC
 void
@@ -444,7 +451,7 @@ rosidl_typesupport_xcdr_c_destroy_constrained_message_type_support(
  * \return Pointer to the baseline constraints, or NULL if not constrained.
  */
 ROSIDL_TYPESUPPORT_XCDR_C_PUBLIC
-const rosidl_message_type_constraints_t *
+const rosidl_typesupport_xcdr_c__constraints_t *
 rosidl_typesupport_xcdr_c_get_constraints(
   const rosidl_message_type_support_t * type_support);
 
@@ -482,7 +489,7 @@ ROSIDL_TYPESUPPORT_XCDR_C_PUBLIC
 rcutils_ret_t
 rosidl_typesupport_xcdr_c_validate_message(
   const rosidl_message_type_support_t * type_support,
-  const rosidl_message_type_constraints_t * constraints,
+  const rosidl_typesupport_xcdr_c__constraints_t * constraints,
   const void * message,
   rosidl_typesupport_xcdr_c_constraint_report_callback_t report_cb,
   void * user_data);
@@ -548,8 +555,8 @@ ROSIDL_TYPESUPPORT_XCDR_C_PUBLIC
 bool
 rosidl_typesupport_xcdr_c_compare_constraints(
   const rosidl_message_type_support_t * type_support,
-  const rosidl_message_type_constraints_t * candidate,
-  const rosidl_message_type_constraints_t * baseline,
+  const rosidl_typesupport_xcdr_c__constraints_t * candidate,
+  const rosidl_typesupport_xcdr_c__constraints_t * baseline,
   rosidl_typesupport_xcdr_c_constraint_report_callback_t report_cb,
   void * user_data);
 
