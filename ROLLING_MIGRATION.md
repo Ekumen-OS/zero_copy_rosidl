@@ -146,17 +146,17 @@ Starting points: Jazzy `rosidl_runtime_{c,cpp}` and
 
 ### 2. Region-backed primitives and XCDR buffers
 
-- [ ] Port CPU region-backed scalar and fixed-array primitives using C++20
+- [x] Port CPU region-backed scalar and fixed-array primitives using C++20
   `std::span`/STL facilities and the existing `rosidl_runtime_cpp::views`
   namespace (not the Jazzy `experimental` namespace); test mutable
   and const access, bounds, invalid regions and owning versus borrowed storage.
-- [ ] Port region-backed string and sequence primitives; test nested elements,
+- [x] Port region-backed string and sequence primitives; test nested elements,
   capacity, malformed or undersized regions and lifetime independently of
   generated messages and middleware.
-- [ ] Integrate storage exposure with `rosidl::Buffer` and Rolling's backend
+- [x] Integrate storage exposure with `rosidl::Buffer` and Rolling's backend
   API; test owned and borrowed CPU storage and explicitly reject unsupported
   access rather than assuming device-memory semantics.
-- [ ] Build `xcdr_buffers` on Rolling with its declared dependencies and run
+- [x] Build `xcdr_buffers` on Rolling with its declared dependencies and run
   its layout, parser, accessor and Fast CDR interoperability tests. Check
   malformed input and preserve Jazzy compatibility in shared packages.
 

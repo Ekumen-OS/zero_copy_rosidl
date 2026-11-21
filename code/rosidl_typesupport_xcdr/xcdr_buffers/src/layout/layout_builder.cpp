@@ -164,8 +164,8 @@ void XCdrLayoutBuilder::end_allocate_array()
   // different offset due to alignment padding.
   if (ctx.element_layouts.size() == 1 && ctx.element_count > 1) {
     const auto & elem_layout = ctx.element_layouts[0];
-    size_t elem_size = std::visit([](const auto & l) { return l.size(); }, elem_layout);
-    size_t elem_align = std::visit([](const auto & l) { return l.alignment(); }, elem_layout);
+    size_t elem_size = std::visit([](const auto & l) {return l.size();}, elem_layout);
+    size_t elem_align = std::visit([](const auto & l) {return l.alignment();}, elem_layout);
     size_t offset = ctx.element_offsets[0];
     for (size_t i = 0; i < ctx.element_count; ++i) {
       elements.push_back({
