@@ -195,12 +195,19 @@ Starting points: `code/rosidl_typesupport_xcdr/` and the Jazzy
 
 ### 4. Middleware context plumbing
 
-- [ ] Add context-aware endpoint creation and borrow/take operations in `rmw`;
+- [x] Add context-aware endpoint creation and borrow/take operations in `rmw`;
   test unsupported requirements and retained context/constraint lifetime.
-- [ ] Forward the operations through `rmw_implementation`; test dispatch and
+- [x] Forward the operations through `rmw_implementation`; test dispatch and
   preserve old entry points.
-- [ ] Expose the operations in `rcl`; test existing APIs, independent endpoint
+- [x] Expose the operations in `rcl`; test existing APIs, independent endpoint
   baselines, tighter and rejected looser loans, and null per-loan context.
+
+Context-aware middleware behavior is exercised with a simulated implementation,
+including copied type-specific constraints and independent endpoint baselines.
+The unported Fast DDS backend rejects non-null contexts; implementing and
+verifying actual context-aware middleware loans remains Step 5. The dispatcher
+preserves legacy calls for null contexts when a backend lacks the new symbols,
+in both runtime-selected and fixed-backend builds.
 
 ### 5. Fast DDS transport
 
