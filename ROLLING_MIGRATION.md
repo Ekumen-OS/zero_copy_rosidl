@@ -281,6 +281,9 @@ Rolling port considerations, verified against the pinned Fast DDS source:
   rollback tested for graph-add failure. Writer-history exhaustion is tested
   to fail publication and return the loan for reuse.
 
+Implementation commits: `rosidl` `79389e69`, `rmw_fastrtps` `be3d4f5` and
+`zero_copy_rosidl` `7a07901`.
+
 ### 6. C++ client library
 
 - [ ] Port `rclcpp` endpoints and publisher loans for views and contexts;
