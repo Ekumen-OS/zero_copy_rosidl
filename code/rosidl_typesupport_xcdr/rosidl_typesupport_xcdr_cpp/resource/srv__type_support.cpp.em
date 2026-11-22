@@ -13,6 +13,10 @@ try:
     force_experimental
 except NameError:
     force_experimental = False
+try:
+    region_views
+except NameError:
+    region_views = False
 
 service_typename = service.namespaced_type.name
 standard_full_namespace = package_name + '::srv'
@@ -35,7 +39,7 @@ TEMPLATE(
     'msg__type_support.cpp.em',
     package_name=package_name, interface_path=interface_path,
     message=service.request_message, is_service_message=True,
-    force_experimental=force_experimental,
+    force_experimental=force_experimental, region_views=region_views,
     first_service_message=True, emitted_nested_includes=emitted_nested_includes)
 }@
 @
@@ -44,7 +48,7 @@ TEMPLATE(
     'msg__type_support.cpp.em',
     package_name=package_name, interface_path=interface_path,
     message=service.response_message, is_service_message=True,
-    force_experimental=force_experimental,
+    force_experimental=force_experimental, region_views=region_views,
     first_service_message=False, emitted_nested_includes=emitted_nested_includes)
 }@
 @
@@ -57,7 +61,7 @@ if not force_experimental:
         'msg__type_support.cpp.em',
         package_name=package_name, interface_path=interface_path,
         message=service.event_message, is_service_message=True,
-        force_experimental=False,
+        force_experimental=False, region_views=region_views,
         first_service_message=False, emitted_nested_includes=emitted_nested_includes)
 }@
 

@@ -1,0 +1,8 @@
+module rosidl_typesupport_xcdr_cpp_tests {
+  module msg {
+    struct Keyed {
+      @key long key;
+      long value;
+    };
+  };
+};

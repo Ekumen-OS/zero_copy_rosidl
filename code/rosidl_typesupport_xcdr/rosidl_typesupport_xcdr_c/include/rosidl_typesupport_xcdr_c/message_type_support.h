@@ -312,6 +312,9 @@ typedef struct rosidl_message_xcdr_type_support_s
   /// ROS message name (e.g. "Image").
   /** Populated by the code generator. May be NULL for constrained or synthetic handles. */
   const char * message_name;
+
+  /// Whether construct/cast produce ROS-wire-compatible region-backed views.
+  bool supports_region_loans;
 } rosidl_message_xcdr_type_support_t;
 
 // ============================================================================

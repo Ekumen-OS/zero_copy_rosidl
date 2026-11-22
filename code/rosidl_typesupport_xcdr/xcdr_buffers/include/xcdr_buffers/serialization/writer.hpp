@@ -141,6 +141,22 @@ public:
    */
   void write(std::u16string_view str);
 
+  /// Write UTF-16 code units using ROS's 32-bit wide-string wire representation.
+  template<typename Range>
+  void write_ros_wstring(const Range & str)
+  {
+    if (str.size() > UINT32_MAX) {
+      overflow_error_ = true;
+      return;
+    }
+    write(static_cast<uint32_t>(str.size()));
+    for (char16_t value : str) {
+      write(static_cast<uint32_t>(value));
+    }
+  }
+
+  void skip_ros_wstring(size_t char_count);
+
   /**
    * @brief Begin writing an array.
    *

@@ -15,6 +15,7 @@
 #include "xcdr_buffers/serialization/writer.hpp"
 
 #include <cstring>
+#include <limits>
 
 namespace xcdr_buffers
 {
@@ -367,6 +368,19 @@ void XCdrWriter::skip_wstring(size_t char_count)
 
   // Null terminator
   skip_advance(sizeof(char16_t), sizeof(char16_t));
+}
+
+void XCdrWriter::skip_ros_wstring(size_t char_count)
+{
+  ensure_header_written();
+  if (char_count > UINT32_MAX ||
+    char_count > std::numeric_limits<size_t>::max() / sizeof(uint32_t))
+  {
+    overflow_error_ = true;
+    return;
+  }
+  skip_advance(sizeof(uint32_t), sizeof(uint32_t));
+  skip_advance(sizeof(uint32_t), char_count * sizeof(uint32_t));
 }
 
 void XCdrWriter::begin_skip_sequence(size_t count)

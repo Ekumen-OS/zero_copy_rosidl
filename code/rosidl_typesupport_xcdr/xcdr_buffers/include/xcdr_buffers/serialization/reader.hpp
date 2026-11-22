@@ -20,6 +20,8 @@
 #include <cstdint>
 #include <limits>
 #include <memory_resource>
+#include <new>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -215,6 +217,37 @@ public:
    */
   template<typename T>
   XCdrStatus read_into(T & value);
+
+  /// Read ROS's 32-bit wide-string wire representation into UTF-16.
+  XCdrResult<std::u16string> read_ros_wstring()
+  {
+    auto length = read<uint32_t>();
+    if (!length) {
+      return tl::unexpected(length.error());
+    }
+    if (*length > bytes_remaining() / sizeof(uint32_t)) {
+      return error("Buffer too small for ROS wide string");
+    }
+    try {
+      std::u16string result;
+      result.reserve(*length);
+      for (uint32_t i = 0; i < *length; ++i) {
+        auto value = read<uint32_t>();
+        if (!value) {
+          return tl::unexpected(value.error());
+        }
+        if (*value > UINT16_MAX) {
+          return error("ROS wide string code unit exceeds 16 bits");
+        }
+        result.push_back(static_cast<char16_t>(*value));
+      }
+      return ok(std::move(result));
+    } catch (const std::bad_alloc &) {
+      return error("Failed to allocate ROS wide string");
+    } catch (const std::length_error &) {
+      return error("ROS wide string length exceeds container limits");
+    }
+  }
 
   /**
    * @brief Begin reading an array.

@@ -26,8 +26,10 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/experimental/NestedBounded.msg"
   "msg/experimental/VariableContainers.msg"
   "msg/InnerMessage.msg"
+  "msg/Empty.msg"
   "msg/NestedLast.msg"
   "msg/NestedMessage.msg"
+  "msg/Keyed.idl"
   "srv/AddTwoInts.srv"
 )
 

@@ -422,6 +422,7 @@ get_xcdr_cpp_type_support_prototype()
     cpp_compact_message_in_place,
     nullptr,                      // message_namespace (set by codegen callers)
     nullptr,                      // message_name (set by codegen callers)
+    false,                        // supports_region_loans (set by codegen)
   };
   return &prototype;
 }

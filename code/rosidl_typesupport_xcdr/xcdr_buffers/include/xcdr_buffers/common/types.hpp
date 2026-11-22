@@ -193,6 +193,7 @@ enum class XCdrCharKind : uint8_t
 {
   kChar8 = 0,   // Regular string (char/char8_t), 1 byte per character
   kChar16,      // Wide string (char16_t), 2 bytes per character
+  kRosWide,     // ROS wide string, 4 bytes per UTF-16 code unit
 };
 
 /**
@@ -208,6 +209,8 @@ inline size_t get_char_size(XCdrCharKind kind)
       return 1;
     case XCdrCharKind::kChar16:
       return 2;
+    case XCdrCharKind::kRosWide:
+      return 4;
   }
   return 0;  // Should never reach here
 }

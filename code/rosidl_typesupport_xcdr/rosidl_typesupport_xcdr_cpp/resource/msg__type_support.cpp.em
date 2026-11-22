@@ -174,6 +174,7 @@ for member in message.structure.members:
 #include <memory>
 #include <memory_resource>
 #include <new>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -237,13 +238,13 @@ for member in message.structure.members:
     if (limit > @(member.type.maximum_size)) {
       ret = RCUTILS_RET_ERROR;
     }
-    builder.allocate_string("@(member.name)", limit == 0 ? @(member.type.maximum_size) : limit@(', xcdr_buffers::XCdrCharKind::kChar16' if isinstance(member.type, AbstractWString) else ''));
+    builder.allocate_string("@(member.name)", limit == 0 ? @(member.type.maximum_size) : limit@(', xcdr_buffers::XCdrCharKind::' + ('kRosWide' if is_region_view else 'kChar16') if isinstance(member.type, AbstractWString) else ''));
   }
 @[else]@
-  builder.allocate_string("@(member.name)", @(member.type.maximum_size)@(', xcdr_buffers::XCdrCharKind::kChar16' if isinstance(member.type, AbstractWString) else ''));
+  builder.allocate_string("@(member.name)", @(member.type.maximum_size)@(', xcdr_buffers::XCdrCharKind::' + ('kRosWide' if is_region_view else 'kChar16') if isinstance(member.type, AbstractWString) else ''));
 @[end if]@
 @[elif isinstance(member.type, (AbstractString, AbstractWString))]@
-  builder.allocate_string("@(member.name)", @(constraints_prefix).@(member.name).size@(', xcdr_buffers::XCdrCharKind::kChar16' if isinstance(member.type, AbstractWString) else ''));
+  builder.allocate_string("@(member.name)", @(constraints_prefix).@(member.name).size@(', xcdr_buffers::XCdrCharKind::' + ('kRosWide' if is_region_view else 'kChar16') if isinstance(member.type, AbstractWString) else ''));
 @[elif isinstance(member.type, Array)]@
 @[  if isinstance(member.type.value_type, BasicType)]@
   builder.allocate_primitive_array("@(member.name)", @(get_xcdr_primitive_kind(member.type.value_type)), @(member.type.size));
@@ -258,13 +259,13 @@ for member in message.structure.members:
       if (limit > @(member.type.value_type.maximum_size)) {
         ret = RCUTILS_RET_ERROR;
       }
-      builder.allocate_string(limit == 0 ? @(member.type.value_type.maximum_size) : limit@(', xcdr_buffers::XCdrCharKind::kChar16' if isinstance(member.type.value_type, AbstractWString) else ''));
+      builder.allocate_string(limit == 0 ? @(member.type.value_type.maximum_size) : limit@(', xcdr_buffers::XCdrCharKind::' + ('kRosWide' if is_region_view else 'kChar16') if isinstance(member.type.value_type, AbstractWString) else ''));
     }
 @[        else]@
-    builder.allocate_string(@(member.type.value_type.maximum_size)@(', xcdr_buffers::XCdrCharKind::kChar16' if isinstance(member.type.value_type, AbstractWString) else ''));
+    builder.allocate_string(@(member.type.value_type.maximum_size)@(', xcdr_buffers::XCdrCharKind::' + ('kRosWide' if is_region_view else 'kChar16') if isinstance(member.type.value_type, AbstractWString) else ''));
 @[        end if]@
 @[      else]@
-    builder.allocate_string(@(constraints_prefix).@(member.name).size@(', xcdr_buffers::XCdrCharKind::kChar16' if isinstance(member.type.value_type, AbstractWString) else ''));
+    builder.allocate_string(@(constraints_prefix).@(member.name).size@(', xcdr_buffers::XCdrCharKind::' + ('kRosWide' if is_region_view else 'kChar16') if isinstance(member.type.value_type, AbstractWString) else ''));
 @[      end if]@
 @[    elif isinstance(member.type.value_type, NamespacedType)]@
     builder.begin_allocate_struct();
@@ -329,13 +330,13 @@ for member in message.structure.members:
         if (limit > @(member.type.value_type.maximum_size)) {
           ret = RCUTILS_RET_ERROR;
         }
-        builder.allocate_string(limit == 0 ? @(member.type.value_type.maximum_size) : limit@(', xcdr_buffers::XCdrCharKind::kChar16' if isinstance(member.type.value_type, AbstractWString) else ''));
+        builder.allocate_string(limit == 0 ? @(member.type.value_type.maximum_size) : limit@(', xcdr_buffers::XCdrCharKind::' + ('kRosWide' if is_region_view else 'kChar16') if isinstance(member.type.value_type, AbstractWString) else ''));
       }
 @[        else]@
-      builder.allocate_string(@(member.type.value_type.maximum_size)@(', xcdr_buffers::XCdrCharKind::kChar16' if isinstance(member.type.value_type, AbstractWString) else ''));
+      builder.allocate_string(@(member.type.value_type.maximum_size)@(', xcdr_buffers::XCdrCharKind::' + ('kRosWide' if is_region_view else 'kChar16') if isinstance(member.type.value_type, AbstractWString) else ''));
 @[        end if]@
 @[      else]@
-      builder.allocate_string(@(constraints_prefix).@(member.name).element.size@(', xcdr_buffers::XCdrCharKind::kChar16' if isinstance(member.type.value_type, AbstractWString) else ''));
+      builder.allocate_string(@(constraints_prefix).@(member.name).element.size@(', xcdr_buffers::XCdrCharKind::' + ('kRosWide' if is_region_view else 'kChar16') if isinstance(member.type.value_type, AbstractWString) else ''));
 @[      end if]@
 @[    elif isinstance(member.type.value_type, NamespacedType)]@
       builder.begin_allocate_struct();
@@ -395,7 +396,7 @@ def checked_parse(call, indent='  '):
 @[if isinstance(member.type, BasicType)]@
 @(checked_parse('parser.parse_primitive(' + get_xcdr_primitive_kind(member.type) + ')'))
 @[elif isinstance(member.type, (AbstractString, AbstractWString))]@
-@(checked_parse('parser.parse_string(xcdr_buffers::XCdrCharKind::kChar16)' if isinstance(member.type, AbstractWString) else 'parser.parse_string()'))
+@(checked_parse('parser.parse_string(xcdr_buffers::XCdrCharKind::' + ('kRosWide' if is_region_view else 'kChar16') + ')' if isinstance(member.type, AbstractWString) else 'parser.parse_string()'))
 @[elif isinstance(member.type, Array)]@
 @[  if isinstance(member.type.value_type, BasicType)]@
 @(checked_parse('parser.parse_primitive_array(' + get_xcdr_primitive_kind(member.type.value_type) + ', ' + str(member.type.size) + ')'))
@@ -403,7 +404,7 @@ def checked_parse(call, indent='  '):
 @(checked_parse('parser.begin_parse_array(' + str(member.type.size) + ')'))
   for (size_t _i = 0; _i < @(member.type.size); ++_i) {
 @[    if isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
-@(checked_parse('parser.parse_string(xcdr_buffers::XCdrCharKind::kChar16)' if isinstance(member.type.value_type, AbstractWString) else 'parser.parse_string()', '    '))
+@(checked_parse('parser.parse_string(xcdr_buffers::XCdrCharKind::' + ('kRosWide' if is_region_view else 'kChar16') + ')' if isinstance(member.type.value_type, AbstractWString) else 'parser.parse_string()', '    '))
 @[    elif isinstance(member.type.value_type, NamespacedType)]@
 @(checked_parse('parser.begin_parse_struct()', '    '))
     {
@@ -444,7 +445,7 @@ def checked_parse(call, indent='  '):
 @[    end if]@
     for (size_t _i = 0; _i < *_size; ++_i) {
 @[    if isinstance(member.type.value_type, (AbstractString, AbstractWString))]@
-@(checked_parse('parser.parse_string(xcdr_buffers::XCdrCharKind::kChar16)' if isinstance(member.type.value_type, AbstractWString) else 'parser.parse_string()', '      '))
+@(checked_parse('parser.parse_string(xcdr_buffers::XCdrCharKind::' + ('kRosWide' if is_region_view else 'kChar16') + ')' if isinstance(member.type.value_type, AbstractWString) else 'parser.parse_string()', '      '))
 @[    elif isinstance(member.type.value_type, NamespacedType)]@
 @(checked_parse('parser.begin_parse_struct()', '      '))
       {
@@ -483,13 +484,15 @@ def checked_parse(call, indent='  '):
 @[end if]@
 @[end def]@
 @
-@[def generate_writer_field(member, is_experimental, msg_prefix='msg', is_region_view=is_region_view)]@
+@[def generate_writer_field(member, is_experimental, msg_prefix='msg', is_region_view=is_region_view, region_views=region_views)]@
 @{ from rosidl_parser.definition import BasicType, AbstractString, AbstractWString, BoundedString, BoundedWString, Array, BoundedSequence, AbstractSequence, NamespacedType }@ @
 @{ from rosidl_typesupport_xcdr_cpp.template_helpers import get_xcdr_primitive_kind, get_cpp_type, get_message_type_name }@ @
 @[if isinstance(member.type, BasicType)]@
   writer.write<@(get_cpp_type(member.type))>(@(msg_prefix).@(member.name)@('()' if is_region_view else ''));
 @[elif isinstance(member.type, AbstractWString)]@
-@[  if is_experimental]@
+@[  if is_region_view or (region_views and not is_experimental)]@
+  writer.write_ros_wstring(@(msg_prefix).@(member.name)@('()' if is_region_view else ''));
+@[  elif is_experimental]@
   writer.write(std::u16string_view(@(msg_prefix).@(member.name)@('()' if is_region_view else '').data(), @(msg_prefix).@(member.name)@('()' if is_region_view else '').size()));
 @[  else]@
   writer.write(std::u16string_view(@(msg_prefix).@(member.name)@('()' if is_region_view else '')));
@@ -506,7 +509,11 @@ def checked_parse(call, indent='  '):
 @[  else]@
   writer.begin_write_array(@(member.type.size));
 @[    if isinstance(member.type.value_type, AbstractWString)]@
-@[      if is_experimental]@
+@[      if is_region_view or (region_views and not is_experimental)]@
+  for (size_t i = 0; i < @(member.type.size); ++i) {
+    writer.write_ros_wstring(@(msg_prefix).@(member.name)@('()' if is_region_view else '')[i]);
+  }
+@[      elif is_experimental]@
   for (size_t i = 0; i < @(member.type.size); ++i) {
     writer.write(std::u16string_view(@(msg_prefix).@(member.name)@('()' if is_region_view else '')[i].data(), @(msg_prefix).@(member.name)@('()' if is_region_view else '')[i].size()));
   }
@@ -553,7 +560,11 @@ def checked_parse(call, indent='  '):
 @[  else]@
   writer.begin_write_sequence(@(msg_prefix).@(member.name)@('()' if is_region_view else '').size());
 @[    if isinstance(member.type.value_type, AbstractWString)]@
-@[      if is_experimental]@
+@[      if is_region_view or (region_views and not is_experimental)]@
+  for (size_t i = 0; i < @(msg_prefix).@(member.name)@('()' if is_region_view else '').size(); ++i) {
+    writer.write_ros_wstring(@(msg_prefix).@(member.name)@('()' if is_region_view else '')[i]);
+  }
+@[      elif is_experimental]@
   for (size_t i = 0; i < @(msg_prefix).@(member.name)@('()' if is_region_view else '').size(); ++i) {
     writer.write(std::u16string_view(@(msg_prefix).@(member.name)@('()' if is_region_view else '')[i].data(), @(msg_prefix).@(member.name)@('()' if is_region_view else '')[i].size()));
   }
@@ -601,7 +612,7 @@ def checked_parse(call, indent='  '):
 @[end if]@
 @[end def]@
 @
-@[def generate_reader_field(member, is_experimental, msg_prefix='msg', is_region_view=is_region_view)]@
+@[def generate_reader_field(member, is_experimental, msg_prefix='msg', is_region_view=is_region_view, region_views=region_views)]@
 @{ from rosidl_parser.definition import BasicType, AbstractString, AbstractWString, BoundedString, BoundedWString, Array, BoundedSequence, AbstractSequence, NamespacedType }@ @
 @{ from rosidl_typesupport_xcdr_cpp.template_helpers import get_xcdr_primitive_kind, get_cpp_type, get_message_type_name }@ @
 @[if isinstance(member.type, BasicType)]@
@@ -612,7 +623,11 @@ def checked_parse(call, indent='  '):
   }
 @[elif isinstance(member.type, AbstractWString)]@
   {
+@[if is_region_view or (region_views and not is_experimental)]@
+    auto @(member.name)_result = reader.read_ros_wstring();
+@[else]@
     auto @(member.name)_result = reader.read<std::u16string_view>();
+@[end if]@
     if (!@(member.name)_result) {return RCUTILS_RET_ERROR;}
     auto @(member.name)_view = *@(member.name)_result;
     @(msg_prefix).@(member.name)@('()' if is_region_view else '').assign(@(member.name)_view);
@@ -639,7 +654,11 @@ def checked_parse(call, indent='  '):
   reader.begin_read_array(@(member.type.size));
 @[    if isinstance(member.type.value_type, AbstractWString)]@
   for (size_t i = 0; i < @(member.type.size); ++i) {
+@[if is_region_view or (region_views and not is_experimental)]@
+    auto @(member.name)_elem_result = reader.read_ros_wstring();
+@[else]@
     auto @(member.name)_elem_result = reader.read<std::u16string_view>();
+@[end if]@
     if (!@(member.name)_elem_result) {return RCUTILS_RET_ERROR;}
     auto elem_view = *@(member.name)_elem_result;
     @(msg_prefix).@(member.name)@('()' if is_region_view else '')[i].assign(elem_view);
@@ -705,7 +724,11 @@ def checked_parse(call, indent='  '):
     @(msg_prefix).@(member.name)@('()' if is_region_view else '').resize(@(member.name)_size);
 @[    if isinstance(member.type.value_type, AbstractWString)]@
     for (size_t i = 0; i < @(member.name)_size; ++i) {
+@[if is_region_view or (region_views and not is_experimental)]@
+      auto @(member.name)_elem_result = reader.read_ros_wstring();
+@[else]@
       auto @(member.name)_elem_result = reader.read<std::u16string_view>();
+@[end if]@
       if (!@(member.name)_elem_result) {return RCUTILS_RET_ERROR;}
       auto elem_view = *@(member.name)_elem_result;
       @(msg_prefix).@(member.name)@('()' if is_region_view else '')[i].assign(elem_view);
@@ -799,19 +822,22 @@ def checked_parse(call, indent='  '):
     auto _@(member.name)_slice = accessor[@(index)].slice();
     auto _@(member.name)_data = _@(member.name)_slice.subspan(xcdr_buffers::kStringLengthPrefixSize);
 @[if is_region_view]@
-    if (reinterpret_cast<std::uintptr_t>(_@(member.name)_data.data()) % alignof(char16_t) != 0) {
+    if (reinterpret_cast<std::uintptr_t>(_@(member.name)_data.data()) % alignof(uint32_t) != 0 ||
+      _@(member.name)_data.size() % sizeof(uint32_t) != 0)
+    {
       RCUTILS_SET_ERROR_MSG("Wide string storage is misaligned");
       return RCUTILS_RET_ERROR;
     }
-@[end if]@
-@(validate_region_string('_' + member.name + '_data', 2))
+    ext_storage.members.@(member.name) = rosidl_runtime_cpp::MemoryRegion<uint32_t>(
+      static_cast<uint32_t *>(const_cast<void *>(static_cast<const void *>(_@(member.name)_data.data()))),
+      _@(member.name)_data.size());
+    if (ext_storage.prepopulated) {
+      ext_storage.members.@(member.name).size = _@(member.name)_data.size() / sizeof(uint32_t);
+    }
+@[else]@
     ext_storage.members.@(member.name) = rosidl_runtime_cpp::MemoryRegion<char16_t>(
       static_cast<char16_t *>(const_cast<void *>(static_cast<const void *>(_@(member.name)_data.data()))),
       _@(member.name)_data.size());
-@[if is_region_view]@
-    if (ext_storage.prepopulated) {
-      ext_storage.members.@(member.name).size = _@(member.name)_data.size() / sizeof(char16_t) - 1;
-    }
 @[end if]@
   }
 @[elif isinstance(member.type, AbstractString)]@
@@ -870,20 +896,23 @@ def checked_parse(call, indent='  '):
       auto _@(member.name)_elem_slice = _@(member.name)_arr[_@(member.name)_j].slice();
       auto _@(member.name)_elem_data = _@(member.name)_elem_slice.subspan(xcdr_buffers::kStringLengthPrefixSize);
 @[if is_region_view]@
-      if (reinterpret_cast<std::uintptr_t>(_@(member.name)_elem_data.data()) % alignof(char16_t) != 0) {
+      if (reinterpret_cast<std::uintptr_t>(_@(member.name)_elem_data.data()) % alignof(uint32_t) != 0 ||
+        _@(member.name)_elem_data.size() % sizeof(uint32_t) != 0)
+      {
         RCUTILS_SET_ERROR_MSG("Wide string array storage is misaligned");
         return RCUTILS_RET_ERROR;
       }
-@[end if]@
-@(validate_region_string('_' + member.name + '_elem_data', 2, True))
+      ext_storage.members.@(member.name)[_@(member.name)_j] = rosidl_runtime_cpp::MemoryRegion<uint32_t>(
+        static_cast<uint32_t *>(const_cast<void *>(static_cast<const void *>(_@(member.name)_elem_data.data()))),
+        _@(member.name)_elem_data.size());
+      if (ext_storage.prepopulated) {
+        ext_storage.members.@(member.name)[_@(member.name)_j].size =
+          _@(member.name)_elem_data.size() / sizeof(uint32_t);
+      }
+@[else]@
       ext_storage.members.@(member.name)[_@(member.name)_j] = rosidl_runtime_cpp::MemoryRegion<char16_t>(
         static_cast<char16_t *>(const_cast<void *>(static_cast<const void *>(_@(member.name)_elem_data.data()))),
         _@(member.name)_elem_data.size());
-@[if is_region_view]@
-      if (ext_storage.prepopulated) {
-        ext_storage.members.@(member.name)[_@(member.name)_j].size =
-          _@(member.name)_elem_data.size() / sizeof(char16_t) - 1;
-      }
 @[end if]@
     }
   }
@@ -986,20 +1015,23 @@ _ns_arr_fn_name = _ns_arr_fn_parts[-1]
       auto _@(member.name)_elem_slice = _@(member.name)_seq[_@(member.name)_j].slice();
       auto _@(member.name)_elem_data = _@(member.name)_elem_slice.subspan(xcdr_buffers::kStringLengthPrefixSize);
 @[if is_region_view]@
-      if (reinterpret_cast<std::uintptr_t>(_@(member.name)_elem_data.data()) % alignof(char16_t) != 0) {
+      if (reinterpret_cast<std::uintptr_t>(_@(member.name)_elem_data.data()) % alignof(uint32_t) != 0 ||
+        _@(member.name)_elem_data.size() % sizeof(uint32_t) != 0)
+      {
         RCUTILS_SET_ERROR_MSG("Wide string sequence storage is misaligned");
         return RCUTILS_RET_ERROR;
       }
-@[end if]@
-@(validate_region_string('_' + member.name + '_elem_data', 2, True))
+      ext_storage.members.@(member.name).elements[_@(member.name)_j] = rosidl_runtime_cpp::MemoryRegion<uint32_t>(
+        static_cast<uint32_t *>(const_cast<void *>(static_cast<const void *>(_@(member.name)_elem_data.data()))),
+        _@(member.name)_elem_data.size());
+      if (ext_storage.prepopulated) {
+        ext_storage.members.@(member.name).elements[_@(member.name)_j].size =
+          _@(member.name)_elem_data.size() / sizeof(uint32_t);
+      }
+@[else]@
       ext_storage.members.@(member.name)@('.elements' if is_region_view else '')[_@(member.name)_j] = rosidl_runtime_cpp::MemoryRegion<char16_t>(
         static_cast<char16_t *>(const_cast<void *>(static_cast<const void *>(_@(member.name)_elem_data.data()))),
         _@(member.name)_elem_data.size());
-@[if is_region_view]@
-      if (ext_storage.prepopulated) {
-        ext_storage.members.@(member.name).elements[_@(member.name)_j].size =
-          _@(member.name)_elem_data.size() / sizeof(char16_t) - 1;
-      }
 @[end if]@
     }
   }
@@ -1248,13 +1280,21 @@ compact_message_@(msg_typename)(
   }
   auto & msg = *static_cast<@(full_msg_typename) *>(message_ptr);
 @[if is_region_view]@
-  if (!msg.backing_storage().data()) {
+  try {
+    if (!msg.backing_storage().data()) {
+      RCUTILS_SET_ERROR_MSG("no external storage to release");
+      return null_region;
+    }
+  } catch (const std::logic_error & error) {
+    RCUTILS_SET_ERROR_MSG(error.what());
+    return null_region;
+  }
 @[else]@
   if (!msg._external_storage.has_value()) {
-@[end if]@
     RCUTILS_SET_ERROR_MSG("no external storage to release");
     return null_region;
   }
+@[end if]@
   return release_message_@(msg_typename)(message_ptr);
 }
 @[end if]@
@@ -1519,10 +1559,15 @@ release_message_@(msg_typename)(void * message_ptr)
   // Extract storage before destruction
   rosidl_memory_region_t region{{nullptr, 0}, 0};
 @[if is_region_view]@
-  auto block = msg->backing_storage();
-  region.location.address = block.data();
-  region.size = block.size();
-  region.location.attributes = block.attributes();
+  try {
+    auto block = msg->backing_storage();
+    region.location.address = block.data();
+    region.size = block.size();
+    region.location.attributes = block.attributes();
+  } catch (const std::logic_error & error) {
+    RCUTILS_SET_ERROR_MSG(error.what());
+    return region;
+  }
 @[else]@
   if (msg->_external_storage.has_value()) {
     auto & block = msg->_external_storage.value().block;
@@ -1547,10 +1592,15 @@ get_backing_storage_@(msg_typename)(const void * message_ptr)
 
   rosidl_memory_region_t region{{nullptr, 0}, 0};
 @[if is_region_view]@
-  auto block = msg->backing_storage();
-  region.location.address = block.data();
-  region.size = block.size();
-  region.location.attributes = block.attributes();
+  try {
+    auto block = msg->backing_storage();
+    region.location.address = block.data();
+    region.size = block.size();
+    region.location.attributes = block.attributes();
+  } catch (const std::logic_error & error) {
+    RCUTILS_SET_ERROR_MSG(error.what());
+    return region;
+  }
 @[else]@
   if (msg->_external_storage.has_value()) {
     const auto & block = msg->_external_storage.value().block;
@@ -1581,7 +1631,13 @@ compute_serialized_size_@(msg_typename)(
 
   // Fast path: external storage already knows the size.
 @[if is_region_view]@
-  auto block = msg.backing_storage();
+  rosidl_runtime_cpp::MemoryRegion<void> block;
+  try {
+    block = msg.backing_storage();
+  } catch (const std::logic_error & error) {
+    RCUTILS_SET_ERROR_MSG(error.what());
+    return RCUTILS_RET_ERROR;
+  }
   if (block.data()) {
     *size = block.size();
     return RCUTILS_RET_OK;
@@ -1598,6 +1654,10 @@ compute_serialized_size_@(msg_typename)(
     auto ret = serialize_fields_into_writer_@(msg_typename)(message_ptr, writer);
     if (ret != RCUTILS_RET_OK) {
       return ret;
+    }
+    if (writer.has_error()) {
+      RCUTILS_SET_ERROR_MSG("XCDR serialized size overflow");
+      return RCUTILS_RET_ERROR;
     }
     *size = writer.bytes_written();
   } catch (const std::bad_alloc & error) {
@@ -1735,9 +1795,17 @@ compact_fields_@(msg_typename)(
     if (_actual_sz > _bound) {return RCUTILS_RET_ERROR;}
     if (!emit && _actual_sz < _bound) {emit = true;}
     if (emit) {
+@[if is_region_view]@
+      writer.write_ros_wstring(msg.@(member.name)());
+@[else]@
       writer.write(std::u16string_view(msg.@(member.name)@('()' if is_region_view else '').data(), msg.@(member.name)@('()' if is_region_view else '').size()));
+@[end if]@
     } else {
+@[if is_region_view]@
+      writer.skip_ros_wstring(_actual_sz);
+@[else]@
       writer.skip_wstring(_actual_sz);
+@[end if]@
     }
   }
 
@@ -1777,7 +1845,11 @@ compact_fields_@(msg_typename)(
         _array_layout.element_layout(_j)->get()).actual_length();
       if (_elem.size() > _bound) {return RCUTILS_RET_ERROR;}
       if (_elem.size() < _bound) {emit = true;}
+@[if is_region_view]@
+      if (emit) {writer.write_ros_wstring(_elem);} else {writer.skip_ros_wstring(_elem.size());}
+@[else]@
       if (emit) {writer.write(_elem.view());} else {writer.skip_wstring(_elem.size());}
+@[end if]@
     }
   }
 
@@ -1894,7 +1966,11 @@ nested_ts_name_arr = get_message_type_name(member.type.value_type, experimental_
         _seq_layout.element_layout(_j)->get()).actual_length();
       if (_elem.size() > _bound) {return RCUTILS_RET_ERROR;}
       if (_elem.size() < _bound) {emit = true;}
+@[if is_region_view]@
+      if (emit) {writer.write_ros_wstring(_elem);} else {writer.skip_ros_wstring(_elem.size());}
+@[else]@
       if (emit) {writer.write(_elem.view());} else {writer.skip_wstring(_elem.size());}
+@[end if]@
     }
     writer.end_write_sequence();
   }
@@ -2027,7 +2103,13 @@ compact_message_@(msg_typename)(
 
   // Get backing buffer from external storage.
 @[if is_region_view]@
-  auto block = msg.backing_storage();
+  rosidl_runtime_cpp::MemoryRegion<void> block;
+  try {
+    block = msg.backing_storage();
+  } catch (const std::logic_error & error) {
+    RCUTILS_SET_ERROR_MSG(error.what());
+    return null_region;
+  }
   if (!block.data()) {
     RCUTILS_SET_ERROR_MSG("message has no external storage to compact");
     return null_region;
@@ -2151,6 +2233,10 @@ compute_serialized_size_@(msg_typename)(
     if (ret != RCUTILS_RET_OK) {
       return ret;
     }
+    if (writer.has_error()) {
+      RCUTILS_SET_ERROR_MSG("XCDR serialized size overflow");
+      return RCUTILS_RET_ERROR;
+    }
     *size = writer.bytes_written();
   } catch (const std::bad_alloc & error) {
     RCUTILS_SET_ERROR_MSG(error.what());
@@ -2260,6 +2346,7 @@ get_message_type_support_handle<@(full_msg_typename)>()
       tmp.message_namespace = "@(dds_namespace)";
       tmp.message_name = "@(msg_typename)";
 @[if is_experimental]@
+      tmp.supports_region_loans = @('true' if is_region_view and not message.structure.has_any_member_with_annotation('key') else 'false');
       tmp.destroy_message = &@(msg_namespace)::destroy_message_@(msg_typename);
       tmp.release_message = &@(msg_namespace)::release_message_@(msg_typename);
       tmp.get_backing_storage = &@(msg_namespace)::get_backing_storage_@(msg_typename);

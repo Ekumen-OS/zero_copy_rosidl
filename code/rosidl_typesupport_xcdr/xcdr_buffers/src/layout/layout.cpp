@@ -44,9 +44,9 @@ XCdrStringLayout::XCdrStringLayout(
 size_t XCdrStringLayout::size() const
 {
   const size_t char_size = get_char_size(char_kind_);
-  const size_t terminator_size = (char_kind_ == XCdrCharKind::kChar8) ?
-    kStringNullTerminatorSize :
-    kWStringNullTerminatorSize;
+  const size_t terminator_size = char_kind_ == XCdrCharKind::kChar8 ?
+    kStringNullTerminatorSize : char_kind_ == XCdrCharKind::kChar16 ?
+    kWStringNullTerminatorSize : 0;
   return kStringLengthPrefixSize + (actual_length_ * char_size) + terminator_size;
 }
 
@@ -281,6 +281,15 @@ static XCdrStatus initialize_layout(
              std::is_same_v<T, XCdrArrayLayout>|| std::is_same_v<T, XCdrSequenceLayout>;
              if constexpr (std::is_same_v<T, XCdrStringLayout>) {
                const auto char_size = get_char_size(entry.char_kind());
+               if (entry.char_kind() == XCdrCharKind::kRosWide) {
+                 if (entry.actual_length() > UINT32_MAX) {
+                   return error("String length exceeds XCDR length prefix");
+                 }
+                 write_to_bytes(
+                   buffer.subspan(offset, kStringLengthPrefixSize),
+                   static_cast<uint32_t>(entry.actual_length()), endianness);
+                 return ok();
+               }
                if (entry.actual_length() >= UINT32_MAX / char_size) {
                  return error("String length exceeds XCDR length prefix");
                }

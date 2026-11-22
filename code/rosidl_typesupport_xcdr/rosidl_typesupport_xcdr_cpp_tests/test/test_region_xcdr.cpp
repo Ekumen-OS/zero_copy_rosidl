@@ -15,6 +15,7 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 #include "rcutils/error_handling.h"
@@ -22,6 +23,7 @@
 #include "rosidl_typesupport_xcdr_cpp/message_type_support.hpp"
 #include "rosidl_typesupport_xcdr_cpp_tests/msg/bounded_message.hpp"
 #include "rosidl_typesupport_xcdr_cpp_tests/msg/bounded_variable.hpp"
+#include "rosidl_typesupport_xcdr_cpp_tests/msg/nested_bounded.hpp"
 #include "rosidl_typesupport_xcdr_cpp_tests/msg/nested_containers.hpp"
 #include "rosidl_typesupport_xcdr_cpp_tests/msg/nested_last.hpp"
 #include "rosidl_typesupport_xcdr_cpp_tests/msg/unbounded_message.hpp"
@@ -121,6 +123,33 @@ TEST(RegionXcdr, SimulatedLoanRemainsOwnedUntilViewIsConsumed)
   xcdr::destroy_message(ts, raw);
 }
 
+TEST(RegionXcdr, MovedFromLoanReportsErrorsWithoutConsumingTheView)
+{
+  auto ts = xcdr::get_message_type_support_handle<View>();
+  size_t size = 0;
+  ASSERT_EQ(RCUTILS_RET_OK, xcdr::get_expected_message_size(ts, &size));
+  std::vector<uint8_t> buffer(size + 4);
+  rosidl_runtime_cpp::MemoryRegion<void> region(buffer.data() + 4, size);
+  void * raw = nullptr;
+  ASSERT_EQ(RCUTILS_RET_OK, xcdr::construct_message_at(ts, region, &raw));
+  auto * view = static_cast<View *>(raw);
+  View moved(std::move(*view));
+
+  EXPECT_EQ(nullptr, xcdr::get_backing_storage(ts, view).data());
+  EXPECT_TRUE(rcutils_error_is_set());
+  rcutils_reset_error();
+  EXPECT_EQ(nullptr, xcdr::release_message(ts, view).data());
+  EXPECT_TRUE(rcutils_error_is_set());
+  rcutils_reset_error();
+  EXPECT_EQ(nullptr, xcdr::compact_message_in_place(ts, view).location.address);
+  EXPECT_TRUE(rcutils_error_is_set());
+  rcutils_reset_error();
+  EXPECT_NE(RCUTILS_RET_OK, xcdr::get_message_size(ts, view, &size));
+  EXPECT_TRUE(rcutils_error_is_set());
+  rcutils_reset_error();
+  xcdr::destroy_message(ts, view);
+}
+
 TEST(RegionXcdr, OrdinaryMessageInteroperates)
 {
   auto view_ts = xcdr::get_message_type_support_handle<View>();
@@ -174,6 +203,35 @@ TEST(RegionXcdr, CompactShortenedBoundedFields)
   EXPECT_EQ(u"w", plain.wide);
   EXPECT_EQ(u"x", plain.wide_array[0]);
   EXPECT_EQ(u"yz", plain.wide_array[1]);
+  EXPECT_EQ(99u, plain.tail);
+}
+
+TEST(RegionXcdr, CompactFullWideStringsWithoutRewrite)
+{
+  auto ts = xcdr::get_message_type_support_handle<BoundedVariableView>();
+  size_t size = 0;
+  ASSERT_EQ(RCUTILS_RET_OK, xcdr::get_expected_message_size(ts, &size));
+  std::vector<uint8_t> buffer(size + 4);
+  rosidl_runtime_cpp::MemoryRegion<void> region(buffer.data() + 4, size);
+  void * raw = nullptr;
+  ASSERT_EQ(RCUTILS_RET_OK, xcdr::construct_message_at(ts, region, &raw));
+  auto * view = static_cast<BoundedVariableView *>(raw);
+  view->name() = "12345678";
+  view->values().resize(3);
+  view->wide() = u"12345678";
+  view->wide_array()[0] = u"abcdefgh";
+  view->wide_array()[1] = u"ABCDEFGH";
+  view->tail() = 99;
+  auto compacted = xcdr::compact_message_in_place(ts, view);
+  ASSERT_NE(nullptr, compacted.location.address) << rcutils_get_error_string().str;
+  EXPECT_EQ(size, compacted.size);
+  BoundedVariable plain;
+  auto plain_ts = xcdr::get_message_type_support_handle<BoundedVariable>();
+  ASSERT_EQ(RCUTILS_RET_OK, xcdr::deserialize_message_from(
+      plain_ts, rosidl_runtime_cpp::MemoryRegion<void>(compacted), &plain));
+  EXPECT_EQ(u"12345678", plain.wide);
+  EXPECT_EQ(u"abcdefgh", plain.wide_array[0]);
+  EXPECT_EQ(u"ABCDEFGH", plain.wide_array[1]);
   EXPECT_EQ(99u, plain.tail);
 }
 
@@ -232,6 +290,35 @@ TEST(RegionXcdr, NestedBoundedConstraintsLimitBorrowedStorage)
   EXPECT_EQ(1u, view->nested().values().capacity());
   EXPECT_THROW(view->nested().name().assign("abc"), std::length_error);
   xcdr::destroy_message(ts.get(), view);
+}
+
+TEST(RegionXcdr, CastsWideStringsInNestedMessages)
+{
+  using NestedMessage = rosidl_typesupport_xcdr_cpp_tests::msg::NestedBounded;
+  using NestedMessageView = rosidl_typesupport_xcdr_cpp_tests::msg::views::RegionNestedBounded;
+  NestedMessage plain;
+  plain.nested.wide = u"nested";
+  plain.items.resize(1);
+  plain.items[0].wide = std::u16string(u"a\0b", 3);
+  plain.items[0].wide_array[1] = u"array";
+  plain.items[0].tail = 42;
+  auto plain_ts = xcdr::get_message_type_support_handle<NestedMessage>();
+  auto view_ts = xcdr::get_message_type_support_handle<NestedMessageView>();
+  size_t size = 0;
+  ASSERT_EQ(RCUTILS_RET_OK, xcdr::get_message_size(plain_ts, &plain, &size));
+  std::vector<uint8_t> buffer(size + 4);
+  rosidl_runtime_cpp::MemoryRegion<void> region(buffer.data() + 4, size);
+  ASSERT_EQ(RCUTILS_RET_OK, xcdr::serialize_message_into(plain_ts, &plain, region));
+  void * raw = nullptr;
+  ASSERT_EQ(RCUTILS_RET_OK, xcdr::cast_message_at(view_ts, region, &raw))
+    << rcutils_get_error_string().str;
+  auto * view = static_cast<NestedMessageView *>(raw);
+  EXPECT_EQ(u"nested", view->nested().wide().to_string());
+  ASSERT_EQ(1u, view->items().size());
+  EXPECT_EQ(std::u16string(u"a\0b", 3), view->items()[0].wide().to_string());
+  EXPECT_EQ(u"array", view->items()[0].wide_array()[1].to_string());
+  EXPECT_EQ(42u, view->items()[0].tail());
+  xcdr::destroy_message(view_ts, view);
 }
 
 TEST(RegionXcdr, RejectsInvalidElementConstraintForEmptySequence)
@@ -412,10 +499,10 @@ TEST(RegionXcdr, CastsArraysAndSequencesOfVariableElements)
   EXPECT_EQ(99u, view->tail());
   ASSERT_EQ(2u, view->numbers().size());
   EXPECT_EQ(5678u, view->numbers()[1]);
-  EXPECT_EQ(std::u16string_view(u"w\0z", 3), view->wide().view());
-  EXPECT_EQ(std::u16string_view(u"a\0b", 3), view->wide_labels()[1].view());
+  EXPECT_EQ(std::u16string(u"w\0z", 3), view->wide().to_string());
+  EXPECT_EQ(std::u16string(u"a\0b", 3), view->wide_labels()[1].to_string());
   ASSERT_EQ(2u, view->wide_names().size());
-  EXPECT_EQ(std::u16string_view(u"x\0y", 3), view->wide_names()[1].view());
+  EXPECT_EQ(std::u16string(u"x\0y", 3), view->wide_names()[1].to_string());
   xcdr::destroy_message(view_ts, view);
 }
 

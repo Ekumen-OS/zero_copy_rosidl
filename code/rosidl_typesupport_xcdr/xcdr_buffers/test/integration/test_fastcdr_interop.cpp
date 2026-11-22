@@ -22,6 +22,35 @@
 
 using namespace xcdr_buffers;  // NOLINT(build/namespaces)
 
+TEST(FastCDRInterop, RosWideStringMatchesCountAndUint32Slots) {
+  const std::u16string value(u"A\0\u20ac", 3);
+  XCdrWriter writer;
+  writer.write_ros_wstring(value);
+  writer.write(uint32_t{99});
+  auto bytes = writer.flush();
+  std::vector<char> buffer(bytes.data(), bytes.data() + bytes.size());
+  eprosima::fastcdr::FastBuffer fast_buffer(buffer.data(), buffer.size());
+  eprosima::fastcdr::Cdr cdr(fast_buffer, eprosima::fastcdr::Cdr::DEFAULT_ENDIAN,
+    eprosima::fastcdr::DDS_CDR);
+  cdr.read_encapsulation();
+  uint32_t count;
+  cdr >> count;
+  ASSERT_EQ(3u, count);
+  for (char16_t code_unit : value) {
+    uint32_t wire_value;
+    cdr >> wire_value;
+    EXPECT_EQ(static_cast<uint32_t>(code_unit), wire_value);
+  }
+  uint32_t tail;
+  cdr >> tail;
+  EXPECT_EQ(99u, tail);
+  XCdrReader reader(bytes);
+  auto decoded = reader.read_ros_wstring();
+  ASSERT_TRUE(decoded);
+  EXPECT_EQ(value, *decoded);
+  EXPECT_EQ(99u, *reader.read<uint32_t>());
+}
+
 TEST(FastCDRInterop, XCdrWriterToFastCDR_Primitives) {
   // Write with XCdrWriter (implicit top-level struct)
   XCdrWriter writer;

@@ -190,6 +190,31 @@ Implementation commits: `rosidl` `8af12f40`, `rosidl_typesupport` `0d21bb9`,
 `rosidl_core` `22abb46` and `zero_copy_rosidl` `8b0a212`. These include
 follow-up fixes and tests for the Step 2 primitives and XCDR buffers.
 
+Step 5 mixed-transport testing exposed a wide-string wire mismatch inherited
+from the Jazzy prototype. Rolling region views now use 32-bit storage slots
+with UTF-16 code-unit proxy access, and Rolling XCDR uses the ordinary Fast DDS
+encoding: a character-count prefix and 32-bit code units without a terminator.
+Mixed ordinary/view Fast DDS loans are tested in both directions, including
+embedded nulls and subsequent fields. A wide view does not expose a contiguous
+`char16_t *`, `std::u16string_view`, or `c_str()`; `to_string()` explicitly
+copies. Borrowed substrings and references share the view's storage lifetime.
+
+The generated region storage and `WideString::ExternalStorage` expose
+`StringStorage<uint32_t>`, so the current storage API is not backend-neutral.
+The checked Zenoh implementation uses Fast RTPS serialization callbacks for
+ordinary messages, whereas the checked Cyclone DDS serializer uses a byte
+count and 16-bit code units. Neither middleware has been integration-tested
+with these region views. Matching an encoding alone does not establish region
+loan support: storage lifetime, ownership, alignment, endianness and code-unit
+constraints also matter. Other backends require explicit integration; no
+automatic conversion or fallback is provided. Investigate separating the
+logical view API from its storage policy when implementing another backend.
+Ordinary messages retain their existing middleware serialization paths.
+
+Jazzy experimental generation retains its original representation and remains
+incompatible with ordinary Fast DDS wide strings; its passing self-round-trip
+tests do not establish interoperability.
+
 Starting points: `code/rosidl_typesupport_xcdr/` and the Jazzy
 `rosidl_typesupport` and `rosidl_core` branches.
 
@@ -204,25 +229,57 @@ Starting points: `code/rosidl_typesupport_xcdr/` and the Jazzy
 
 Context-aware middleware behavior is exercised with a simulated implementation,
 including copied type-specific constraints and independent endpoint baselines.
-The unported Fast DDS backend rejects non-null contexts; implementing and
-verifying actual context-aware middleware loans remains Step 5. The dispatcher
-preserves legacy calls for null contexts when a backend lacks the new symbols,
-in both runtime-selected and fixed-backend builds.
+Actual context-aware Fast DDS middleware loans are implemented and verified
+in Step 5. The dispatcher preserves legacy calls for null contexts when a
+backend lacks the new symbols, in both runtime-selected and fixed-backend builds.
 
 Implementation commits: `rmw` `7852434`, `rmw_implementation` `318919b`,
 `rcl` `8fc2083` and `zero_copy_rosidl` `f066f92`.
 
 ### 5. Fast DDS transport
 
-- [ ] Port `rmw_fastrtps` XCDR type support against the pinned Rolling Fast
-  DDS APIs; test compatible casts and incompatible representations.
-- [ ] Port publisher endpoint and loan handling, including backing-region
+- [x] Port `rmw_fastrtps` XCDR type support against the pinned Rolling Fast
+  DDS APIs; test compatible casts and reject incompatible representations.
+- [x] Port publisher endpoint and loan handling, including backing-region
   correlation and in-place finalization; test return and error cleanup.
-- [ ] Port subscriber loans for plain and non-plain samples; test loan return,
+- [x] Port subscriber loans for plain and non-plain samples; test loan return,
   error cleanup and ordinary serialization/copy interoperability. Unsupported
   zero-copy is not evidence that an automatic fallback exists.
 
 Starting point: Jazzy `rmw_fastrtps_shared_cpp` `XcdrTypeSupport` and loan paths.
+
+Rolling port considerations, verified against the pinned Fast DDS source:
+
+- Blanket string/total-size constraints and contexts on ordinary type support
+  are rejected; no automatic copy fallback is implied.
+- Type-support contexts belong to individual DataWriters and DataReaders and
+  must be installed before the entity is enabled. Endpoint creation must
+  account for Fast DDS auto-enabling children, including when a filtered
+  DataReader is recreated.
+- A plain reader loan exposes a pointer after the encapsulation header, not
+  the received payload length. The Jazzy prototype uses the constrained
+  allocation size as a parser bound; that is not necessarily the actual
+  received length, so it must not be used to validate arbitrary samples.
+  A non-plain loan invokes deserialization with the actual payload length,
+  but Fast DDS's loan manager does not propagate the deserializer's return
+  value. Any holder-based implementation must retain and check its own
+  failure state and return the DDS loan on failure.
+- A writer loan retains the full allocated payload length after in-place
+  compaction: the pinned Fast DDS writer forwards the loaned payload without
+  updating its length. Mixed ordinary/view tests pass, but shortened samples
+  still transmit the zero-initialized trailing allocation.
+- The region-loan capability flag changes the shared XCDR callback table.
+  Old generated tables are not ABI-compatible with the new backend; rebuild
+  all producers and consumers together. A versioned capability mechanism is
+  needed before promising binary compatibility upstream.
+- Region type support does not provide key hashing; generated keyed region
+  types explicitly reject context-aware endpoints. Empty messages interoperate
+  in both directions. Region endpoints do not register a DDS TypeObject.
+  Filtering fails without replacing the reader if no TypeObject is already
+  registered; an ordinary endpoint can register it.
+- Reader replacement is prepared before the original is destroyed, with
+  rollback tested for graph-add failure. Writer-history exhaustion is tested
+  to fail publication and return the loan for reuse.
 
 ### 6. C++ client library
 

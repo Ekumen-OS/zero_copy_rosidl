@@ -117,6 +117,24 @@ XCdrStatus XCdrLayoutParser::parse_string(std::string_view name, XCdrCharKind ch
     return status;
   }
 
+  if (char_kind == XCdrCharKind::kRosWide) {
+    if (wire_length > bytes_remaining() / sizeof(uint32_t)) {
+      return error("Buffer too small for ROS wide string");
+    }
+    for (size_t i = 0; i < wire_length; ++i) {
+      uint32_t code_unit;
+      read_from_bytes(
+        &code_unit, buffer_.subspan(read_offset_ + i * sizeof(uint32_t), sizeof(uint32_t)),
+        endianness_);
+      if (code_unit > UINT16_MAX) {
+        return error("ROS wide string code unit exceeds 16 bits");
+      }
+    }
+    builder_.allocate_string(name, wire_length, char_kind);
+    advance(static_cast<size_t>(wire_length) * sizeof(uint32_t));
+    return ok();
+  }
+
   if (wire_length == 0) {
     return error("Invalid string length: 0");
   }

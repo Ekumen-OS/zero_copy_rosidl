@@ -29,6 +29,28 @@ protected:
   XCdrWriter writer_;
 };
 
+TEST_F(LayoutParserTest, RosWideStringsValidateLengthAndCodeUnits)
+{
+  writer_.write_ros_wstring(std::u16string_view(u"A\0B", 3));
+  writer_.write(uint32_t{42});
+  auto buffer = writer_.flush();
+  XCdrLayoutParser parser(buffer);
+  ASSERT_TRUE(parser.parse_string("wide", XCdrCharKind::kRosWide));
+  ASSERT_TRUE(parser.parse_primitive("tail", XCdrPrimitiveKind::kUint32));
+  auto layout = parser.finalize();
+  ASSERT_TRUE(layout);
+  EXPECT_EQ(buffer.size(), layout->total_size());
+
+  XCdrWriter invalid;
+  invalid.write(uint32_t{1});
+  invalid.write(uint32_t{0x10000});
+  auto bad = invalid.flush();
+  XCdrLayoutParser bad_parser(bad);
+  EXPECT_FALSE(bad_parser.parse_string("wide", XCdrCharKind::kRosWide));
+  XCdrLayoutParser short_parser(tcb::span<const uint8_t>(bad.data(), bad.size() - 1));
+  EXPECT_FALSE(short_parser.parse_string("wide", XCdrCharKind::kRosWide));
+}
+
 TEST_F(LayoutParserTest, ParseHeaderSuccess)
 {
   writer_.write(static_cast<uint32_t>(42));
