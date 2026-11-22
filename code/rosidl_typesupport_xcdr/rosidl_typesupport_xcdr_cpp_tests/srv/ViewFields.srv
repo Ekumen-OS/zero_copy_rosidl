@@ -1,0 +1,5 @@
+string name
+int32[] numbers
+rosidl_typesupport_xcdr_cpp_tests/InnerMessage inner
+---
+string result

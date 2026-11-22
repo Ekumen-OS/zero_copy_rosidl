@@ -3,7 +3,7 @@
 @
 @{
 from rosidl_pycommon import convert_camel_case_to_lower_case_underscore
-from rosidl_generator_c import idl_structure_type_to_c_typename
+from rosidl_generator_c import basetype_to_c, idl_structure_type_to_c_typename
 from rosidl_generator_type_description import GET_DESCRIPTION_FUNC, GET_HASH_FUNC, GET_SOURCES_FUNC
 from rosidl_parser.definition import (
     AbstractNestedType,
@@ -176,6 +176,7 @@ for member in message.structure.members:
 #include <new>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "rcutils/error_handling.h"
@@ -193,6 +194,9 @@ for member in message.structure.members:
 #include "rosidl_typesupport_xcdr_cpp/message_type_support.hpp"
 #include "rosidl_typesupport_xcdr_cpp/message_type_support_decl.hpp"
 #include "@(package_name)/msg/rosidl_typesupport_xcdr_cpp__visibility_control.h"
+@[if is_region_view]@
+#include "@(package_name)/@('/'.join(interface_path.parent.parts))/views/@(convert_camel_case_to_lower_case_underscore(interface_path.stem)).h"
+@[end if]@
 
 #include "xcdr_buffers/layout/layout.hpp"
 #include "xcdr_buffers/layout/layout_builder.hpp"
@@ -206,7 +210,9 @@ for member in message.structure.members:
 #include "@(package_name)/@('/'.join(interface_path.parents[0].parts))/detail/@(convert_camel_case_to_lower_case_underscore(interface_path.stem))__functions.h"
 
 @[if is_service_message and service_name]@
-@[  if is_experimental]@
+@[  if is_region_view]@
+#include "@(package_name)/srv/views/@(convert_camel_case_to_lower_case_underscore(service_name))__region.hpp"
+@[  elif is_experimental]@
 #include "@(package_name)/srv/experimental/detail/@(convert_camel_case_to_lower_case_underscore(service_name))__struct.hpp"
 @[  else]@
 #include "@(package_name)/srv/detail/@(convert_camel_case_to_lower_case_underscore(service_name))__struct.hpp"
@@ -2390,3 +2396,315 @@ ROSIDL_TYPESUPPORT_INTERFACE__MESSAGE_SYMBOL_NAME(
 #ifdef __cplusplus
 }
 #endif
+
+@[if is_region_view]@
+@[if not is_service_message or first_service_message]@
+namespace
+{
+template<typename F>
+bool region_c_access(F && operation)
+{
+  try {
+    operation();
+    return true;
+  } catch (const std::exception & error) {
+    RCUTILS_SET_ERROR_MSG(error.what());
+    return false;
+  }
+}
+}  // namespace
+@[end if]@
+@{c_name = idl_structure_type_to_c_typename(message.structure.namespaced_type)}@
+extern "C"
+{
+
+ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC_@(package_name.upper())
+const rosidl_message_type_support_t *
+@(c_name)__RegionView__get_type_support(void)
+{
+  return rosidl_typesupport_xcdr_cpp::get_message_type_support_handle<@(full_msg_typename)>();
+}
+
+ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC_@(package_name.upper())
+@(c_name)__RegionConstraints * @(c_name)__RegionConstraints__create(void)
+{
+  @(full_msg_typename)::Constraints * result = nullptr;
+  if (!region_c_access([&]() {result = new @(full_msg_typename)::Constraints();})) {
+    return nullptr;
+  }
+  return reinterpret_cast<@(c_name)__RegionConstraints *>(result);
+}
+
+ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC_@(package_name.upper())
+void @(c_name)__RegionConstraints__destroy(@(c_name)__RegionConstraints * constraints)
+{
+  delete reinterpret_cast<@(full_msg_typename)::Constraints *>(constraints);
+}
+
+ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC_@(package_name.upper())
+const void * @(c_name)__RegionConstraints__data(const @(c_name)__RegionConstraints * constraints)
+{
+  if (!constraints) {
+    RCUTILS_SET_ERROR_MSG("Region constraints are null");
+    return nullptr;
+  }
+  return reinterpret_cast<const @(full_msg_typename)::Constraints *>(constraints);
+}
+
+@[for member in message.structure.members]@
+@{
+t = member.type
+container = isinstance(t, (Array, AbstractSequence))
+elem = t.value_type if container else t
+index = ', size_t index' if container else ''
+prefix = c_name + '__RegionView__' + member.name
+const_prefix = c_name + '__ConstRegionView__' + member.name
+access = 'self->' + member.name + '()' + ('[index]' if container else '')
+}@
+@[if isinstance(t, AbstractSequence)]@
+ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC_@(package_name.upper())
+bool @(c_name)__RegionConstraints__@(member.name)__set_size(
+  @(c_name)__RegionConstraints * constraints, size_t size)
+{
+  if (!constraints) {
+    RCUTILS_SET_ERROR_MSG("Region constraints are null");
+    return false;
+  }
+  reinterpret_cast<@(full_msg_typename)::Constraints *>(constraints)->@(member.name).size = size;
+  return true;
+}
+@[end if]@
+@[if isinstance(elem, (AbstractString, AbstractWString))]@
+ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC_@(package_name.upper())
+bool @(c_name)__RegionConstraints__@(member.name)__set_string_size(
+  @(c_name)__RegionConstraints * constraints, size_t size)
+{
+  if (!constraints) {
+    RCUTILS_SET_ERROR_MSG("Region constraints are null");
+    return false;
+  }
+  reinterpret_cast<@(full_msg_typename)::Constraints *>(constraints)->@(member.name)@('.element' if isinstance(t, AbstractSequence) else '').size = size;
+  return true;
+}
+@[elif isinstance(elem, NamespacedType)]@
+ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC_@(package_name.upper())
+@(idl_structure_type_to_c_typename(elem))__RegionConstraints *
+@(c_name)__RegionConstraints__@(member.name)__get(@(c_name)__RegionConstraints * constraints)
+{
+  if (!constraints) {
+    RCUTILS_SET_ERROR_MSG("Region constraints are null");
+    return nullptr;
+  }
+  auto self = reinterpret_cast<@(full_msg_typename)::Constraints *>(constraints);
+  return reinterpret_cast<@(idl_structure_type_to_c_typename(elem))__RegionConstraints *>(
+    &self->@(member.name)@('.element' if isinstance(t, AbstractSequence) else ''));
+}
+@[end if]@
+@[if container]@
+ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC_@(package_name.upper())
+bool @(const_prefix)__size(const @(c_name)__ConstRegionView * view, size_t * size)
+{
+  if (!view || !size) {
+    RCUTILS_SET_ERROR_MSG("Region view and size output are required");
+    return false;
+  }
+  auto self = reinterpret_cast<const @(full_msg_typename) *>(view);
+  return region_c_access([&]() {*size = self->@(member.name)().size();});
+}
+@[if isinstance(t, AbstractSequence)]@
+ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC_@(package_name.upper())
+bool @(prefix)__resize(@(c_name)__RegionView * view, size_t size)
+{
+  if (!view) {
+    RCUTILS_SET_ERROR_MSG("Region view is null");
+    return false;
+  }
+  auto self = reinterpret_cast<@(full_msg_typename) *>(view);
+  return region_c_access([&]() {self->@(member.name)().resize(size);});
+}
+@[end if]@
+@[end if]@
+@[if isinstance(elem, BasicType)]@
+ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC_@(package_name.upper())
+bool @(const_prefix)__get(
+  const @(c_name)__ConstRegionView * view@(index), @(basetype_to_c(elem)) * value)
+{
+  if (!view || !value) {
+    RCUTILS_SET_ERROR_MSG("Region view and value output are required");
+    return false;
+  }
+  auto self = reinterpret_cast<const @(full_msg_typename) *>(view);
+  return region_c_access([&]() {
+@[if container]@
+    if (index >= self->@(member.name)().size()) {
+      throw std::out_of_range("Region field index is out of range");
+    }
+@[end if]@
+    *value = static_cast<@(basetype_to_c(elem))>(@(access));
+  });
+}
+
+ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC_@(package_name.upper())
+bool @(prefix)__set(@(c_name)__RegionView * view@(index), @(basetype_to_c(elem)) value)
+{
+  if (!view) {
+    RCUTILS_SET_ERROR_MSG("Region view is null");
+    return false;
+  }
+  auto self = reinterpret_cast<@(full_msg_typename) *>(view);
+  return region_c_access([&]() {
+@[if container]@
+    if (index >= self->@(member.name)().size()) {
+      throw std::out_of_range("Region field index is out of range");
+    }
+@[end if]@
+    @(access) = value;
+  });
+}
+@[elif isinstance(elem, NamespacedType)]@
+@{nested_c = idl_structure_type_to_c_typename(elem)}@
+ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC_@(package_name.upper())
+const @(nested_c)__ConstRegionView *
+@(const_prefix)__get(const @(c_name)__ConstRegionView * view@(index))
+{
+  if (!view) {
+    RCUTILS_SET_ERROR_MSG("Region view is null");
+    return nullptr;
+  }
+  auto self = reinterpret_cast<const @(full_msg_typename) *>(view);
+  const @(nested_c)__ConstRegionView * result = nullptr;
+  if (!region_c_access([&]() {
+@[if container]@
+      if (index >= self->@(member.name)().size()) {
+        throw std::out_of_range("Region field index is out of range");
+      }
+@[end if]@
+      result = reinterpret_cast<const @(nested_c)__ConstRegionView *>(&@(access));
+    }))
+  {
+    return nullptr;
+  }
+  return result;
+}
+
+ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC_@(package_name.upper())
+@(nested_c)__RegionView *
+@(prefix)__get(@(c_name)__RegionView * view@(index))
+{
+  if (!view) {
+    RCUTILS_SET_ERROR_MSG("Region view is null");
+    return nullptr;
+  }
+  auto self = reinterpret_cast<@(full_msg_typename) *>(view);
+  @(nested_c)__RegionView * result = nullptr;
+  if (!region_c_access([&]() {
+@[if container]@
+      if (index >= self->@(member.name)().size()) {
+        throw std::out_of_range("Region field index is out of range");
+      }
+@[end if]@
+      result = reinterpret_cast<@(nested_c)__RegionView *>(&@(access));
+    }))
+  {
+    return nullptr;
+  }
+  return result;
+}
+@[elif isinstance(elem, AbstractString)]@
+ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC_@(package_name.upper())
+bool @(const_prefix)__get(
+  const @(c_name)__ConstRegionView * view@(index), const char ** data, size_t * size)
+{
+  if (!view || !data || !size) {
+    RCUTILS_SET_ERROR_MSG("Region view and string outputs are required");
+    return false;
+  }
+  auto self = reinterpret_cast<const @(full_msg_typename) *>(view);
+  return region_c_access([&]() {
+@[if container]@
+    if (index >= self->@(member.name)().size()) {
+      throw std::out_of_range("Region field index is out of range");
+    }
+@[end if]@
+    const auto & value = @(access);
+    *data = value.data();
+    *size = value.size();
+  });
+}
+
+ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC_@(package_name.upper())
+bool @(prefix)__set(
+  @(c_name)__RegionView * view@(index), const char * data, size_t size)
+{
+  if (!view || (!data && size)) {
+    RCUTILS_SET_ERROR_MSG("Region view and string input are required");
+    return false;
+  }
+  auto self = reinterpret_cast<@(full_msg_typename) *>(view);
+  return region_c_access([&]() {
+@[if container]@
+    if (index >= self->@(member.name)().size()) {
+      throw std::out_of_range("Region field index is out of range");
+    }
+@[end if]@
+    @(access).assign(std::string_view(data ? data : "", size));
+  });
+}
+@[elif isinstance(elem, AbstractWString)]@
+ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC_@(package_name.upper())
+bool @(const_prefix)__copy(
+  const @(c_name)__ConstRegionView * view@(index), uint16_t * data, size_t capacity, size_t * size)
+{
+  if (!view || !size || (!data && capacity)) {
+    RCUTILS_SET_ERROR_MSG("Region view and wide string outputs are required");
+    return false;
+  }
+  auto self = reinterpret_cast<const @(full_msg_typename) *>(view);
+  return region_c_access([&]() {
+@[if container]@
+    if (index >= self->@(member.name)().size()) {
+      throw std::out_of_range("Region field index is out of range");
+    }
+@[end if]@
+    auto value = @(access).to_string();
+    *size = value.size();
+    if (!data && !capacity) {
+      return;
+    }
+    if (capacity < value.size()) {
+      throw std::length_error("Wide string output is too small");
+    }
+    for (size_t i = 0; i < value.size(); ++i) {
+      data[i] = static_cast<uint16_t>(value[i]);
+    }
+  });
+}
+
+ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC_@(package_name.upper())
+bool @(prefix)__set(
+  @(c_name)__RegionView * view@(index), const uint16_t * data, size_t size)
+{
+  if (!view || (!data && size)) {
+    RCUTILS_SET_ERROR_MSG("Region view and wide string input are required");
+    return false;
+  }
+  auto self = reinterpret_cast<@(full_msg_typename) *>(view);
+  return region_c_access([&]() {
+@[if container]@
+    if (index >= self->@(member.name)().size()) {
+      throw std::out_of_range("Region field index is out of range");
+    }
+@[end if]@
+    std::u16string value;
+    value.reserve(size);
+    for (size_t i = 0; i < size; ++i) {
+      value.push_back(static_cast<char16_t>(data[i]));
+    }
+    @(access).assign(value);
+  });
+}
+@[end if]@
+
+@[end for]@
+}  // extern "C"
+@[end if]@

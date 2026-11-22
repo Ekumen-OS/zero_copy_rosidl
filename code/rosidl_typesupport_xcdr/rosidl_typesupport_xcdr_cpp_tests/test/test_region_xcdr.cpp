@@ -20,6 +20,7 @@
 
 #include "rcutils/error_handling.h"
 #include "rosidl_typesupport_cpp/message_type_support.hpp"
+#include "rosidl_typesupport_cpp/service_type_support.hpp"
 #include "rosidl_typesupport_xcdr_cpp/message_type_support.hpp"
 #include "rosidl_typesupport_xcdr_cpp_tests/msg/bounded_message.hpp"
 #include "rosidl_typesupport_xcdr_cpp_tests/msg/bounded_variable.hpp"
@@ -34,6 +35,12 @@
 #include "rosidl_typesupport_xcdr_cpp_tests/msg/views/nested_containers__region.hpp"
 #include "rosidl_typesupport_xcdr_cpp_tests/msg/views/unbounded_message__region.hpp"
 #include "rosidl_typesupport_xcdr_cpp_tests/msg/views/variable_containers__region.hpp"
+#include "rosidl_typesupport_xcdr_cpp_tests/msg/views/variable_containers.h"
+#include "rosidl_typesupport_xcdr_cpp_tests/srv/add_two_ints.hpp"
+#include \
+  "rosidl_typesupport_xcdr_cpp_tests/srv/views/detail/add_two_ints__rosidl_typesupport_xcdr_cpp.hpp"
+#include \
+  "rosidl_typesupport_xcdr_cpp_tests/srv/views/detail/view_fields__rosidl_typesupport_xcdr_cpp.hpp"
 
 namespace xcdr = rosidl_typesupport_xcdr_cpp;
 using Plain = rosidl_typesupport_xcdr_cpp_tests::msg::BoundedMessage;
@@ -46,6 +53,155 @@ using Nested = rosidl_typesupport_xcdr_cpp_tests::msg::NestedContainers;
 using NestedView = rosidl_typesupport_xcdr_cpp_tests::msg::views::RegionNestedContainers;
 using Variable = rosidl_typesupport_xcdr_cpp_tests::msg::VariableContainers;
 using VariableView = rosidl_typesupport_xcdr_cpp_tests::msg::views::RegionVariableContainers;
+
+extern "C"
+{
+rosidl_typesupport_xcdr_cpp_tests__msg__VariableContainers__RegionConstraints *
+test_c_region_limits(void);
+bool test_c_region_access(void * loan);
+}
+
+TEST(RegionXcdr, CRegionAccessAndConstraints)
+{
+  using CConstraints =
+    rosidl_typesupport_xcdr_cpp_tests__msg__VariableContainers__RegionConstraints;
+  auto deleter =
+    rosidl_typesupport_xcdr_cpp_tests__msg__VariableContainers__RegionConstraints__destroy;
+  std::unique_ptr<CConstraints, decltype(deleter)> constraints(test_c_region_limits(), deleter);
+  ASSERT_NE(nullptr, constraints);
+  rosidl_typesupport_xcdr_c__constraints_t wrapped{};
+  wrapped.type_specific =
+    rosidl_typesupport_xcdr_cpp_tests__msg__VariableContainers__RegionConstraints__data(
+    constraints.get());
+  wrapped.strict = true;
+  auto base =
+    rosidl_typesupport_xcdr_cpp_tests__msg__VariableContainers__RegionView__get_type_support();
+  auto ts = xcdr::create_constrained_message_type_support(base, &wrapped);
+  ASSERT_NE(nullptr, ts) << rcutils_get_error_string().str;
+  size_t size = 0;
+  ASSERT_EQ(RCUTILS_RET_OK, xcdr::get_expected_message_size(ts.get(), &size));
+  std::vector<uint8_t> buffer(size + 4);
+  rosidl_runtime_cpp::MemoryRegion<void> region(buffer.data() + 4, size);
+  void * raw = nullptr;
+  ASSERT_EQ(RCUTILS_RET_OK, xcdr::construct_message_at(ts.get(), region, &raw));
+  ASSERT_TRUE(test_c_region_access(raw)) << rcutils_get_error_string().str;
+  auto compacted = xcdr::compact_message_in_place(ts.get(), raw);
+  ASSERT_NE(nullptr, compacted.location.address);
+  Variable plain;
+  ASSERT_EQ(RCUTILS_RET_OK, xcdr::deserialize_message_from(
+      xcdr::get_message_type_support_handle<Variable>(),
+      rosidl_runtime_cpp::MemoryRegion<void>(compacted), &plain));
+  EXPECT_EQ(42u, plain.tail);
+  EXPECT_EQ("label", plain.labels[0]);
+  ASSERT_EQ(1u, plain.names.size());
+  EXPECT_EQ("name", plain.names[0]);
+  EXPECT_EQ(u"a\u20ac", plain.wide);
+  ASSERT_EQ(1u, plain.items.size());
+  EXPECT_EQ(17, plain.items[0].id);
+  ASSERT_EQ(1u, plain.nested_variable.size());
+  EXPECT_EQ("okay", plain.nested_variable[0].name);
+}
+
+TEST(RegionXcdr, ServiceRequestAndResponseInteroperate)
+{
+  using Service = rosidl_typesupport_xcdr_cpp_tests::srv::AddTwoInts;
+  using RegionService = rosidl_typesupport_xcdr_cpp_tests::srv::views::RegionAddTwoInts;
+  auto region_service = xcdr::get_service_type_support_handle<RegionService>();
+  auto plain_service = xcdr::get_service_type_support_handle<Service>();
+  ASSERT_NE(nullptr, region_service);
+  ASSERT_NE(nullptr, plain_service);
+  auto dispatch = rosidl_typesupport_cpp::get_service_type_support_handle<RegionService>();
+  ASSERT_NE(nullptr, dispatch);
+  ASSERT_NE(nullptr, dispatch->func);
+  EXPECT_EQ(region_service, dispatch->func(dispatch, region_service->typesupport_identifier));
+  auto request_dispatch =
+    rosidl_typesupport_cpp::get_message_type_support_handle<RegionService::Request>();
+  ASSERT_NE(nullptr, request_dispatch);
+  ASSERT_NE(nullptr, request_dispatch->func);
+  EXPECT_EQ(
+    region_service->request_typesupport,
+    request_dispatch->func(request_dispatch, region_service->typesupport_identifier));
+  ASSERT_NE(nullptr, region_service->request_typesupport);
+  ASSERT_NE(nullptr, region_service->response_typesupport);
+  EXPECT_EQ(plain_service->event_typesupport, region_service->event_typesupport);
+  ASSERT_NE(nullptr, region_service->get_type_hash_func);
+  ASSERT_NE(nullptr, plain_service->get_type_hash_func);
+  ASSERT_NE(nullptr, region_service->get_type_hash_func(region_service));
+  EXPECT_EQ(
+    plain_service->get_type_hash_func(plain_service)->version,
+    region_service->get_type_hash_func(region_service)->version);
+
+  Service::Request request;
+  request.a = 11;
+  request.b = 31;
+  size_t size = 0;
+  ASSERT_EQ(RCUTILS_RET_OK,
+    xcdr::get_message_size(plain_service->request_typesupport, &request, &size));
+  std::vector<uint8_t> buffer(size + 4);
+  rosidl_runtime_cpp::MemoryRegion<void> region(buffer.data() + 4, size);
+  ASSERT_EQ(RCUTILS_RET_OK,
+    xcdr::serialize_message_into(plain_service->request_typesupport, &request, region));
+  void * raw = nullptr;
+  ASSERT_EQ(RCUTILS_RET_OK,
+    xcdr::cast_message_at(region_service->request_typesupport, region, &raw));
+  auto * request_view = static_cast<RegionService::Request *>(raw);
+  EXPECT_EQ(11, request_view->a());
+  EXPECT_EQ(31, request_view->b());
+  xcdr::destroy_message(region_service->request_typesupport, request_view);
+
+  ASSERT_EQ(RCUTILS_RET_OK,
+    xcdr::get_expected_message_size(region_service->response_typesupport, &size));
+  std::vector<uint8_t> response_buffer(size + 4);
+  rosidl_runtime_cpp::MemoryRegion<void> response_region(response_buffer.data() + 4, size);
+  ASSERT_EQ(RCUTILS_RET_OK,
+    xcdr::construct_message_at(region_service->response_typesupport, response_region, &raw));
+  auto * response_view = static_cast<RegionService::Response *>(raw);
+  response_view->sum() = 42;
+  auto released = xcdr::release_message(region_service->response_typesupport, response_view);
+  Service::Response response;
+  ASSERT_EQ(RCUTILS_RET_OK,
+    xcdr::deserialize_message_from(plain_service->response_typesupport, released, &response));
+  EXPECT_EQ(42, response.sum);
+}
+
+TEST(RegionXcdr, ServiceRequestSupportsVariableAndNestedConstraints)
+{
+  using RegionService = rosidl_typesupport_xcdr_cpp_tests::srv::views::RegionViewFields;
+  auto service = xcdr::get_service_type_support_handle<RegionService>();
+  ASSERT_NE(nullptr, service);
+  RegionService::Request::Constraints constraints;
+  constraints.name.size = 4;
+  constraints.numbers.size = 2;
+  rosidl_typesupport_xcdr_c__constraints_t wrapped{};
+  wrapped.type_specific = &constraints;
+  wrapped.strict = true;
+  auto ts = xcdr::create_constrained_message_type_support(service->request_typesupport, &wrapped);
+  ASSERT_NE(nullptr, ts) << rcutils_get_error_string().str;
+  size_t size = 0;
+  ASSERT_EQ(RCUTILS_RET_OK, xcdr::get_expected_message_size(ts.get(), &size));
+  std::vector<uint8_t> buffer(size + 4);
+  rosidl_runtime_cpp::MemoryRegion<void> region(buffer.data() + 4, size);
+  void * raw = nullptr;
+  ASSERT_EQ(RCUTILS_RET_OK, xcdr::construct_message_at(ts.get(), region, &raw));
+  auto * view = static_cast<RegionService::Request *>(raw);
+  view->name().assign("name");
+  EXPECT_THROW(view->name().assign("longer"), std::length_error);
+  view->numbers().resize(2);
+  EXPECT_THROW(view->numbers().resize(3), std::length_error);
+  view->numbers()[0] = 17;
+  view->inner().id() = 23;
+  auto compacted = xcdr::compact_message_in_place(ts.get(), view);
+  ASSERT_NE(nullptr, compacted.location.address);
+  rosidl_typesupport_xcdr_cpp_tests::srv::ViewFields::Request plain;
+  ASSERT_EQ(RCUTILS_RET_OK, xcdr::deserialize_message_from(
+      xcdr::get_service_type_support_handle<
+        rosidl_typesupport_xcdr_cpp_tests::srv::ViewFields>()->request_typesupport,
+      rosidl_runtime_cpp::MemoryRegion<void>(compacted), &plain));
+  EXPECT_EQ("name", plain.name);
+  ASSERT_EQ(2u, plain.numbers.size());
+  EXPECT_EQ(17, plain.numbers[0]);
+  EXPECT_EQ(23, plain.inner.id);
+}
 
 TEST(RegionXcdr, GenericDispatchFindsXcdr)
 {

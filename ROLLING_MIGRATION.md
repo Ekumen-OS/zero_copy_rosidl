@@ -370,13 +370,41 @@ Implementation commits: `rosidl_python` `263f282`, `rclpy` `20f0fa1` and
 
 ### 8. Remaining language and service surface
 
-- [ ] Provide C view types and accessors alongside existing C messages.
-- [ ] Extend the view and constraint abstractions to service requests and
+- [x] Provide C view types and accessors alongside existing C messages.
+- [x] Extend the view and constraint abstractions to service requests and
   responses; assess and implement the required client/middleware plumbing.
   The Jazzy topic PoC does not establish end-to-end service support, and its
   Python bridge excludes service/action constituents.
-- [ ] Test applicable C and service paths, including ordinary-message
+- [x] Test applicable C and service paths, including ordinary-message
   compatibility and ownership.
+
+C plain-message adapters and opaque region accessors are generated alongside
+existing messages. Plain adapter const qualification is shallow; region const
+accessors do not expose mutable fields. Region accessors and type support are
+provided by the generated C++ XCDR library. Typed C constraint builders
+provide type-specific limits, including nested limits; destroy only root
+builders returned by `create`, not borrowed nested handles. Constraints must
+remain alive while used by a context. Loan-derived views, field pointers and
+nested handles expire when the loan is returned; resizing a container also
+invalidates its element views. Wide strings use copy accessors rather than
+exposing backend storage as `uint16_t *`.
+
+Request and response region views have separate constraints. RMW and RCL
+provide context-aware client/service creation and borrow, send, take and
+return operations. These endpoints require middleware support, do not fall
+back to copying, and reject service introspection. Ordinary service events
+continue to use ordinary message type support. The C++ `RegionClient` and
+`RegionService` wrappers are explicitly polled; they are not registered with
+an executor. Python service views and action views are not implemented here.
+
+Fast DDS supports service loans and ordinary/region interoperability in both
+directions. Send/return operations consume a valid view when indicated by
+their in/out pointer, including some failures. Failed DDS reader returns or
+writer discards retain backend loan tracking; endpoint finalization retries
+pending cleanup and preserves the endpoint if it still fails. Tests cover C
+and C++ service round trips through RCL, constraints, ownership, ordinary
+interoperability, failed cleanup and retries. Other middlewares and executors
+have not been integration-tested.
 
 ### 9. End-to-end verification and documentation
 

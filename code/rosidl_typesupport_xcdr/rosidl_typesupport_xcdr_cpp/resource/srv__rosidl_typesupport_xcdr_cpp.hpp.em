@@ -11,24 +11,33 @@ try:
     force_experimental
 except NameError:
     force_experimental = False
+try:
+    region_views
+except NameError:
+    region_views = False
 
 service_typename = service.namespaced_type.name
-if force_experimental:
+if force_experimental and region_views:
+    service_full_namespace = package_name + '::srv::views'
+    service_typename_for_cpp = 'Region' + service_typename
+elif force_experimental:
     service_full_namespace = package_name + '::srv::experimental'
+    service_typename_for_cpp = service_typename
 else:
     service_full_namespace = package_name + '::srv'
+    service_typename_for_cpp = service_typename
 
 # For C symbol names, use a single token (e.g., 'srv_experimental') to
 # avoid breaking the 4-argument ROSIDL_TYPESUPPORT_INTERFACE__MESSAGE_SYMBOL_NAME macro.
 symbol_parent_parts = list(interface_path.parents[0].parts)
 if force_experimental:
-    symbol_parent_parts = [symbol_parent_parts[0] + '_experimental']
+    symbol_parent_parts = [symbol_parent_parts[0] + ('_views' if region_views else '_experimental')]
 
 header_guard_parts = [package_name] + list(interface_path.parents[0].parts) + [
     'detail', convert_camel_case_to_lower_case_underscore(service_typename)]
 # For experimental services, insert 'experimental' before 'detail'
 if force_experimental and 'experimental' not in header_guard_parts and 'detail' in header_guard_parts:
-    header_guard_parts.insert(header_guard_parts.index('detail'), 'experimental')
+    header_guard_parts.insert(header_guard_parts.index('detail'), 'views' if region_views else 'experimental')
 header_guard_body = '__'.join([x.upper() for x in header_guard_parts + ['rosidl_typesupport_xcdr_cpp']]) + '_HPP_'
 }@
 // Copyright 2026 Ekumen Inc.
@@ -54,6 +63,9 @@ header_guard_body = '__'.join([x.upper() for x in header_guard_parts + ['rosidl_
 #include "rosidl_typesupport_xcdr_cpp/service_type_support.hpp"
 #include "rosidl_typesupport_xcdr_cpp/visibility_control.h"
 #include "@(package_name)/msg/rosidl_typesupport_xcdr_cpp__visibility_control.h"
+@[if force_experimental and region_views]@
+#include "@(package_name)/srv/views/@(convert_camel_case_to_lower_case_underscore(service_typename))__region.hpp"
+@[end if]@
 
 #ifdef __cplusplus
 extern "C"
@@ -75,12 +87,14 @@ const rosidl_message_type_support_t *
   @(', '.join([package_name] + symbol_parent_parts)),
   @(service_typename)@(SERVICE_RESPONSE_MESSAGE_SUFFIX))();
 
+@[if not (force_experimental and region_views)]@
 ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC_@(package_name.upper())
 const rosidl_message_type_support_t *
   ROSIDL_TYPESUPPORT_INTERFACE__MESSAGE_SYMBOL_NAME(
   rosidl_typesupport_xcdr_cpp,
   @(', '.join([package_name] + symbol_parent_parts)),
   @(service_typename)@(SERVICE_EVENT_MESSAGE_SUFFIX))();
+@[end if]@
 
 // Declare service typesupport
 ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC_@(package_name.upper())
@@ -100,7 +114,7 @@ namespace rosidl_typesupport_xcdr_cpp
 template<>
 ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC_@(package_name.upper())
 const rosidl_service_type_support_t *
-get_service_type_support_handle<@(service_full_namespace)::@(service_typename)>();
+get_service_type_support_handle<@(service_full_namespace)::@(service_typename_for_cpp)>();
 
 }  // namespace rosidl_typesupport_xcdr_cpp
 

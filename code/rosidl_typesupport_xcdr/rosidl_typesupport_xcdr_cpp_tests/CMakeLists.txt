@@ -16,6 +16,10 @@ find_package(rosidl_typesupport_xcdr_cpp REQUIRED)
 find_package(rosidl_typesupport_xcdr_c REQUIRED)
 
 # Generate interfaces
+set(view_service_interfaces)
+if(_runtime_constraints_header)
+  list(APPEND view_service_interfaces "srv/ViewFields.srv")
+endif()
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/experimental/BasicTypes.msg"
   "msg/experimental/BoundedMessage.msg"
@@ -31,6 +35,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/NestedMessage.msg"
   "msg/Keyed.idl"
   "srv/AddTwoInts.srv"
+  ${view_service_interfaces}
 )
 
 if(BUILD_TESTING)
@@ -57,6 +62,7 @@ if(BUILD_TESTING)
   if(_runtime_constraints_header)
     message(STATUS "Using Rolling region-view XCDR integration tests")
     add_xcdr_test(test_region_xcdr test/test_region_xcdr.cpp)
+    target_sources(test_region_xcdr PRIVATE test/test_region_c.c)
     target_compile_features(test_region_xcdr PRIVATE cxx_std_20)
     rosidl_get_typesupport_target(dispatch_target ${PROJECT_NAME} "rosidl_typesupport_cpp")
     target_link_libraries(test_region_xcdr ${dispatch_target})
