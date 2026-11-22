@@ -406,6 +406,11 @@ and C++ service round trips through RCL, constraints, ownership, ordinary
 interoperability, failed cleanup and retries. Other middlewares and executors
 have not been integration-tested.
 
+Implementation commits: `rosidl` `91b37710`, `rosidl_typesupport` `19fa75e`,
+`rmw` `31e5b22`, `rmw_implementation` `1076d8b`, `rcl` `92fd07a`,
+`rmw_fastrtps` `1cbf8d5`, `rclcpp` `5c8f6836`, and `zero_copy_rosidl`
+`8541ac7`.
+
 ### 9. End-to-end verification and documentation
 
 - [ ] Port the benchmark to the new APIs and Rolling; run its smoke test and
