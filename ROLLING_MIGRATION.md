@@ -365,6 +365,9 @@ copy-based take also rejects them. The tested executor is single-threaded.
 The bridge capsule is a PoC C++ ABI, not a standardized binary interface;
 rebuild its consumers together after changing the runtime headers.
 
+Implementation commits: `rosidl_python` `263f282`, `rclpy` `20f0fa1` and
+`zero_copy_rosidl` `2ec0683`.
+
 ### 8. Remaining language and service surface
 
 - [ ] Provide C view types and accessors alongside existing C messages.
