@@ -33,7 +33,6 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp/executors/single_threaded_executor.hpp>
-#include <sensor_msgs/msg/experimental/image.hpp>
 #include <sensor_msgs/msg/image.hpp>
 
 #include "constrained_pubsub_benchmark/benchmark_common.hpp"
@@ -67,6 +66,7 @@ int main(int argc, char ** argv)
   // can fail loudly (e.g. data sharing ON with an unbounded type), and
   // that must surface as an error row, never as an abort.
   try {
+    bench::validate_backend_case(cfg, backend);
     rclcpp::InitOptions init_options;
     bench::apply_backend_to_init_options(init_options, backend);
     rclcpp::init(argc, argv, init_options);
@@ -120,7 +120,12 @@ int main(int argc, char ** argv)
         constraints);
       };
 
-    if (cfg.message == bench::MessageType::kStandard) {
+    if (cfg.message == bench::MessageType::kStandard
+#ifdef BENCHMARK_ROLLING_VIEWS
+      || cfg.config == bench::Config::kConstrainedPubOnly
+#endif
+    )
+    {
       sub_handle = node->create_subscription<StdImage>(
       cfg.topic, qos,
         [&](const StdImage & msg, const rclcpp::MessageInfo & info) {
@@ -134,7 +139,11 @@ int main(int argc, char ** argv)
         bench::make_inter_proc_constraints(cfg.payload_bytes, cfg.strict);
       subscribe_exp(constraints);
     } else {
+#ifdef BENCHMARK_ROLLING_VIEWS
+      throw std::invalid_argument("Rolling region views require loans");
+#else
       subscribe_exp(rclcpp::SubscriptionOptions());
+#endif
     }
 
   // Signal readiness to the orchestrator once the subscription exists.

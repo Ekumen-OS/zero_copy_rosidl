@@ -210,20 +210,14 @@ def fill_image(msg, payload_bytes, seq, fill_encoding, fill_frame_id, fill_data_
         msg.height = h
         msg.width = w
         msg.step = w * 3
-        try:
-            msg.data.resize(want, 0xFE)
-        except Exception:
-            msg.data = b'\xfe' * want
+        msg.data = b'\xfe' * want
     else:
         dim = max(1, int(math.sqrt(payload_bytes / 3)))
         actual = dim * dim * 3
         msg.height = dim
         msg.width = dim
         msg.step = dim * 3
-        try:
-            msg.data.resize(actual, 0xFE)
-        except Exception:
-            msg.data = b'\xfe' * actual
+        msg.data = b'\xfe' * actual
 
 
 #: Canonical CSV column order. Stable: post-processing parses by position.
@@ -467,6 +461,13 @@ def make_image_constraints(payload_bytes, strict=False):
     bound 64, data bound payload_bytes, blanket string limit 256.
     """
     from rosidl_runtime_cpython.constraints import MessageConstraints
+    if os.environ.get('ROS_DISTRO') == 'rolling':
+        from sensor_msgs.msg.views import Image as ExperimentalImage
+        type_specific = ExperimentalImage.Constraints()
+        type_specific.header.frame_id_size = 16
+        type_specific.encoding_size = 64
+        type_specific.data_length = payload_bytes
+        return MessageConstraints(type_specific=type_specific, strict=bool(strict))
     from rosidl_runtime_cpython.constraints import StringConstraint
     from rosidl_runtime_cpython.constraints import UInt8SequenceConstraint
     from sensor_msgs.msg.experimental import Image as ExperimentalImage
@@ -477,3 +478,22 @@ def make_image_constraints(payload_bytes, strict=False):
     return MessageConstraints(
         type_specific=type_specific, max_string_length=256,
         max_total_size=0, strict=bool(strict))
+
+
+def validate_backend_case(message, config, backend):
+    """Reject Rolling cases whose requested serialization path is unavailable."""
+    if (os.environ.get('ROS_DISTRO') == 'rolling' and config == 'copy' and
+            (message != 'std' or backend != 'fastcdr')):
+        raise ValueError('Rolling supports copy benchmarks only for std with fastcdr')
+
+
+def publish_image_loan(pub, payload_bytes, seq, args):
+    """Fill and publish a loan, returning the send timestamp."""
+    loan = pub.borrow_loaned_message()
+    with loan as view:
+        fill_image(view, payload_bytes, seq, args.fill_encoding,
+                   args.fill_frame_id, args.fill_data_ratio)
+        send_ns = mono_now_ns()
+        encode_sample_metadata(view, seq, send_ns)
+        pub.publish_loaned_message(loan if os.environ.get('ROS_DISTRO') == 'rolling' else view)
+    return send_ns

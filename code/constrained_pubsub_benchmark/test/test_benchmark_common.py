@@ -406,7 +406,10 @@ def test_experimental_message_compat():
     """
     try:
         from sensor_msgs.msg import Image
-        from sensor_msgs.msg.experimental import Image as ExperimentalImage
+        if os.environ.get('ROS_DISTRO') == 'rolling':
+            from sensor_msgs.msg.views import Image as ExperimentalImage
+        else:
+            from sensor_msgs.msg.experimental import Image as ExperimentalImage
     except ImportError:
         return
     for cls in (Image, ExperimentalImage):
@@ -417,8 +420,20 @@ def test_experimental_message_compat():
         assert len(msg.data) == 400
     constraints = bc.make_image_constraints(400, strict=True)
     assert constraints.strict is True
-    assert constraints.max_string_length == 256
-    assert constraints.type_specific.data.size == 400
+    if os.environ.get('ROS_DISTRO') == 'rolling':
+        assert constraints.type_specific.data_length == 400
+    else:
+        assert constraints.max_string_length == 256
+        assert constraints.type_specific.data.size == 400
+
+
+def test_rolling_backend_cases(monkeypatch):
+    """Rolling rejects copy cases that cannot use their advertised backend."""
+    monkeypatch.setenv('ROS_DISTRO', 'rolling')
+    bc.validate_backend_case('std', 'copy', 'fastcdr')
+    bc.validate_backend_case('exp', 'constrained_pub_sub', 'xcdr')
+    check_raises(bc.validate_backend_case, 'std', 'copy', 'xcdr')
+    check_raises(bc.validate_backend_case, 'exp', 'copy', 'xcdr')
 
 
 def make_context(**overrides):

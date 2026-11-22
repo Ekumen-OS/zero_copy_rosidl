@@ -17,20 +17,45 @@
 
 #include <cstdio>
 
+#if __has_include(<sensor_msgs/msg/views/image__region.hpp>)
+#define BENCHMARK_ROLLING_VIEWS 1
+#include <sensor_msgs/msg/views/image__region.hpp>
+#else
 #include <sensor_msgs/msg/experimental/image.hpp>
+#include <rmw_fastrtps_cpp/serialization_backend.hpp>
+#endif
 
 #include <rclcpp/rclcpp.hpp>
-
-#include <rmw_fastrtps_cpp/serialization_backend.hpp>
 
 #include "constrained_pubsub_benchmark/config.hpp"
 
 namespace constrained_pubsub_benchmark
 {
 
+#ifdef BENCHMARK_ROLLING_VIEWS
+using ExperimentalImage = sensor_msgs::msg::views::RegionImage;
+using ExperimentalImageConstraints =
+  rosidl_runtime_cpp::views::MessageConstraints<ExperimentalImage>;
+#else
 using ExperimentalImage = sensor_msgs::msg::experimental::Image;
 using ExperimentalImageConstraints =
   rosidl_runtime_cpp::MessageConstraints<ExperimentalImage>;
+#endif
+
+void validate_backend_case(const BenchmarkConfig & cfg, Backend backend)
+{
+#ifdef BENCHMARK_ROLLING_VIEWS
+  if (cfg.config == Config::kCopy &&
+    (cfg.message != MessageType::kStandard || backend != Backend::kFastCdr))
+  {
+    throw std::invalid_argument(
+            "Rolling supports copy benchmarks only for std with fastcdr");
+  }
+#else
+  (void)cfg;
+  (void)backend;
+#endif
+}
 
 /// Constraints for the cross-process Image benchmark.
 /**
@@ -45,8 +70,10 @@ make_inter_proc_constraints(size_t payload_bytes, bool strict)
   per_member.encoding.size = 64;
   per_member.data.size = payload_bytes;
   ExperimentalImageConstraints c(per_member);
+#ifndef BENCHMARK_ROLLING_VIEWS
   c.max_string_length = 256;
-  c.max_total_size = 0;  // 0 = unlimited; use per-member
+  c.max_total_size = 0;
+#endif
   c.strict = strict;
   return c;
 }
@@ -56,6 +83,10 @@ make_inter_proc_constraints(size_t payload_bytes, bool strict)
 void
 apply_backend_to_init_options(rclcpp::InitOptions & init_options, Backend backend)
 {
+#ifdef BENCHMARK_ROLLING_VIEWS
+  (void)init_options;
+  (void)backend;
+#else
   if (backend != Backend::kXcdr) {
     return;
   }
@@ -66,6 +97,7 @@ apply_backend_to_init_options(rclcpp::InitOptions & init_options, Backend backen
   {
     fprintf(stderr, "WARNING: could not set XCDR serialization backend\n");
   }
+#endif
 }
 
 }  // namespace constrained_pubsub_benchmark

@@ -24,7 +24,7 @@ the configured DDS transport. Emits the raw CSV header plus one event row
 per published/received message on stdout; diagnostics go to stderr.
 """
 
-import concurrent.futures
+import os
 import sys
 import time
 
@@ -37,16 +37,22 @@ from benchmark_common import fill_image  # noqa: E402
 from benchmark_common import make_image_constraints  # noqa: E402
 from benchmark_common import mono_now_ns  # noqa: E402
 from benchmark_common import parse_payload  # noqa: E402
+from benchmark_common import publish_image_loan  # noqa: E402
 from benchmark_common import resolve_config  # noqa: E402
 from benchmark_common import RunContext  # noqa: E402
+from benchmark_common import validate_backend_case  # noqa: E402
 
 import rclpy  # noqa: E402
 from rclpy.executors import SingleThreadedExecutor  # noqa: E402
 from rclpy.qos import HistoryPolicy  # noqa: E402
 from rclpy.qos import QoSProfile, ReliabilityPolicy  # noqa: E402
+from rclpy.task import Future  # noqa: E402
 
 from sensor_msgs.msg import Image  # noqa: E402
-from sensor_msgs.msg.experimental import Image as ExperimentalImage  # noqa: E402
+if os.environ.get('ROS_DISTRO') == 'rolling':
+    from sensor_msgs.msg.views import Image as ExperimentalImage  # noqa: E402
+else:
+    from sensor_msgs.msg.experimental import Image as ExperimentalImage  # noqa: E402
 
 from transport_config import apply_backend_env  # noqa: E402
 
@@ -105,6 +111,7 @@ def main():
     # can fail loudly (e.g. data sharing ON with an unbounded type), and
     # that must surface as an error row, never as a traceback.
     try:
+        validate_backend_case(message, config, backend)
         if message == 'std':
             msg_type = Image
         else:
@@ -136,7 +143,9 @@ def main():
                 constraints=sub_constraints)
         else:
             sub = node.create_subscription(  # noqa: F841
-                msg_type, args.topic, callback, qos)
+                Image if (os.environ.get('ROS_DISTRO') == 'rolling' and
+                          config == 'constrained_pub_only') else msg_type,
+                args.topic, callback, qos)
 
         executor = SingleThreadedExecutor()
         executor.add_node(node)
@@ -157,7 +166,7 @@ def main():
 
         # Completed by the timer when the run window elapses; lets the
         # executor stop promptly instead of polling manually.
-        done = concurrent.futures.Future()
+        done = Future()
         sent = 0
         t_end = time.monotonic() + args.duration_sec
 
@@ -168,13 +177,7 @@ def main():
                     done.set_result(None)
                 return
             if use_loan:
-                with pub.borrow_loaned_message() as loan:
-                    fill_image(loan, payload_bytes, sent,
-                               args.fill_encoding, args.fill_frame_id,
-                               args.fill_data_ratio)
-                    send_ns = mono_now_ns()
-                    encode_sample_metadata(loan, sent, send_ns)
-                    pub.publish_loaned_message(loan)
+                send_ns = publish_image_loan(pub, payload_bytes, sent, args)
             else:
                 send_ns = mono_now_ns()
                 encode_sample_metadata(pub_msg, sent, send_ns)

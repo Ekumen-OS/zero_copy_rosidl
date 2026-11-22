@@ -33,7 +33,6 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp/executors/single_threaded_executor.hpp>
-#include <sensor_msgs/msg/experimental/image.hpp>
 #include <sensor_msgs/msg/image.hpp>
 
 #include "constrained_pubsub_benchmark/benchmark_common.hpp"
@@ -66,6 +65,7 @@ int main(int argc, char ** argv)
   // can fail loudly (e.g. data sharing ON with an unbounded type), and
   // that must surface as an error row, never as an abort.
   try {
+    bench::validate_backend_case(cfg, backend);
     rclcpp::InitOptions init_options;
     bench::apply_backend_to_init_options(init_options, backend);
     rclcpp::init(argc, argv, init_options);
@@ -136,12 +136,16 @@ int main(int argc, char ** argv)
               cfg.fill_encoding, cfg.fill_frame_id, cfg.fill_data_ratio);
             publish_copy(pub, msg);
           } else {
+#ifdef BENCHMARK_ROLLING_VIEWS
+            throw std::invalid_argument("Rolling region views require loans");
+#else
             auto pub = node->create_publisher<bench::ExperimentalImage>(
               cfg.topic, qos);
             bench::ExperimentalImage msg;
             bench::fill_image(msg, cfg.payload_bytes, 0,
               cfg.fill_encoding, cfg.fill_frame_id, cfg.fill_data_ratio);
             publish_copy(pub, msg);
+#endif
           }
           break;
         }

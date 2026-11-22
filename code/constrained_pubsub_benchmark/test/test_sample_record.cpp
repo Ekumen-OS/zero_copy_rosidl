@@ -17,10 +17,10 @@
 #include <cstdint>
 #include <string>
 
-#include <sensor_msgs/msg/experimental/image.hpp>
 #include <sensor_msgs/msg/image.hpp>
 
 #include "constrained_pubsub_benchmark/sample_record.hpp"
+#include "constrained_pubsub_benchmark/transport_config.hpp"
 
 namespace rec = constrained_pubsub_benchmark;
 
@@ -181,7 +181,7 @@ static void check_metadata_codec()
   ImageT msg;
   rec::encode_sample_metadata(msg, 42, 1234567890123456789LL);
   // 16-char frame_id satisfies the c1/c2 bound exactly.
-  EXPECT_EQ(16u, msg.header.frame_id.size());
+  EXPECT_EQ(16u, rec::frame_id(rec::header(msg, 0), 0).size());
   uint64_t seq = 0;
   int64_t send_ns = 0;
   EXPECT_TRUE(rec::decode_sample_metadata(msg, &seq, &send_ns));
@@ -194,8 +194,20 @@ TEST(SampleRecordTest, MetadataCodecStdImage) {
 }
 
 TEST(SampleRecordTest, MetadataCodecExperimentalImage) {
-  check_metadata_codec<sensor_msgs::msg::experimental::Image>();
+  check_metadata_codec<rec::ExperimentalImage>();
 }
+
+#ifdef BENCHMARK_ROLLING_VIEWS
+TEST(SampleRecordTest, RejectsUnsupportedCopyBackend) {
+  rec::BenchmarkConfig cfg;
+  cfg.message = rec::MessageType::kStandard;
+  cfg.config = rec::Config::kCopy;
+  EXPECT_NO_THROW(rec::validate_backend_case(cfg, rec::Backend::kFastCdr));
+  EXPECT_THROW(rec::validate_backend_case(cfg, rec::Backend::kXcdr), std::invalid_argument);
+  cfg.message = rec::MessageType::kExperimental;
+  EXPECT_THROW(rec::validate_backend_case(cfg, rec::Backend::kXcdr), std::invalid_argument);
+}
+#endif
 
 TEST(SampleRecordTest, MetadataCodecRejectsForeign) {
   sensor_msgs::msg::Image msg;

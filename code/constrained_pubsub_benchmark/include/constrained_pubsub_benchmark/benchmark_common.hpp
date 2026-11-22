@@ -30,6 +30,7 @@
 #include <rclcpp/executors/single_threaded_executor.hpp>
 
 #include <constrained_pubsub_benchmark/config.hpp>
+#include <constrained_pubsub_benchmark/image_access.hpp>
 
 namespace constrained_pubsub_benchmark
 {
@@ -62,21 +63,23 @@ void fill_image(
   size_t fill_frame_id,
   double fill_data_ratio)
 {
-  msg.header.stamp.sec = static_cast<int32_t>(seq >> 32);
-  msg.header.stamp.nanosec = static_cast<uint32_t>(seq & 0xFFFFFFFF);
+  auto & image_header = header(msg, 0);
+  auto & image_stamp = stamp(image_header, 0);
+  sec(image_stamp, 0) = static_cast<int32_t>(seq >> 32);
+  nanosec(image_stamp, 0) = static_cast<uint32_t>(seq & 0xFFFFFFFF);
   if (fill_frame_id > 0) {
     std::string padded_frame(fill_frame_id, 'f');
-    msg.header.frame_id.assign(padded_frame);
+    frame_id(image_header, 0).assign(padded_frame);
   } else {
-    msg.header.frame_id.assign("benchmark");
+    frame_id(image_header, 0).assign("benchmark");
   }
-  msg.is_bigendian = false;
+  is_bigendian(msg, 0) = false;
 
   if (fill_encoding > 0) {
     std::string padded(fill_encoding, 'x');
-    msg.encoding.assign(padded);
+    encoding(msg, 0).assign(padded);
   } else {
-    msg.encoding.assign("rgb8");
+    encoding(msg, 0).assign("rgb8");
   }
 
   if (fill_data_ratio > 0.0) {
@@ -89,21 +92,21 @@ void fill_image(
     uint32_t w = static_cast<uint32_t>(
       std::ceil(static_cast<double>(want) / (3.0 * static_cast<double>(h))));
     if (w < 1) {w = 1;}
-    msg.height = h;
-    msg.width = w;
-    msg.step = w * 3;
-    msg.data.resize(want);
-    std::memset(msg.data.data(), 0xFE, want);
+    height(msg, 0) = h;
+    width(msg, 0) = w;
+    step(msg, 0) = w * 3;
+    data(msg, 0).resize(want);
+    std::memset(data(msg, 0).data(), 0xFE, want);
   } else {
     // Legacy: square image whose size is the largest dim*dim*3 <= payload_bytes.
     uint32_t dim = static_cast<uint32_t>(std::sqrt(payload_bytes / 3));
     if (dim < 1) {dim = 1;}
     uint32_t actual = dim * dim * 3;
-    msg.height = dim;
-    msg.width = dim;
-    msg.step = dim * 3;
-    msg.data.resize(actual);
-    std::memset(msg.data.data(), 0xFE, actual);
+    height(msg, 0) = dim;
+    width(msg, 0) = dim;
+    step(msg, 0) = dim * 3;
+    data(msg, 0).resize(actual);
+    std::memset(data(msg, 0).data(), 0xFE, actual);
   }
 }
 

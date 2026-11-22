@@ -33,7 +33,6 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp/executors/single_threaded_executor.hpp>
-#include <sensor_msgs/msg/experimental/image.hpp>
 #include <sensor_msgs/msg/image.hpp>
 
 #include "constrained_pubsub_benchmark/benchmark_common.hpp"
@@ -87,6 +86,7 @@ int main(int argc, char ** argv)
   // can fail loudly (e.g. data sharing ON with an unbounded type), and
   // that must surface as an error row, never as an abort.
   try {
+    bench::validate_backend_case(cfg, backend);
     rclcpp::InitOptions init_options;
     bench::apply_backend_to_init_options(init_options, backend);
     rclcpp::init(argc, argv, init_options);
@@ -174,6 +174,9 @@ int main(int argc, char ** argv)
               cfg.fill_encoding, cfg.fill_frame_id, cfg.fill_data_ratio);
             run_copy_loop(pub, msg);
           } else {
+#ifdef BENCHMARK_ROLLING_VIEWS
+            throw std::invalid_argument("Rolling region views require loans");
+#else
             auto pub = node->create_publisher<bench::ExperimentalImage>(
               cfg.topic, qos);
             sub = node->create_subscription<bench::ExperimentalImage>(
@@ -183,6 +186,7 @@ int main(int argc, char ** argv)
             bench::fill_image(msg, cfg.payload_bytes, 0,
               cfg.fill_encoding, cfg.fill_frame_id, cfg.fill_data_ratio);
             run_copy_loop(pub, msg);
+#endif
           }
           break;
         }
@@ -200,8 +204,19 @@ int main(int argc, char ** argv)
             sub = node->create_subscription<bench::ExperimentalImage>(
               cfg.topic, qos, on_exp_message, constraints);
           } else {
+#ifdef BENCHMARK_ROLLING_VIEWS
+            sub = node->create_subscription<StdImage>(
+              cfg.topic, qos,
+              [&](const StdImage & msg, const rclcpp::MessageInfo & info) {
+                uint64_t seq = 0;
+                int64_t send_ns = 0;
+                bool ok = bench::decode_sample_metadata(msg, &seq, &send_ns);
+                on_message(seq, ok, send_ns, info);
+              });
+#else
             sub = node->create_subscription<bench::ExperimentalImage>(
               cfg.topic, qos, on_exp_message);
+#endif
           }
           wait_for_local_match(*pub, *sub);
           bench::run_fixed_rate_loop(exec,

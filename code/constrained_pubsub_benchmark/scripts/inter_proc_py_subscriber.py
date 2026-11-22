@@ -25,6 +25,7 @@ subscription exists. Intended to be paired with a publisher process
 """
 
 import faulthandler
+import os
 import sys
 import time
 
@@ -39,6 +40,7 @@ from benchmark_common import mono_now_ns  # noqa: E402
 from benchmark_common import parse_payload  # noqa: E402
 from benchmark_common import resolve_config  # noqa: E402
 from benchmark_common import RunContext  # noqa: E402
+from benchmark_common import validate_backend_case  # noqa: E402
 
 import rclpy  # noqa: E402
 from rclpy.executors import SingleThreadedExecutor  # noqa: E402
@@ -46,7 +48,10 @@ from rclpy.qos import HistoryPolicy  # noqa: E402
 from rclpy.qos import QoSProfile, ReliabilityPolicy  # noqa: E402
 
 from sensor_msgs.msg import Image  # noqa: E402
-from sensor_msgs.msg.experimental import Image as ExperimentalImage  # noqa: E402
+if os.environ.get('ROS_DISTRO') == 'rolling':
+    from sensor_msgs.msg.views import Image as ExperimentalImage  # noqa: E402
+else:
+    from sensor_msgs.msg.experimental import Image as ExperimentalImage  # noqa: E402
 
 from transport_config import apply_backend_env  # noqa: E402
 
@@ -103,10 +108,13 @@ def main():
     # creation can fail loudly (e.g. data sharing ON with an unbounded
     # type), and that must surface as an error row, never as a traceback.
     try:
+        validate_backend_case(message, config, backend)
         # NOTE: keep the subscription referenced; dropping it unsubscribes.
         # The message selects the subscription type; only a constrained
         # subscriber adds constraints.
-        if message == 'std':
+        if (message == 'std' or
+                (os.environ.get('ROS_DISTRO') == 'rolling' and
+                 config == 'constrained_pub_only')):
             sub = node.create_subscription(  # noqa: F841
                 Image, args.topic, callback, qos)
         elif config == 'constrained_pub_sub':

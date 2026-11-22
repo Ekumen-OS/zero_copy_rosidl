@@ -10,6 +10,12 @@ per-sample CSV; post-processing derives latency, throughput, and plots.
 Follow the root README's Build TL;DR — Docker dev shell or native, including
 the one-time import — then continue below.
 
+For Rolling, build `sensor_msgs` and its interface dependencies with
+`-DROSIDL_GENERATOR_PY_REGION_VIEWS=ON` before building this package. The
+Rolling development container uses `/home/developer/ws/install/setup.bash`;
+it does not provide `/opt/ros/rolling`. Python region views must be generated
+for nested interface dependencies too.
+
 ## 2. Environment
 
 ```bash
@@ -29,10 +35,21 @@ Case axes (`--message` x `--config` x `--backend`):
 | `--config` | `copy` (plain copy), `constrained_pub_only` (constrained loaned publisher), `constrained_pub_sub` (constrained loaned pub + sub) |
 | `--backend` | `auto` (default: FastCDR for a `std` copy, XCDR elsewhere), `fastcdr` (copy only), `xcdr` |
 
-The five benchmarked cases are `std+copy+fastcdr`, `std+copy+xcdr`,
+On Jazzy, the five benchmarked cases are `std+copy+fastcdr`, `std+copy+xcdr`,
 `exp+copy+xcdr`, `exp+constrained_pub_only+xcdr`, and
 `exp+constrained_pub_sub+xcdr` (constrained configs require `--message exp`;
 `--backend fastcdr` requires `--config copy`).
+
+On Rolling, `exp` denotes `sensor_msgs.msg.views.Image` in Python and
+`sensor_msgs::msg::views::RegionImage` in C++. The supported cases are
+`std+copy+fastcdr`, `exp+constrained_pub_only+xcdr`, and
+`exp+constrained_pub_sub+xcdr`. The two XCDR copy cases are explicitly
+rejected: Rolling selects XCDR for region endpoints, rather than exposing
+the Jazzy global serialization-backend selection. The `xcdr` CSV field
+describes the constrained publisher path; in `constrained_pub_only` the
+subscriber is an ordinary Image endpoint, using ordinary type support.
+Region endpoints require middleware loans and never fall back to copies.
+Python payload assignment itself copies values into the loaned sequence.
 
 Directions (`--direction`): `cpp_to_cpp`, `cpp_to_py`, `py_to_cpp`,
 `py_to_py` (two processes), `intra_cpp`, `intra_py` (one process; ROS
@@ -53,6 +70,13 @@ AUTOMATIC skips data sharing gracefully. The orchestrator renders
 `ds_profile_pub.xml` (data-sharing capable writer) and `ds_profile_sub.xml`
 (dynamic receiving end, also used intra-process) per step, and releases the
 publisher (stdin go-signal) only after `PUB_READY` + `SUB_MATCHED`.
+`shmem_ds` may fall back to SHM transport; its label and successful delivery
+do not establish that DDS data sharing was used, nor that delivery was
+end-to-end zero-copy. The smoke test checks that the publisher's payload
+resides in its borrowed region, but does not prove cross-process sharing.
+The UDP and SHM profiles select their respective transport with data sharing
+disabled; a transport label by itself is not evidence that a profile was
+actually loaded.
 
 Default sweep grids: payloads `4,40,400,4K,40K,400K,4M,40M`; frequencies
 `10^(k/3)` Hz for k=0..9 (1, 2.15, 4.64, 10, 21.5, 46.4, 100, 215, 464,
@@ -77,6 +101,8 @@ python3 $BIN/inter_proc_benchmark.py --direction intra_py \
   > /tmp/intra.csv
 
 # Manual halves (unique topic per run; subscriber first, then publisher).
+# The --transport flag records a label only in these executables: set the
+# matching Fast DDS XML environment yourself, or use the orchestrator above.
 # The publisher prints PUB_READY after matching and blocks on a stdin
 # go-signal; it publishes only after the subscriber prints SUB_MATCHED,
 # so no head samples are lost.
@@ -112,6 +138,8 @@ A full matrix (5 cases x 6 directions) is 30 sweep invocations of up to 240
 steps each. Steps run sequentially with a unique topic and run id; a failed
 step emits an error row and the sweep continues (nonzero exit if any step
 failed).
+The five-case count and the legacy matrix drivers are Jazzy-specific; select
+the three supported Rolling cases individually instead.
 
 ## 6. Collecting the matrix
 
@@ -139,6 +167,10 @@ apply a one-percent seeded publish-period dither (avoids aligning samples with
 the DDS heartbeat grid), and pass `--fill-encoding 64 --fill-frame-id 16
 --fill-data-ratio 1.0` so constrained messages fill their bounds and skip the
 compaction rewrite.
+
+Do not run these cleanup-capable drivers in a shared environment: their
+cleanup is not scoped to this benchmark's processes. Use the single-run
+orchestrator with a unique topic instead.
 
 The drivers do not control processor idle states: deep package C-state
 wake-ups added ~100–200 µs during development and changed the apparent

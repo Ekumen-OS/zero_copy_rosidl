@@ -41,6 +41,7 @@
 #include <vector>
 
 #include "constrained_pubsub_benchmark/config.hpp"
+#include "constrained_pubsub_benchmark/image_access.hpp"
 
 namespace constrained_pubsub_benchmark
 {
@@ -331,10 +332,12 @@ void encode_sample_metadata(ImageT & msg, uint64_t seq, int64_t send_mono_ns)
 {
   std::ostringstream frame_id;
   frame_id << 's' << std::setw(15) << std::setfill('0') << seq;
-  msg.header.frame_id.assign(frame_id.str());
-  msg.header.stamp.sec =
+  auto & image_header = header(msg, 0);
+  constrained_pubsub_benchmark::frame_id(image_header, 0).assign(frame_id.str());
+  auto & image_stamp = stamp(image_header, 0);
+  sec(image_stamp, 0) =
     static_cast<int32_t>(send_mono_ns / kNanosPerSecond);
-  msg.header.stamp.nanosec =
+  nanosec(image_stamp, 0) =
     static_cast<uint32_t>(send_mono_ns % kNanosPerSecond);
 }
 
@@ -346,7 +349,10 @@ bool decode_sample_metadata(
 {
   *seq = 0;
   *send_mono_ns = 0;
-  std::string frame_id(msg.header.frame_id.data(), msg.header.frame_id.size());
+  const auto & image_header = header(msg, 0);
+  const auto & image_stamp = stamp(image_header, 0);
+  const auto & image_frame_id = constrained_pubsub_benchmark::frame_id(image_header, 0);
+  std::string frame_id(image_frame_id.data(), image_frame_id.size());
   if (frame_id.size() != 16 || frame_id[0] != 's') {
     return false;
   }
@@ -359,8 +365,8 @@ bool decode_sample_metadata(
     value = value * 10 + static_cast<uint64_t>(frame_id[i] - '0');
   }
   *seq = value;
-  *send_mono_ns = static_cast<int64_t>(msg.header.stamp.sec) * kNanosPerSecond +
-    static_cast<int64_t>(msg.header.stamp.nanosec);
+  *send_mono_ns = static_cast<int64_t>(sec(image_stamp, 0)) * kNanosPerSecond +
+    static_cast<int64_t>(nanosec(image_stamp, 0));
   return true;
 }
 

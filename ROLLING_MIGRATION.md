@@ -413,13 +413,49 @@ Implementation commits: `rosidl` `91b37710`, `rosidl_typesupport` `19fa75e`,
 
 ### 9. End-to-end verification
 
-- [ ] Port the benchmark to the new APIs and Rolling; run its smoke test and
+- [x] Port the benchmark to the new APIs and Rolling; run its smoke test and
   representative C++/Python copy and loan cases. Verify the actual transport
   and storage path when claiming zero-copy; compare with ordinary ROS peers.
-- [ ] Run relevant package tests and regression tests.
-- [ ] Add a new section to this document with a comparison between the Jazzy PoC
+- [x] Run relevant package tests and regression tests.
+- [x] Add a new section to this document with a comparison between the Jazzy PoC
   and the Rolling port, what's different, what's missing, why, what can change if
   we decide to go in a different direction.
+
+The benchmark smoke test confirms that publisher and subscriber region views
+borrow storage and their image payloads lie within the respective borrowed
+blocks; it also checks delivery to an ordinary subscriber and loan consumption.
+All four cross-process C++/Python directions delivered the standard copy,
+region publisher/ordinary subscriber, and region publisher/subscriber cases
+over the UDP-only profile. Same-process C++ and Python cases also passed.
+The SHM and SHM-with-automatic-data-sharing profiles delivered C++-to-Python
+region samples. The latter does not prove that Fast DDS selected data sharing,
+and none of these results establishes end-to-end zero-copy.
+
+The Rolling benchmark suite passed 137 tests and lint checks. Focused Rolling
+region XCDR, Python view/publisher, Fast DDS take and C++ region service
+regressions passed. The Jazzy shared XCDR suite passed all 16 tests, and the
+shared benchmark built and passed its Python compatibility and smoke tests;
+representative Jazzy C++ and Python cases also ran. The
+[benchmark runbook](code/constrained_pubsub_benchmark/BENCHMARK_RUNBOOK.md)
+describes the supported cases and transport caveats.
+
+#### Jazzy PoC and Rolling comparison
+
+| Area | Jazzy PoC | Rolling port and alternatives |
+|---|---|---|
+| Message API | Experimental message types expose member-style fields. | Ordinary messages remain unchanged; generated `views` provide method-based plain adapters and region-backed views. Plain adapters wrap ordinary storage and are not automatically transferable. Retaining the old member API would avoid migration but conflicts with the REP's view separation. |
+| Storage and lifetime | Experimental values couple the API to the PoC's storage. | Views distinguish owned and borrowed CPU regions; loans and their field references have explicit lifetimes. The initial backend uses XCDRv1; device memory, synchronization and multi-region transport are not implemented. Other backends can implement the storage contract without standardizing XCDR as the wire format. |
+| Constraints | Experimental types and middleware accept PoC-specific constraints, including blanket limits. | Typed per-field constraints and endpoint baselines support tighter per-loan limits. Fast DDS rejects unsupported blanket constraints instead of ignoring them. A future backend could implement additional constraint policies explicitly. |
+| Wide strings | The PoC's in-memory representation followed its XCDR implementation. | The logical UTF-16 API is separated from the XCDR storage policy; the latter preserves the existing 32-bit wire representation. C exposes copy accessors rather than an incompatible `uint16_t *`. Other middleware storage policies remain possible but have not been integrated. |
+| Python | Experimental generated bindings expose PoC messages and loans. | Opt-in generated region views use `sensor_msgs.msg.views`-style modules, borrowed-view validity checks and loan ownership. Nested packages need view generation enabled too. Python service and action views are not implemented; generated Python payload assignment may copy even when the endpoint uses a loan. |
+| C and services | The PoC focused on experimental topic messages. | Generated C adapters and opaque region accessors, typed constraints, and request/response loans are available. C++ region services use explicit polling, not executor integration; Python services and action views remain future work. Executor-integrated wrappers or Python service bindings are possible extensions. |
+| Middleware | The PoC adds a Fast DDS XCDR path and backend selection. | Context-aware RMW/RCL operations require middleware support and fail rather than silently copying. Fast DDS implements topic and service loans and ordinary-peer interoperability; other middlewares have not been integrated. Adapters or backend-specific implementations are needed to extend support. |
+| Benchmark | Five Jazzy combinations include ordinary and experimental XCDR copy baselines. | Rolling runs ordinary FastCDR copy and XCDR region loan cases. Its publisher-only case uses an ordinary subscriber; the two Jazzy XCDR copy baselines are rejected because the global backend selector was not ported. An explicit ordinary-message XCDR selection API or separate adapter benchmark could restore comparable copy baselines. |
+
+These are functional comparisons, not measured performance claims. The
+benchmark's SHM/data-sharing profile is a request with an `AUTOMATIC` policy;
+transport tracing or middleware instrumentation is needed before attributing
+cross-process delivery to data sharing or claiming end-to-end zero-copy.
 
 ### 10. Documentation
 
