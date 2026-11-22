@@ -411,14 +411,20 @@ Implementation commits: `rosidl` `91b37710`, `rosidl_typesupport` `19fa75e`,
 `rmw_fastrtps` `1cbf8d5`, `rclcpp` `5c8f6836`, and `zero_copy_rosidl`
 `8541ac7`.
 
-### 9. End-to-end verification and documentation
+### 9. End-to-end verification
 
 - [ ] Port the benchmark to the new APIs and Rolling; run its smoke test and
   representative C++/Python copy and loan cases. Verify the actual transport
   and storage path when claiming zero-copy; compare with ordinary ROS peers.
-- [ ] Run relevant package tests and regression tests; update the README,
-  developer guides, Rolling manifests and CI/build instructions with verified
-  commands and limitations.
+- [ ] Run relevant package tests and regression tests.
+- [ ] Add a new section to this document with a comparison between the Jazzy PoC
+  and the Rolling port, what's different, what's missing, why, what can change if
+  we decide to go in a different direction.
+
+### 10. Documentation
+
+- [ ] Update the README, developer guides, Rolling manifests and CI/build
+  instructions with verified commands and limitations.
 
 ## Development environment
 
