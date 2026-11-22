@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>rosidl_typesupport_xcdr_rclpy_tests</name>
+  <version>0.1.0</version>
+  <description>Python client integration tests for region-view XCDR loans.</description>
+  <maintainer email="dharini@openrobotics.org">Dharini Dutia</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <test_depend>ament_cmake_pytest</test_depend>
+  <test_depend>ament_cmake_ros_core</test_depend>
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+  <test_depend>pybind11-dev</test_depend>
+  <test_depend>python3-dev</test_depend>
+  <test_depend>python3-pytest</test_depend>
+  <test_depend>rclpy</test_depend>
+  <test_depend>rclcpp</test_depend>
+  <test_depend>rmw_fastrtps_cpp</test_depend>
+  <test_depend>rosidl_default_generators</test_depend>
+  <test_depend>rosidl_runtime_cpython</test_depend>
+  <test_depend>rosidl_typesupport_xcdr_cpp_tests</test_depend>
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

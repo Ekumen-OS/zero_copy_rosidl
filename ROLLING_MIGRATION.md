@@ -316,13 +316,54 @@ Implementation commits: `rcl` `be5eeb3`, `rclcpp` `4a15840b` and
 
 ### 7. Python bindings and client library
 
-- [ ] Adapt `rosidl_python` generation and `MessageTypeBridge` to view APIs,
+- [x] Adapt `rosidl_python` generation and `MessageTypeBridge` to view APIs,
   constraints and lifetimes, reusing C++ XCDR; test ordinary Python messages.
-- [ ] Port `rclpy` context and loan handling; test cleanup and callback
+- [x] Port `rclpy` context and loan handling; test cleanup and callback
   lifetime without changing ordinary Python messages.
-- [ ] Test C++ to Python, Python to C++, and Python to Python, including loan
+- [x] Test C++ to Python, Python to C++, and Python to Python, including loan
   cleanup and subscriber callback lifetime. No separate CPython XCDR package
   is needed for the existing bridge approach.
+
+Python region generation is opt-in: build each interface package and its
+interface dependencies with `-DROSIDL_GENERATOR_PY_REGION_VIEWS=ON` and with
+the C++ XCDR type support, `rosidl_runtime_cpython`, and pybind11 available.
+The default is `OFF`; ordinary generated Python messages remain available.
+Loanable types require the XCDR generator's `msg/experimental` interface
+convention. Other generated views can be used as owned objects, but lack the
+region-loan type support needed by endpoints.
+For example, `pkg.msg.views.Example` is the region class and
+`pkg.msg.Example` is the ordinary message. Service and action bindings remain
+outside this step.
+
+A region class has a `Constraints` type; use it as `type_specific` in
+`rosidl_runtime_cpython.constraints.MessageConstraints` when creating an
+endpoint or tightening a publisher borrow. String sizes use `<field>_size`,
+sequence lengths use `<field>_length`, and nested sequence constraints use
+`<field>_element`. Some nested types require explicit typed constraints even
+when their fields are bounded. Publisher loans are acquired with
+`publisher.borrow_loaned_message()` and consumed by
+`publisher.publish_loaned_message(loan)`; a discarded or explicitly returned
+loan is returned to the middleware. Publisher loans can also be returned
+after context shutdown.
+
+Generated views expose checked array and sequence wrappers with indexing,
+assignment, `append` and `clear`; fixed arrays cannot be resized. Nested
+fields and nested sequence elements can be assigned from field dictionaries.
+Whole-container and nested-dictionary assignment can partially modify a
+message if a later element or field is invalid. No borrowed raw buffer is
+exported. Retained element views are invalidated when their container changes,
+and all loan-derived views expire when their loan returns. Subscription views
+are read-only and remain valid through a synchronous or awaited callback,
+including cancellation and exceptions.
+
+Fast DDS tests cover generated Python-to-Python and C++/Python loans in both
+directions, cross-package nested views, ordinary-message interoperability,
+constraints, and cleanup. Other middleware implementations have not been
+integration-tested. Experimental `AsyncNode`, raw region
+subscriptions and `wait_for_message` reject region views; the EventsExecutor's
+copy-based take also rejects them. The tested executor is single-threaded.
+The bridge capsule is a PoC C++ ABI, not a standardized binary interface;
+rebuild its consumers together after changing the runtime headers.
 
 ### 8. Remaining language and service surface
 
