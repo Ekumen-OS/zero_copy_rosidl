@@ -311,6 +311,9 @@ been integration-tested. Fast DDS consumes a valid publisher loan even on a
 middleware publication failure; RCL rejects an invalid publisher before
 dispatch, in which case the loan remains owned by the caller.
 
+Implementation commits: `rcl` `be5eeb3`, `rclcpp` `4a15840b` and
+`zero_copy_rosidl` `cb1bbe6`.
+
 ### 7. Python bindings and client library
 
 - [ ] Adapt `rosidl_python` generation and `MessageTypeBridge` to view APIs,
