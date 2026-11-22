@@ -286,11 +286,30 @@ Implementation commits: `rosidl` `79389e69`, `rmw_fastrtps` `be3d4f5` and
 
 ### 6. C++ client library
 
-- [ ] Port `rclcpp` endpoints and publisher loans for views and contexts;
+- [x] Port `rclcpp` endpoints and publisher loans for views and contexts;
   test existing APIs and return-on-error.
-- [ ] Port subscription/executor support; test callback and loan lifetime.
-- [ ] Demonstrate C++ to C++ publisher and subscriber loans, mixed loan/copy
+- [x] Port subscription/executor support; test callback and loan lifetime.
+- [x] Demonstrate C++ to C++ publisher and subscriber loans, mixed loan/copy
   paths and ordinary-message communication.
+
+`Node::create_publisher<View>(topic, qos, constraints)` and
+`Node::create_subscription<View>(topic, qos, callback, constraints)` create
+dedicated region endpoints. A publisher loan is move-only, returns itself when
+discarded, and can be published only by its originating publisher. A
+per-borrow constraint may tighten the endpoint baseline. The subscription
+callback receives a const view, optionally with `MessageInfo`; its view and
+member references expire when the callback returns, including on exceptions.
+Publisher loans can be returned after context shutdown.
+
+Region endpoints require middleware loans and reject intra-process mode; there
+is no copy fallback. Region subscriptions opt into loans when
+`ROS_DISABLE_LOANED_MESSAGES` is unset, but honor an explicit setting. The
+implemented API requires typed constraints and does not add region overloads
+to the free-function or lifecycle-node factories. Fast DDS and the
+single-threaded executor were exercised; other backends and executors have not
+been integration-tested. Fast DDS consumes a valid publisher loan even on a
+middleware publication failure; RCL rejects an invalid publisher before
+dispatch, in which case the loan remains owned by the caller.
 
 ### 7. Python bindings and client library
 
