@@ -503,6 +503,11 @@ the extended bridge uses a versioned capsule and rejects older modules.
   Pointer-only creation errors and operation-level `UNSUPPORTED` propagate;
   operations are not automatically retried after they may have side effects.
 
+Implementation commits: `rosidl` `8bee48d9`, `rosidl_python` `dc630e84`,
+`rmw` `72f69903`, `rmw_implementation` `6b5c8cc5`,
+`rmw_fastrtps` `3a76705d`, `rclcpp` `02b47110`, `rclpy` `0f0c2193`,
+and `zero_copy_rosidl` `21072bf7`.
+
 ### 10. Documentation
 
 - [ ] Update the README, developer guides, Rolling manifests and CI/build
