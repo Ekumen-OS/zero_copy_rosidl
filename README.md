@@ -1,61 +1,50 @@
 # zero_copy_rosidl
 
-An experimental ROS 2 reference implementation of [REP-0157](https://reps.openrobotics.org/rep-0157-2026/)
-(and addendums): language-specific message views over a runtime-agnostic
-memory representation, with constrained loans for variable-size messages. It
-provides the proposed ROS core changes, an XCDRv1 type support, and a
-benchmark comparing copy paths with constrained publisher and subscriber loans
-in C++ and Python. Not part of a stock ROS 2 Jazzy installation.
+An experimental ROS 2 reference implementation of
+[REP-0157](https://reps.openrobotics.org/rep-0157-2026/) (and addendums):
+language-specific message views over a runtime-agnostic memory representation,
+with constrained loans for variable-size messages. This repository contains a
+Jazzy proof of concept and a Rolling port, including ROS core changes, an
+XCDRv1 implementation, and benchmarks. Neither is part of a stock ROS 2
+installation. See the [Rolling architecture guide](ROLLING_PORT_GUIDE.md) for
+the current port's data paths, compatibility boundaries, build instructions,
+benchmark reporting, and upstream work.
 
 ## Scope
 
 | Area | Implementation |
 | --- | --- |
-| Message representation | XCDRv1 plain CDR used as both the transferable form and external-storage layout |
-| Language views | Experimental C++ messages and generated `pybind11`-backed Python handles |
+| Message representation | Rolling's native implementation uses an XCDRv1 layout and retains ordinary ROS serialization/copy paths |
+| Language views | Experimental C/C++ views and opt-in generated `pybind11`-backed Python handles |
 | Constraints | Endpoint-wide bounds and optional tighter per-loan bounds |
-| Client libraries | Constrained publisher and subscription plumbing in `rclcpp` and `rclpy` |
-| Middleware | `rmw_fastrtps_cpp` integration with Fast DDS loans, shared-memory transport, and data sharing |
-| Evaluation | `constrained_pubsub_benchmark` for copy and constrained paths across C++ and Python |
+| Client libraries | Region topics in `rclcpp` and `rclpy`; C++ region services use explicit polling |
+| Middleware | Fast DDS native XCDRv1 topic/service loans; other RMWs can use high-level copy fallback |
+| Evaluation | `constrained_pubsub_benchmark` for supported copy and constrained paths across C++ and Python |
 
 Loans are not universal: unsupported layouts, encodings, or middleware
-capabilities fall back to an ordinary copy path. Topics are the tested path;
-services are not demonstrated to the same extent.
+capabilities select an ordinary copy path in the high-level adapters.
+Successful delivery over a `shmem_ds` profile does not prove that DDS data
+sharing was used or that the whole application avoided copies.
 
 ## How the path fits together
 
 ```text
-generated experimental message view
-               │
-       rclcpp / rclpy API
-               │
-     constrained rcl and rmw APIs
-               │
- rmw_fastrtps XcdrTypeSupport adapter
-               │
-  Fast DDS loaned storage and transport
+generated region view ── rclcpp / rclpy ── rcl ── rmw ── Fast DDS
+         │                   │
+         └── XCDR type support + xcdr_buffers
+         └── ordinary-message conversion when native loans are unavailable
 ```
 
-A constrained publisher supplies upper bounds for every variable-size member;
-the XCDR type support computes the storage from those bounds and builds the
-view directly over a Fast DDS loan, compacting in place when the message is
-smaller, then writing the same middleware-owned block. On receive, Fast DDS
-loans the sample, the type support casts it into a C++ view, and `rclcpp` and
-`rclpy` keep that loan alive for the callback; Python wraps the same view with
-a generated `MessageTypeBridge` — there is no separate CPython XCDR type
-support package.
-
-Endpoint constraints set the allocation and validation baseline; a per-loan
-constraint may tighten it for one borrow or take but never loosen it. The
-current `rclcpp` and `rclpy` executors take against the subscription baseline
-and add no per-take constraints.
+The [Rolling architecture guide](ROLLING_PORT_GUIDE.md) has the package map,
+native and fallback sequence diagrams, compatibility matrix, known quirks, and
+upstream checklist.
 
 ## Repository layout
 
 - `code/core/` — pinned ROS 2 and middleware sources imported by
   `code/import.py` from the manifests in `code/core/.repos/`, including the
   experimental message views, constraints, and loan plumbing (under
-  `code/core/ros2/`).
+  `code/core/<distro>/ros2/`).
 - `code/rosidl_typesupport_xcdr/` — language-neutral XCDR operation table,
   C++ implementation, and layout buffers.
 - `code/constrained_pubsub_benchmark/` — benchmark executables, run drivers,
@@ -66,7 +55,10 @@ and add no per-take constraints.
 
 ## Build
 
-**TL;DR:** Docker path — build the image, import the pinned sources once,
+**TL;DR:** the commands below are for the Jazzy proof of concept. For Rolling,
+including its source-built workspace, current manifest pins, and Python region
+view generation, follow the [Rolling architecture guide](ROLLING_PORT_GUIDE.md).
+For Jazzy, the Docker path is: build the image, import pinned sources once,
 build, then smoke-test. For a host build, do the Native import first, then
 steps 3–4.
 
@@ -136,6 +128,11 @@ Three drivers, installed as `ros2 run` entry points. All resume via `.done`
 markers, honor `RESULTS_DIR` and `DRY_RUN=1`, and must run one at a time;
 machine hygiene and sweep options live in the
 [benchmark runbook](code/constrained_pubsub_benchmark/BENCHMARK_RUNBOOK.md).
+These driver matrix sizes and the pilot results below describe the Jazzy
+benchmark cases. Rolling supports three cases; use the
+[Rolling comparison recipe](ROLLING_PORT_GUIDE.md#benchmark-runs-and-comparable-reports)
+and the [runbook](code/constrained_pubsub_benchmark/BENCHMARK_RUNBOOK.md#11-rolling-comparison-and-reports)
+for a filtered report and the limitations on cross-case comparisons.
 
 ```bash
 # spike: C++ → C++, constrained publisher, 1 MB @ 10 Hz, best-effort,
@@ -153,6 +150,9 @@ ros2 run constrained_pubsub_benchmark analyze $HOME/benchmarks/matrix --expected
 ```
 
 ## Benchmark cases
+
+The five-case table below describes the Jazzy benchmark. Rolling supports a
+different three-case set; see the [Rolling comparison recipe](ROLLING_PORT_GUIDE.md#benchmark-runs-and-comparable-reports).
 
 | Case | Message | Publisher | Subscriber | Type support |
 | --- | --- | --- | --- | --- |
@@ -185,7 +185,7 @@ list and the CSV clock-domain rule are in the
 
 ## Pilot result
 
-Selected 1 MB steps from the checked-in pilot under `data/pilot/`: 10 Hz
+Selected 1 MB steps from the checked-in Jazzy pilot under `data/pilot/`: 10 Hz
 publication, best-effort reliability, `shmem_ds`, 30 s steps, deterministic
 one-percent jitter, full-bounds fills, deep C-states disabled. Each row
 contains 301 matched samples with no drops.

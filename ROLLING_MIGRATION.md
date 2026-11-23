@@ -4,22 +4,24 @@
 
 - The target is the current [REP-0157 draft](../reps/_posts/rep-0157:2026.md)
   (last updated at `reps` commit `c0c5f20`), not a straight Jazzy port.
-- Infrastructure is at `zero_copy_rosidl` commit `83c3950`. The ten ROS
+- The migration baseline was `zero_copy_rosidl` commit `83c3950`. The ten ROS
   repositories listed in [Rolling's patched manifest](code/core/.repos/rolling/patched.repos)
-  are clean, on `zero-copy-rolling`, and at their manifest pins. Baseline
-  builds have not yet been verified.
+  are now pinned to the clean `zero-copy-rolling` port commits. The manifest
+  records the reproducible source revisions; `code/import.py` skips any
+  checkout that already exists.
 - The Jazzy PoC is under `code/core/jazzy/ros2/`; its corresponding
   `zero-copy-jazzy` branches are also available in the Rolling checkouts.
   The shared [XCDR packages](code/rosidl_typesupport_xcdr/) and
   [benchmark](code/constrained_pubsub_benchmark/) are tracked by this repo.
 - `code/core/` checkouts are separate, ignored Git repositories. Track their
-  changes and commits separately; update the Rolling manifest to reproducible
-  ported revisions when they are available. `code/import.py` skips existing
-  checkouts and does not update them.
+  changes and commits separately. `code/import.py` skips existing checkouts
+  and does not update them, even when the manifest pins change.
 
-Work bottom-up in the order below. Each checkbox is a separately verifiable
-update; mark it complete only when its stated checks pass. A step is complete when all its
-checkboxes pass; stop after each step and ask the user to commit to git.
+The migration was implemented bottom-up in the order below. Checkboxes record
+verified work; each source repository has its own Git history. The current
+architecture, compatibility behavior, build instructions, benchmark recipe,
+and upstream gaps are summarized in the
+[Rolling port guide](ROLLING_PORT_GUIDE.md).
 
 ## Contracts to preserve
 
@@ -510,8 +512,15 @@ and `zero_copy_rosidl` `21072bf7`.
 
 ### 10. Documentation
 
-- [ ] Update the README, developer guides, Rolling manifests and CI/build
-  instructions with verified commands and limitations.
+- [x] Add an architecture guide with package/data-flow diagrams, compatibility
+  behavior, component roles, quirks, and prioritized upstream work.
+- [x] Update the README and benchmark runbook with Rolling build instructions,
+  the supported benchmark cases, a repeatable report workflow, and
+  interpretation limits.
+- [x] Pin all ten modified Rolling ROS repositories to their verified port
+  commits in the patched manifest.
+- [x] Record that existing checkouts are not updated by `code/import.py` and
+  that Rolling CI/release integration remains upstream work.
 
 ## Development environment
 

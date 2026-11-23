@@ -7,14 +7,19 @@ per-sample CSV; post-processing derives latency, throughput, and plots.
 
 ## 1. Build
 
-Follow the root README's Build TL;DR — Docker dev shell or native, including
-the one-time import — then continue below.
+For Jazzy, follow the root README's Build TL;DR. For Rolling, use the
+source-built container instructions in the
+[Rolling architecture guide](../../ROLLING_PORT_GUIDE.md#build-and-smoke-test-on-rolling).
 
-For Rolling, build `sensor_msgs` and its interface dependencies with
-`-DROSIDL_GENERATOR_PY_REGION_VIEWS=ON` before building this package. The
-Rolling development container uses `/home/developer/ws/install/setup.bash`;
-it does not provide `/opt/ros/rolling`. Python region views must be generated
-for nested interface dependencies too.
+Python region views are opt-in. Build `sensor_msgs` and its nested interface
+dependencies with `-DROSIDL_GENERATOR_PY_REGION_VIEWS=ON` before running the
+Python benchmark cases. The Rolling container does not provide
+`/opt/ros/rolling/setup.bash`.
+
+The minimal Rolling workspace does not necessarily build `ros2cli`. The
+benchmark orchestrator and analyzer can be invoked directly from their
+installed paths as shown in §11; `ros2 run` examples below require the
+`ros2cli` and `ros2run` packages to be built.
 
 ## 2. Environment
 
@@ -156,6 +161,10 @@ sequential steps. On failure, inspect the invocation's `.log`;
 delete a stale `.done` marker to force a re-run; then feed the results dir to
 `analyze` (§8).
 
+These `ros2 run` commands require `ros2cli`/`ros2run`; the minimal Rolling
+container build described above does not include them by default. The direct
+orchestrator commands in §11 do not require ROS CLI packages.
+
 Machine hygiene: the pilot and matrix drivers clean stale FastDDS SHM
 segments (`fast_datasharing_*`, `fastrtps_*`), append a temp/freq/load/SHM
 snapshot to `{RESULTS_DIR}/machine_state.log`, and cool down until max CPU
@@ -249,6 +258,7 @@ python3 src/code/constrained_pubsub_benchmark/scripts/analyze_results.py \
   /tmp/sweep_results --output-dir /tmp/sweep_results/analysis
 
 # Installed equivalent
+# Requires ros2cli and ros2run in the sourced workspace.
 ros2 run constrained_pubsub_benchmark analyze \
   /tmp/sweep_results --output-dir /tmp/sweep_results/analysis
 
@@ -290,3 +300,78 @@ DPI.
   effect; only constrained publishers engage data sharing.
 - **40 MB steps** need ~64 MB free `/dev/shm` per participant for the SHM
   modes; UDP mode fragments heavily at that size (that is the point).
+
+## 11. Rolling comparison and reports
+
+Rolling supports three cases:
+`std_copy_fastcdr`, `exp_constrained_pub_only_xcdr`, and
+`exp_constrained_pub_sub_xcdr`. The Jazzy `std_copy_xcdr` and
+`exp_copy_xcdr` cases are not available on Rolling. The analyzer can combine
+the available raw CSVs into one filtered report, but this set is not a
+controlled measurement of the loan effect: the standard copy case uses
+FastCDR while the region cases use XCDR.
+
+The following reduced sweep uses the same direction, payloads, rates,
+transports, reliability, duration, and host for each case. It takes multiple
+minutes because each transport/payload/rate combination launches processes;
+use the longer recommended durations and repeated trials for publishable
+results.
+
+```bash
+cd ~/ws
+source install/setup.bash
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+BIN=install/constrained_pubsub_benchmark/lib/constrained_pubsub_benchmark
+ANALYZER=install/constrained_pubsub_benchmark/share/constrained_pubsub_benchmark/scripts/analyze_results.py
+RESULTS_DIR=$HOME/benchmarks/rolling-comparison
+mkdir -p "$RESULTS_DIR"
+
+python3 "$BIN/inter_proc_benchmark.py" --sweep --direction cpp_to_cpp \
+  --message std --config copy --backend fastcdr \
+  --sweep-payloads 4K,400K,4M --sweep-freqs 10,100 \
+  --sweep-shm udp,shmem --duration-per-step 10 \
+  --publish-jitter 0.01 --publish-jitter-seed 42 \
+  --fill-encoding 64 --fill-frame-id 16 --fill-data-ratio 1.0 \
+  > "$RESULTS_DIR/std_copy_fastcdr.csv" \
+  2> "$RESULTS_DIR/std_copy_fastcdr.log"
+
+python3 "$BIN/inter_proc_benchmark.py" --sweep --direction cpp_to_cpp \
+  --message exp --config constrained_pub_only --backend xcdr \
+  --sweep-payloads 4K,400K,4M --sweep-freqs 10,100 \
+  --sweep-shm udp,shmem --duration-per-step 10 \
+  --publish-jitter 0.01 --publish-jitter-seed 42 \
+  --fill-encoding 64 --fill-frame-id 16 --fill-data-ratio 1.0 \
+  > "$RESULTS_DIR/exp_constrained_pub_only_xcdr.csv" \
+  2> "$RESULTS_DIR/exp_constrained_pub_only_xcdr.log"
+
+python3 "$BIN/inter_proc_benchmark.py" --sweep --direction cpp_to_cpp \
+  --message exp --config constrained_pub_sub --backend xcdr \
+  --sweep-payloads 4K,400K,4M --sweep-freqs 10,100 \
+  --sweep-shm udp,shmem --duration-per-step 10 \
+  --publish-jitter 0.01 --publish-jitter-seed 42 \
+  --fill-encoding 64 --fill-frame-id 16 --fill-data-ratio 1.0 \
+  > "$RESULTS_DIR/exp_constrained_pub_sub_xcdr.csv" \
+  2> "$RESULTS_DIR/exp_constrained_pub_sub_xcdr.log"
+
+python3 "$ANALYZER" "$RESULTS_DIR" \
+  --cases std_copy_fastcdr,exp_constrained_pub_only_xcdr,exp_constrained_pub_sub_xcdr \
+  --transports udp,shmem --directions cpp_to_cpp \
+  --expected-jitter 0.01 \
+  --output-dir "$RESULTS_DIR/report"
+```
+
+The analyzer writes `report.md`, aggregate and per-run CSVs, and figures under
+`$RESULTS_DIR/report`. Keep the raw CSVs unchanged. Record the repository and
+imported ROS commit IDs, `RMW_IMPLEMENTATION`, Fast DDS profile/configuration,
+OS/kernel, CPU and frequency/idle-state policy, memory, exact commands, and
+date with each result set; the analyzer cannot infer all of this from sample
+rows. Repeat the whole set rather than treating each sample in one sweep as an
+independent machine-level trial.
+
+Compare configurations as measured, not as proof that loans alone caused the
+difference. In particular, do not compare the Rolling FastCDR copy case to an
+XCDR region case and attribute the full difference to loans. The current
+`shmem_ds` transport label is also insufficient evidence that Fast DDS data
+sharing was actually selected. See the [Rolling architecture guide](../../ROLLING_PORT_GUIDE.md)
+for the compatibility matrix, known implementation boundaries, and upstream
+work.
