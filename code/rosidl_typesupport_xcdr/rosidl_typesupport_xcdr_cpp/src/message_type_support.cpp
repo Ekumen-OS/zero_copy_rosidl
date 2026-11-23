@@ -15,6 +15,8 @@
 #include "rosidl_typesupport_xcdr_cpp/message_type_support.hpp"
 
 #include <cstring>
+#include <type_traits>
+#include <variant>
 
 #include "rcutils/error_handling.h"
 #include "rosidl_typesupport_xcdr_c/identifier.h"
@@ -37,6 +39,64 @@ namespace rosidl_typesupport_xcdr_cpp
 
 namespace
 {
+
+rcutils_ret_t
+region_layout_is_bounded(const xcdr_buffers::XCdrLayout & layout, bool & bounded);
+
+rcutils_ret_t
+region_struct_is_bounded(const xcdr_buffers::XCdrStructLayout & layout, bool & bounded)
+{
+  for (const auto & member : layout.members()) {
+    auto ret = region_layout_is_bounded(member.layout(), bounded);
+    if (ret != RCUTILS_RET_OK || !bounded) {
+      return ret;
+    }
+  }
+  return RCUTILS_RET_OK;
+}
+
+rcutils_ret_t
+region_layout_is_bounded(const xcdr_buffers::XCdrLayout & layout, bool & bounded)
+{
+  return std::visit(
+    [&bounded](const auto & entry) -> rcutils_ret_t {
+      using T = std::decay_t<decltype(entry)>;
+      constexpr bool is_array = std::is_same_v<T, xcdr_buffers::XCdrArrayLayout>;
+      constexpr bool is_sequence = std::is_same_v<T, xcdr_buffers::XCdrSequenceLayout>;
+      if constexpr (std::is_same_v<T, xcdr_buffers::XCdrStringLayout>) {
+        bounded = entry.actual_length() != 0;
+      } else if constexpr (std::is_same_v<T, xcdr_buffers::XCdrPrimitiveSequenceLayout>) {
+        bounded = entry.actual_count() != 0;
+      } else if constexpr (is_array || is_sequence) {
+        size_t count;
+        if constexpr (std::is_same_v<T, xcdr_buffers::XCdrArrayLayout>) {
+          count = entry.count();
+        } else {
+          count = entry.actual_count();
+        }
+        if constexpr (std::is_same_v<T, xcdr_buffers::XCdrSequenceLayout>) {
+          if (count == 0) {
+            bounded = false;
+            return RCUTILS_RET_OK;
+          }
+        }
+        for (size_t i = 0; i < count; ++i) {
+          auto element = entry.element_layout(i);
+          if (!element) {
+            RCUTILS_SET_ERROR_MSG("invalid region container layout");
+            return RCUTILS_RET_ERROR;
+          }
+          auto ret = region_layout_is_bounded(element->get(), bounded);
+          if (ret != RCUTILS_RET_OK || !bounded) {
+            return ret;
+          }
+        }
+      } else if constexpr (std::is_same_v<T, xcdr_buffers::XCdrStructLayout>) {
+        return region_struct_is_bounded(entry, bounded);
+      }
+      return RCUTILS_RET_OK;
+    }, layout);
+}
 
 extern "C" rcutils_ret_t
 cpp_get_expected_size(
@@ -394,6 +454,30 @@ xcdr_default_get_type_description_sources(const rosidl_message_type_support_t * 
 }
 
 }  // anonymous namespace
+
+rcutils_ret_t
+region_layout_is_bounded(const rosidl_message_type_support_t * type_support, bool * bounded)
+{
+  if (!type_support || !type_support->typesupport_identifier || !type_support->data || !bounded ||
+    std::strcmp(type_support->typesupport_identifier, rosidl_typesupport_xcdr_cpp__identifier) != 0)
+  {
+    RCUTILS_SET_ERROR_MSG("expected XCDR C++ type support and a bounded output");
+    return RCUTILS_RET_ERROR;
+  }
+  const auto * xcdr = static_cast<const rosidl_message_xcdr_type_support_t *>(type_support->data);
+  if (!xcdr->inner || !xcdr->supports_region_loans) {
+    RCUTILS_SET_ERROR_MSG("type support is not an XCDR region view");
+    return RCUTILS_RET_ERROR;
+  }
+  const auto * impl = static_cast<const rosidl_message_xcdr_cpp_type_support_t *>(xcdr->inner);
+  *bounded = impl->cached_layout != nullptr;
+  if (!*bounded) {
+    return RCUTILS_RET_OK;
+  }
+  // Generated constraint layouts use zero only for unbounded fields; bounded
+  // fields substitute their IDL bound when no tighter limit is supplied.
+  return region_struct_is_bounded(*impl->cached_layout, *bounded);
+}
 
 // ============================================================================
 // Prototype xcdr table

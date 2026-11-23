@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import ctypes
 import gc
 import os
 import subprocess
@@ -42,6 +43,20 @@ def wait_until(predicate):
     while not predicate() and time.monotonic() < deadline:
         time.sleep(0.01)
     assert predicate()
+
+
+def test_old_bridge_capsule_is_rejected(node):
+    create_capsule = ctypes.pythonapi.PyCapsule_New
+    create_capsule.restype = ctypes.py_object
+    create_capsule.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_void_p]
+    name = b'rosidl_runtime_cpython.MessageTypeBridge'
+    capsule = create_capsule(1, name, None)
+
+    class OldView:
+        __region_type_bridge__ = capsule
+
+    with pytest.raises(ValueError, match='incorrect name'):
+        _rclpy.Publisher(node.handle, OldView, 'old_bridge', None)
 
 
 def test_publish_to_ordinary_subscriber_and_invalidate_views(node):
@@ -270,13 +285,108 @@ def test_loan_return_after_context_shutdown():
             context.shutdown()
 
 
-def test_explicitly_disabled_subscription_loans(node, monkeypatch):
+def test_explicitly_disabled_loans_copy_to_and_from_ordinary_peers(node, monkeypatch):
     monkeypatch.setenv('ROS_DISABLE_LOANED_MESSAGES', '1')
-    with pytest.raises(RuntimeError, match='cannot loan'):
-        node.create_subscription(_region_fixture.BoundedVariable, 'disabled', lambda _: None, 10)
+    received_plain = []
+    received_view = []
+    node.create_subscription(BoundedVariable, 'copy_to_plain', received_plain.append, 10)
+    publisher = node.create_publisher(_region_fixture.BoundedVariable, 'copy_to_plain', 10)
+    assert not publisher.can_loan_messages
+    wait_until(lambda: publisher.get_subscription_count() > 0)
+    loan = publisher.borrow_loaned_message()
+    view = loan.view
+    view.name = 'hello'
+    publisher.publish_loaned_message(loan)
+    with pytest.raises(RuntimeError, match='no longer valid'):
+        _ = view.name
+
+    sub = node.create_subscription(
+        _region_fixture.BoundedVariable, 'plain_to_copy', received_view.append, 10)
+    assert not sub.can_loan_messages
+    plain_pub = node.create_publisher(BoundedVariable, 'plain_to_copy', 10)
+    wait_until(lambda: plain_pub.get_subscription_count() > 0)
+    plain_pub.publish(BoundedVariable(name='peer'))
+    deadline = time.monotonic() + 4
+    while (not received_plain or not received_view) and time.monotonic() < deadline:
+        rclpy.spin_once(node, timeout_sec=0.05)
+    assert received_plain[0].name == 'hello'
+    with pytest.raises(RuntimeError, match='no longer valid'):
+        _ = received_view[0].name
+    monkeypatch.setenv('ROS_DISABLE_LOANED_MESSAGES', '2')
+    subscription = node.create_subscription(
+        _region_fixture.BoundedVariable, 'disabled_subscription', lambda _: None, 10)
+    assert not subscription.can_loan_messages
 
 
-def test_subscription_baseline(node):
+def test_copy_constraints_and_return(node, monkeypatch):
+    monkeypatch.setenv('ROS_DISABLE_LOANED_MESSAGES', '1')
+    baseline = _region_fixture.Constraints()
+    baseline.name_size = 4
+    publisher = node.create_publisher(
+        _region_fixture.BoundedVariable, 'copy_constraints', 10,
+        constraints=MessageConstraints(type_specific=baseline, strict=True))
+    baseline.name_size = 8
+    tighter = _region_fixture.Constraints()
+    tighter.name_size = 2
+    loan = publisher.borrow_loaned_message(MessageConstraints(type_specific=tighter))
+    view = loan.view
+    view.name = 'bad'
+    with pytest.raises(ValueError, match='constraints'):
+        publisher.publish_loaned_message(loan)
+    assert not loan.valid
+    with pytest.raises(RuntimeError, match='no longer valid'):
+        _ = view.name
+    partial = _region_fixture.Constraints()
+    loan = publisher.borrow_loaned_message(MessageConstraints(type_specific=partial))
+    loan.view.name = 'too long'
+    with pytest.raises(ValueError, match='constraints'):
+        publisher.publish_loaned_message(loan)
+    looser = _region_fixture.Constraints()
+    looser.name_size = 5
+    with pytest.raises(RuntimeError, match='looser'):
+        publisher.borrow_loaned_message(MessageConstraints(type_specific=looser))
+    with pytest.raises(RuntimeError, match='blanket'):
+        node.create_publisher(
+            _region_fixture.BoundedVariable, 'invalid_copy', 10,
+            constraints=MessageConstraints(max_string_length=3))
+
+
+@pytest.mark.skipif(
+    not os.environ.get('REGION_TEST_NO_ENDPOINT_LOANS'),
+    reason='Requires a middleware endpoint reporting no loan support')
+def test_nonloaning_endpoint_uses_copy(node):
+    received = []
+    subscription = node.create_subscription(
+        _region_fixture.BoundedVariable, 'nonloaning_endpoint', received.append, 10)
+    publisher = node.create_publisher(
+        _region_fixture.BoundedVariable, 'nonloaning_endpoint', 10)
+    assert not publisher.can_loan_messages
+    assert not subscription.can_loan_messages
+    wait_until(lambda: publisher.get_subscription_count() > 0)
+    loan = publisher.borrow_loaned_message()
+    loan.view.name = 'fallback'
+    publisher.publish_loaned_message(loan)
+    deadline = time.monotonic() + 4
+    while not received and time.monotonic() < deadline:
+        rclpy.spin_once(node, timeout_sec=0.05)
+    assert len(received) == 1
+
+
+def test_native_endpoints_report_loan_usage(node, monkeypatch):
+    if rclpy.get_rmw_implementation_identifier() != 'rmw_fastrtps_cpp':
+        pytest.skip('Fast DDS region loans are required')
+    monkeypatch.setenv('ROS_DISABLE_LOANED_MESSAGES', '0')
+    publisher = node.create_publisher(_region_fixture.BoundedVariable, 'loan_capability', 10)
+    subscription = node.create_subscription(
+        _region_fixture.BoundedVariable, 'loan_capability', lambda _: None, 10)
+    assert publisher.can_loan_messages
+    assert subscription.can_loan_messages
+
+
+@pytest.mark.parametrize('copy', [False, True])
+def test_subscription_baseline(node, monkeypatch, copy):
+    if copy:
+        monkeypatch.setenv('ROS_DISABLE_LOANED_MESSAGES', '1')
     limits = _region_fixture.Constraints()
     limits.name_size = 2
     received = []
@@ -289,7 +399,9 @@ def test_subscription_baseline(node):
     publisher.publish(BoundedVariable(name='long'))
     publisher.publish(BoundedVariable(name='ok'))
     deadline = time.monotonic() + 4
-    with pytest.raises(_rclpy.RCLError, match='failed to cast'):
+    expected_error = ValueError if copy else _rclpy.RCLError
+    expected_message = 'exceeds constraints' if copy else 'failed to cast'
+    with pytest.raises(expected_error, match=expected_message):
         while time.monotonic() < deadline:
             rclpy.spin_once(node, timeout_sec=0.05)
     while not received and time.monotonic() < deadline:

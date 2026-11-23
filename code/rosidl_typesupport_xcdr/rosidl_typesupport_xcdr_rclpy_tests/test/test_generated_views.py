@@ -127,7 +127,10 @@ def test_generated_cross_package_nested_views():
     assert limits.children_length == 2
 
 
-def test_generated_cross_package_transport(node):
+@pytest.mark.parametrize('copy', [False, True])
+def test_generated_cross_package_transport(node, monkeypatch, copy):
+    if copy:
+        monkeypatch.setenv('ROS_DISABLE_LOANED_MESSAGES', '1')
     received = []
     constraints = MessageConstraints(type_specific=CrossPackage.Constraints())
     node.create_subscription(
@@ -146,7 +149,10 @@ def test_generated_cross_package_transport(node):
     assert received == [(42, 12)]
 
 
-def test_generated_views_publish_and_subscribe(node):
+@pytest.mark.parametrize('copy', [False, True])
+def test_generated_views_publish_and_subscribe(node, monkeypatch, copy):
+    if copy:
+        monkeypatch.setenv('ROS_DISABLE_LOANED_MESSAGES', '1')
     received = []
     retained = []
 
@@ -214,7 +220,10 @@ def test_generated_publisher_constraints(node):
         publisher.borrow_loaned_message(MessageConstraints(type_specific=looser))
 
 
-def test_generated_publisher_to_ordinary_subscriber(node):
+@pytest.mark.parametrize('copy', [False, True])
+def test_generated_publisher_to_ordinary_subscriber(node, monkeypatch, copy):
+    if copy:
+        monkeypatch.setenv('ROS_DISABLE_LOANED_MESSAGES', '1')
     received = []
     node.create_subscription(BoundedVariable, 'generated_to_plain', received.append, 10)
     publisher = node.create_publisher(RegionBoundedVariable, 'generated_to_plain', 10)

@@ -42,19 +42,19 @@ struct MessageView
   bool read_only;
 };
 
-const rosidl_runtime_cpython::MessageTypeBridge bridge = {
+const auto bridge = rosidl_runtime_cpython::make_message_type_bridge<View>(
   []() {return rosidl_typesupport_cpp::get_message_type_support_handle<View>();},
   [](void * message, std::shared_ptr<State> state, bool read_only) -> PyObject * {
     return py::cast(MessageView{
-      {static_cast<View *>(message), std::move(state)}, read_only}).release().ptr();
+    {static_cast<View *>(message), std::move(state)}, read_only}).release().ptr();
   },
   [](PyObject * object) -> const void * {
     if (!py::isinstance<Constraints>(py::handle(object))) {
       throw py::type_error("Expected BoundedVariable constraints");
     }
     return py::cast<const Constraints *>(py::handle(object));
-  }
-};
+  },
+  []() {return rosidl_typesupport_cpp::get_message_type_support_handle<View::PlainMessage>();});
 
 PYBIND11_MODULE(_region_fixture, module)
 {

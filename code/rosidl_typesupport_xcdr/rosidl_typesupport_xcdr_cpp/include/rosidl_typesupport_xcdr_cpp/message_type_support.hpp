@@ -45,6 +45,11 @@ class XCdrLayoutBuilder;
 namespace rosidl_typesupport_xcdr_cpp
 {
 
+/// Check whether a region-view type support bounds all variable-length fields.
+ROSIDL_TYPESUPPORT_XCDR_CPP_PUBLIC
+rcutils_ret_t
+region_layout_is_bounded(const rosidl_message_type_support_t * type_support, bool * bounded);
+
 // ============================================================================
 // Language-specific inner state (defined in message_type_support.cpp)
 // ============================================================================

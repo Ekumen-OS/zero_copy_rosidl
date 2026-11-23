@@ -6,6 +6,7 @@ find_package(ament_cmake REQUIRED)
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
+  find_package(rcl REQUIRED)
   find_package(rosidl_runtime_c REQUIRED)
 
   ament_lint_auto_find_test_dependencies()
@@ -21,6 +22,14 @@ if(BUILD_TESTING)
     target_link_libraries(test_region_rclcpp
       rclcpp::rclcpp
       rosidl_typesupport_xcdr_cpp_tests::rosidl_typesupport_xcdr_cpp_tests__rosidl_typesupport_cpp)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+      add_library(no_endpoint_loans SHARED test/no_endpoint_loans.c)
+      target_link_libraries(no_endpoint_loans rcl::rcl)
+      ament_add_gtest_test(test_region_rclcpp TEST_NAME test_nonloaning_endpoint
+        ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp ROS_DISABLE_LOANED_MESSAGES=0
+        REGION_TEST_NO_ENDPOINT_LOANS=1 GTEST_FILTER=*nonloaning_endpoint*
+        LD_PRELOAD=$<TARGET_FILE:no_endpoint_loans>)
+    endif()
   endif()
 endif()
 

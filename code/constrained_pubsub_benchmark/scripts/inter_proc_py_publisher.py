@@ -105,6 +105,8 @@ def main():
                 payload_bytes, strict=args.strict in ('true', '1'))
             pub = node.create_publisher(
                 ExperimentalImage, args.topic, qos, constraints=constraints)
+            if os.environ.get('ROS_DISTRO') == 'rolling' and not pub.can_loan_messages:
+                raise RuntimeError('middleware does not support loaned messages')
             use_loan = True
 
         # Wait for a matching subscriber before publishing: in a two-process

@@ -9,6 +9,7 @@ if(BUILD_TESTING)
   find_package(ament_cmake_ros_core REQUIRED)
   find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
   find_package(pybind11 REQUIRED)
+  find_package(rcl REQUIRED)
   find_package(rclcpp REQUIRED)
   find_package(rclpy REQUIRED)
   find_package(rosidl_runtime_cpython REQUIRED)
@@ -31,6 +32,16 @@ if(BUILD_TESTING)
     APPEND_ENV PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR}
     ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp REGION_CPP_PEER=$<TARGET_FILE:region_cpp_peer>
     TIMEOUT 60)
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_library(no_endpoint_loans SHARED test/no_endpoint_loans.c)
+    target_link_libraries(no_endpoint_loans rcl::rcl)
+    ament_add_pytest_test(test_nonloaning_endpoint test/test_region_publisher.py
+      APPEND_ENV PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR}
+      ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp ROS_DISABLE_LOANED_MESSAGES=0
+      REGION_TEST_NO_ENDPOINT_LOANS=1 PYTEST_ADDOPTS=-knonloaning_endpoint
+      LD_PRELOAD=$<TARGET_FILE:no_endpoint_loans>
+      TIMEOUT 60)
+  endif()
   if(ROSIDL_GENERATOR_PY_REGION_VIEWS)
     find_package(rosidl_default_generators REQUIRED)
     rosidl_generate_interfaces(${PROJECT_NAME}

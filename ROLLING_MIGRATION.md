@@ -207,8 +207,9 @@ count and 16-bit code units. Neither middleware has been integration-tested
 with these region views. Matching an encoding alone does not establish region
 loan support: storage lifetime, ownership, alignment, endianness and code-unit
 constraints also matter. Other backends require explicit integration; no
-automatic conversion or fallback is provided. Investigate separating the
-logical view API from its storage policy when implementing another backend.
+native region transport is provided by those backends. Step 9a adds a copy
+adapter using their ordinary message serialization. Investigate separating
+the logical view API from its storage policy when implementing another backend.
 Ordinary messages retain their existing middleware serialization paths.
 
 Jazzy experimental generation retains its original representation and remains
@@ -301,9 +302,10 @@ callback receives a const view, optionally with `MessageInfo`; its view and
 member references expire when the callback returns, including on exceptions.
 Publisher loans can be returned after context shutdown.
 
-Region endpoints require middleware loans and reject intra-process mode; there
-is no copy fallback. Region subscriptions opt into loans when
-`ROS_DISABLE_LOANED_MESSAGES` is unset, but honor an explicit setting. The
+Region endpoints reject intra-process mode. Step 9a adds copying when region
+loans are unavailable. Region
+subscriptions opt into loans when `ROS_DISABLE_LOANED_MESSAGES` is unset, but
+honor an explicit setting. The
 implemented API requires typed constraints and does not add region overloads
 to the free-function or lifecycle-node factories. Fast DDS and the
 single-threaded executor were exercised; other backends and executors have not
@@ -391,8 +393,9 @@ exposing backend storage as `uint16_t *`.
 
 Request and response region views have separate constraints. RMW and RCL
 provide context-aware client/service creation and borrow, send, take and
-return operations. These endpoints require middleware support, do not fall
-back to copying, and reject service introspection. Ordinary service events
+return operations. These low-level operations require middleware support and
+reject service introspection; Step 9a adds copying to the C++ wrappers.
+Ordinary service events
 continue to use ordinary message type support. The C++ `RegionClient` and
 `RegionService` wrappers are explicitly polled; they are not registered with
 an executor. Python service views and action views are not implemented here.
@@ -444,18 +447,61 @@ describes the supported cases and transport caveats.
 | Area | Jazzy PoC | Rolling port and alternatives |
 |---|---|---|
 | Message API | Experimental message types expose member-style fields. | Ordinary messages remain unchanged; generated `views` provide method-based plain adapters and region-backed views. Plain adapters wrap ordinary storage and are not automatically transferable. Retaining the old member API would avoid migration but conflicts with the REP's view separation. |
-| Storage and lifetime | Experimental values couple the API to the PoC's storage. | Views distinguish owned and borrowed CPU regions; loans and their field references have explicit lifetimes. The initial backend uses XCDRv1; device memory, synchronization and multi-region transport are not implemented. Other backends can implement the storage contract without standardizing XCDR as the wire format. |
+| Storage and lifetime | The PoC supports owned and borrowed CPU-backed storage. | Views also distinguish owned and borrowed CPU regions; loans and their field references have explicit lifetimes. The initial backend uses XCDRv1; device memory, synchronization and multi-region transport are not implemented. Other backends can implement the storage contract without standardizing XCDR as the wire format. |
 | Constraints | Experimental types and middleware accept PoC-specific constraints, including blanket limits. | Typed per-field constraints and endpoint baselines support tighter per-loan limits. Fast DDS rejects unsupported blanket constraints instead of ignoring them. A future backend could implement additional constraint policies explicitly. |
-| Wide strings | The PoC's in-memory representation followed its XCDR implementation. | The logical UTF-16 API is separated from the XCDR storage policy; the latter preserves the existing 32-bit wire representation. C exposes copy accessors rather than an incompatible `uint16_t *`. Other middleware storage policies remain possible but have not been integrated. |
+| Wide strings | The experimental XCDR path uses 16-bit code units, a byte-length prefix and a terminator; it does not interoperate with ordinary Fast DDS wide strings. | The logical UTF-16 API is separated from the XCDR storage policy; the latter uses the ordinary Fast DDS 32-bit wire representation for peer compatibility. C exposes copy accessors rather than an incompatible `uint16_t *`. Other middleware storage policies remain possible but have not been integrated. |
 | Python | Experimental generated bindings expose PoC messages and loans. | Opt-in generated region views use `sensor_msgs.msg.views`-style modules, borrowed-view validity checks and loan ownership. Nested packages need view generation enabled too. Python service and action views are not implemented; generated Python payload assignment may copy even when the endpoint uses a loan. |
 | C and services | The PoC focused on experimental topic messages. | Generated C adapters and opaque region accessors, typed constraints, and request/response loans are available. C++ region services use explicit polling, not executor integration; Python services and action views remain future work. Executor-integrated wrappers or Python service bindings are possible extensions. |
-| Middleware | The PoC adds a Fast DDS XCDR path and backend selection. | Context-aware RMW/RCL operations require middleware support and fail rather than silently copying. Fast DDS implements topic and service loans and ordinary-peer interoperability; other middlewares have not been integrated. Adapters or backend-specific implementations are needed to extend support. |
+| Middleware | The PoC adds a Fast DDS XCDR path and backend selection. | Fast DDS implements topic and service loans and ordinary-peer interoperability. C++ and Python topic views and C++ service views use ordinary-message copies when region loans are unavailable for the protocol, type, context, or endpoint; the low-level RMW/RCL operations remain loan-only. Cyclone DDS copy interoperability has been exercised. |
 | Benchmark | Five Jazzy combinations include ordinary and experimental XCDR copy baselines. | Rolling runs ordinary FastCDR copy and XCDR region loan cases. Its publisher-only case uses an ordinary subscriber; the two Jazzy XCDR copy baselines are rejected because the global backend selector was not ported. An explicit ordinary-message XCDR selection API or separate adapter benchmark could restore comparable copy baselines. |
 
 These are functional comparisons, not measured performance claims. The
 benchmark's SHM/data-sharing profile is a request with an `AUTOMATIC` policy;
 transport tracing or middleware instrumentation is needed before attributing
 cross-process delivery to data sharing or claiming end-to-end zero-copy.
+
+### 9a. Transparent copy fallback
+
+Generated C++ region views convert to and from ordinary messages;
+C++ and Python topic endpoints and C++ service wrappers can use copies.
+The low-level C/RCL/RMW context APIs remain loan-only.
+
+Selection checks the complete optional protocol and an explicit type/context
+capability query. Successfully created topic and service endpoints are also
+checked for loan capability and recreated with ordinary type support if
+necessary. Backends without the optional capability queries use copies.
+Fast DDS requires all variable writer fields to have finite bounds; an
+unspecified bound selects copying. Actual creation, capability-query and
+operation errors propagate rather than being inferred from error strings or
+retried after possible side effects. C++ `can_loan_messages()` and Python
+`can_loan_messages` report the selected path; these indicators do not prove
+end-to-end zero-copy.
+
+Copy endpoints preserve typed constraints and per-loan refinement; blanket
+limits are rejected rather than ignored. Outgoing owned views are checked at
+publish/send time, so assignments may temporarily exceed a loan's bounds.
+Invalid incoming copies are logged and dropped by C++ subscriptions and raise
+an error in Python. Rebuild generated Python view modules together with rclpy:
+the extended bridge uses a versioned capsule and rejects older modules.
+
+- [x] Detect missing protocol entry points and non-loaning topic endpoints without
+  relying on error text. Expose the selected path and propagate other errors.
+- [x] Add and verify generated plain/region conversions, including nested
+  containers and wide strings, without changing ordinary serialization.
+- [x] Provide the same view-facing topic API when the protocol is absent or a
+  created topic endpoint cannot loan, using ordinary ROS messages and serialization.
+  Preserve constraints and loan lifetimes; surface invalid contexts and actual
+  middleware failures instead of treating them as lack of loan support.
+- [x] Provide fallback for C++ service region APIs when the protocol is absent,
+  preserving request identities, ownership, and direction-specific constraints.
+- [x] Exercise native and copy paths in C++ and Python with ordinary peers,
+  unsupported middleware, observable path selection, constraints, and errors.
+- [x] Update the comparison and benchmark documentation to match verified
+  behavior; retain ordinary ROS wire compatibility.
+- [x] Verify the endpoint/type/context capability contract for middleware that
+  exports the complete protocol but cannot support a particular endpoint.
+  Pointer-only creation errors and operation-level `UNSUPPORTED` propagate;
+  operations are not automatically retried after they may have side effects.
 
 ### 10. Documentation
 

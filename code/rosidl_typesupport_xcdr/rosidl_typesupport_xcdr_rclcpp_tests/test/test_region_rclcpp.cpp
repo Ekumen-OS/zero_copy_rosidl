@@ -15,6 +15,7 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cstdlib>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -25,7 +26,9 @@
 #include "rcutils/env.h"
 #include "rclcpp/rclcpp.hpp"
 #include "rosidl_typesupport_xcdr_cpp_tests/msg/bounded_variable.hpp"
+#include "rosidl_typesupport_xcdr_cpp_tests/msg/unbounded_message.hpp"
 #include "rosidl_typesupport_xcdr_cpp_tests/msg/views/bounded_variable__region.hpp"
+#include "rosidl_typesupport_xcdr_cpp_tests/msg/views/unbounded_message__region.hpp"
 
 using Plain = rosidl_typesupport_xcdr_cpp_tests::msg::BoundedVariable;
 using View = rosidl_typesupport_xcdr_cpp_tests::msg::views::RegionBoundedVariable;
@@ -221,6 +224,9 @@ TEST_F(RegionRclcpp, publisher_loans_can_be_returned_after_shutdown)
 {
   Constraints limits;
   auto publisher = node->create_publisher<View>("region_shutdown", 10, limits);
+  if (!publisher->can_loan_messages()) {
+    GTEST_SKIP() << "Middleware loans are required";
+  }
   void * raw = nullptr;
   ASSERT_EQ(
     RCL_RET_OK, rcl_borrow_loaned_message_with_context(
@@ -235,7 +241,7 @@ TEST_F(RegionRclcpp, publisher_loans_can_be_returned_after_shutdown)
     rcl_return_loaned_message_from_publisher(publisher->get_publisher_handle().get(), raw));
 }
 
-TEST_F(RegionRclcpp, explicitly_disabled_loans_are_rejected)
+TEST_F(RegionRclcpp, explicitly_disabled_loans_use_copy)
 {
   const char * previous = nullptr;
   ASSERT_EQ(nullptr, rcutils_get_env("ROS_DISABLE_LOANED_MESSAGES", &previous));
@@ -245,10 +251,117 @@ TEST_F(RegionRclcpp, explicitly_disabled_loans_are_rejected)
     });
   ASSERT_TRUE(rcutils_set_env("ROS_DISABLE_LOANED_MESSAGES", "1"));
   Constraints limits;
-  EXPECT_THROW(
-    node->create_subscription<View>(
-      "disabled_region", 10, [](const View &) {}, limits),
-    std::runtime_error);
-  EXPECT_THROW(
-    node->create_publisher<View>("disabled_region", 10, limits), std::runtime_error);
+  limits.type_specific.name.size = 4;
+  std::string received_plain;
+  std::string received_view;
+  auto plain_sub = node->create_subscription<Plain>(
+    "copy_to_plain", 10, [&](const Plain & msg) {received_plain = msg.name;});
+  auto region_pub = node->create_publisher<View>("copy_to_plain", 10, limits);
+  EXPECT_FALSE(region_pub->can_loan_messages());
+  wait_for_subscribers(region_pub, 1);
+  auto loan = region_pub->borrow_loaned_message();
+  loan.get().name() = "copy";
+  loan.get().wide() = u"\u20ac";
+  region_pub->publish(std::move(loan));
+  EXPECT_FALSE(loan.is_valid());
+  spin_until([&]() {return !received_plain.empty();});
+  EXPECT_EQ("copy", received_plain);
+
+  auto region_sub = node->create_subscription<View>(
+    "plain_to_copy", 10, [&](const View & msg) {received_view = msg.name().c_str();}, limits);
+  EXPECT_FALSE(region_sub->can_loan_messages());
+  auto plain_pub = node->create_publisher<Plain>("plain_to_copy", 10);
+  wait_for_subscribers(plain_pub, 1);
+  Plain plain;
+  plain.name = "peer";
+  plain_pub->publish(plain);
+  spin_until([&]() {return !received_view.empty();});
+  EXPECT_EQ("peer", received_view);
+
+  Constraints tighter;
+  tighter.type_specific.name.size = 2;
+  auto constrained = region_pub->borrow_loaned_message(tighter);
+  constrained.get().name() = "bad";
+  EXPECT_THROW(region_pub->publish(std::move(constrained)), std::invalid_argument);
+  EXPECT_FALSE(constrained.is_valid());
+  Constraints partial;
+  partial.type_specific.values.size = 1;
+  auto inherited = region_pub->borrow_loaned_message(partial);
+  inherited.get().name() = "too long";
+  EXPECT_THROW(region_pub->publish(std::move(inherited)), std::invalid_argument);
+  Constraints looser;
+  looser.type_specific.name.size = 5;
+  EXPECT_THROW(region_pub->borrow_loaned_message(looser), std::invalid_argument);
+  ASSERT_TRUE(rcutils_set_env("ROS_DISABLE_LOANED_MESSAGES", "2"));
+  auto disabled_sub = node->create_subscription<View>(
+    "nonzero_loan_setting", 10, [](const View &) {}, limits);
+  EXPECT_FALSE(disabled_sub->can_loan_messages());
+}
+
+TEST_F(RegionRclcpp, nonloaning_endpoint_uses_copy)
+{
+  if (!std::getenv("REGION_TEST_NO_ENDPOINT_LOANS")) {
+    GTEST_SKIP() << "Requires a middleware endpoint reporting no loan support";
+  }
+  Constraints limits;
+  std::string received;
+  auto publisher = node->create_publisher<View>("nonloaning_endpoint", 10, limits);
+  auto subscription = node->create_subscription<View>(
+    "nonloaning_endpoint", 10, [&](const View & msg) {received = msg.name().c_str();}, limits);
+  EXPECT_FALSE(publisher->can_loan_messages());
+  EXPECT_FALSE(subscription->can_loan_messages());
+  wait_for_subscribers(publisher, 1);
+  auto loan = publisher->borrow_loaned_message();
+  loan.get().name() = "fallback";
+  publisher->publish(std::move(loan));
+  spin_until([&]() {return !received.empty();});
+  EXPECT_EQ("fallback", received);
+}
+
+TEST_F(RegionRclcpp, native_endpoints_report_loan_capability)
+{
+  if (std::string(rmw_get_implementation_identifier()) != "rmw_fastrtps_cpp") {
+    GTEST_SKIP() << "Fast DDS region loans are required";
+  }
+  const char * previous = nullptr;
+  ASSERT_EQ(nullptr, rcutils_get_env("ROS_DISABLE_LOANED_MESSAGES", &previous));
+  const std::string saved = previous;
+  auto restore = rcpputils::make_scope_exit([&saved]() {
+        EXPECT_TRUE(rcutils_set_env("ROS_DISABLE_LOANED_MESSAGES", saved.c_str()));
+    });
+  ASSERT_TRUE(rcutils_set_env("ROS_DISABLE_LOANED_MESSAGES", "0"));
+  Constraints limits;
+  auto publisher = node->create_publisher<View>("loan_capability", 10, limits);
+  auto subscription = node->create_subscription<View>(
+    "loan_capability", 10, [](const View &) {}, limits);
+  EXPECT_TRUE(publisher->can_loan_messages());
+  EXPECT_TRUE(subscription->can_loan_messages());
+}
+
+TEST_F(RegionRclcpp, unbounded_publisher_copies_to_ordinary_peer)
+{
+  if (std::string(rmw_get_implementation_identifier()) != "rmw_fastrtps_cpp") {
+    GTEST_SKIP() << "Fast DDS is required to exercise type capability detection";
+  }
+  using Unbounded = rosidl_typesupport_xcdr_cpp_tests::msg::UnboundedMessage;
+  using UnboundedView = rosidl_typesupport_xcdr_cpp_tests::msg::views::RegionUnboundedMessage;
+  const char * previous = nullptr;
+  ASSERT_EQ(nullptr, rcutils_get_env("ROS_DISABLE_LOANED_MESSAGES", &previous));
+  const std::string saved = previous;
+  auto restore = rcpputils::make_scope_exit([&saved]() {
+        EXPECT_TRUE(rcutils_set_env("ROS_DISABLE_LOANED_MESSAGES", saved.c_str()));
+    });
+  ASSERT_TRUE(rcutils_set_env("ROS_DISABLE_LOANED_MESSAGES", "0"));
+  std::string received;
+  rosidl_runtime_cpp::views::MessageConstraints<UnboundedView> limits;
+  auto publisher = node->create_publisher<UnboundedView>("unbounded_copy", 10, limits);
+  auto subscription = node->create_subscription<Unbounded>(
+    "unbounded_copy", 10, [&](Unbounded::ConstSharedPtr msg) {received = msg->name;});
+  EXPECT_FALSE(publisher->can_loan_messages());
+  wait_for_subscribers(publisher, 1);
+  auto loan = publisher->borrow_loaned_message();
+  loan.get().name() = "ordinary peer";
+  publisher->publish(std::move(loan));
+  spin_until([&]() {return !received.empty();});
+  EXPECT_EQ("ordinary peer", received);
 }

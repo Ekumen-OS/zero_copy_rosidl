@@ -118,6 +118,11 @@ int main(int argc, char ** argv)
             on_message(seq, ok, send_ns, info);
         },
         constraints);
+#ifdef BENCHMARK_ROLLING_VIEWS
+        if (!sub_handle->can_loan_messages()) {
+          throw std::runtime_error("middleware does not support loaned messages");
+        }
+#endif
       };
 
     if (cfg.message == bench::MessageType::kStandard

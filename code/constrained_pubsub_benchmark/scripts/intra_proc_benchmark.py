@@ -134,6 +134,8 @@ def main():
                 payload_bytes, strict=args.strict in ('true', '1'))
             pub = node.create_publisher(
                 msg_type, args.topic, qos, constraints=constraints)
+            if os.environ.get('ROS_DISTRO') == 'rolling' and not pub.can_loan_messages:
+                raise RuntimeError('middleware does not support loaned messages')
             use_loan = True
 
         # NOTE: keep the subscription referenced; dropping it unsubscribes.
@@ -141,6 +143,8 @@ def main():
             sub = node.create_subscription(  # noqa: F841
                 msg_type, args.topic, callback, qos,
                 constraints=sub_constraints)
+            if os.environ.get('ROS_DISTRO') == 'rolling' and not sub.can_loan_messages:
+                raise RuntimeError('middleware does not support loaned messages')
         else:
             sub = node.create_subscription(  # noqa: F841
                 Image if (os.environ.get('ROS_DISTRO') == 'rolling' and

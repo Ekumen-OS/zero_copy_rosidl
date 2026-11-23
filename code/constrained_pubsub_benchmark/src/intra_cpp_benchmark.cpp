@@ -203,6 +203,11 @@ int main(int argc, char ** argv)
           if (cfg.config == bench::Config::kConstrainedPubSub) {
             sub = node->create_subscription<bench::ExperimentalImage>(
               cfg.topic, qos, on_exp_message, constraints);
+#ifdef BENCHMARK_ROLLING_VIEWS
+            if (!sub->can_loan_messages()) {
+              throw std::runtime_error("middleware does not support loaned messages");
+            }
+#endif
           } else {
 #ifdef BENCHMARK_ROLLING_VIEWS
             sub = node->create_subscription<StdImage>(

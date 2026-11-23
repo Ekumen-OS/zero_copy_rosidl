@@ -48,7 +48,8 @@ rejected: Rolling selects XCDR for region endpoints, rather than exposing
 the Jazzy global serialization-backend selection. The `xcdr` CSV field
 describes the constrained publisher path; in `constrained_pub_only` the
 subscriber is an ordinary Image endpoint, using ordinary type support.
-Region endpoints require middleware loans and never fall back to copies.
+Region APIs can fall back to ordinary-message copies, but these benchmark loan
+cases require middleware loans rather than silently measuring a fallback.
 Python payload assignment itself copies values into the loaned sequence.
 
 Directions (`--direction`): `cpp_to_cpp`, `cpp_to_py`, `py_to_cpp`,

@@ -123,6 +123,8 @@ def main():
             sub = node.create_subscription(  # noqa: F841
                 ExperimentalImage, args.topic, callback, qos,
                 constraints=constraints)
+            if os.environ.get('ROS_DISTRO') == 'rolling' and not sub.can_loan_messages:
+                raise RuntimeError('middleware does not support loaned messages')
         else:
             sub = node.create_subscription(  # noqa: F841
                 ExperimentalImage, args.topic, callback, qos)

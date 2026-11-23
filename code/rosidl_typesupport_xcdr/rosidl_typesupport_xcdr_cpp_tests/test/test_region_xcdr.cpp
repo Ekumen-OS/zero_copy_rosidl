@@ -15,6 +15,7 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -59,6 +60,32 @@ extern "C"
 rosidl_typesupport_xcdr_cpp_tests__msg__VariableContainers__RegionConstraints *
 test_c_region_limits(void);
 bool test_c_region_access(void * loan);
+}
+
+TEST(RegionXcdr, PlainRegionConversionPreservesWideAndNestedFields)
+{
+  Variable plain;
+  plain.labels = {"a", "b"};
+  plain.names = {"name"};
+  plain.wide = std::u16string(u"a\0\u20ac", 3);
+  plain.wide_labels = {u"first", u"second"};
+  plain.wide_names = {u"\u20ac", u"wide"};
+  plain.items.resize(1);
+  plain.items[0].id = 17;
+  plain.nested_variable.resize(1);
+  plain.nested_variable[0].name = "nested";
+  VariableView view;
+  view.assign(plain);
+  const auto copy = view.to_plain();
+  EXPECT_EQ(copy.labels, plain.labels);
+  EXPECT_EQ(copy.names, plain.names);
+  EXPECT_EQ(copy.wide, plain.wide);
+  EXPECT_EQ(copy.wide_labels, plain.wide_labels);
+  EXPECT_EQ(copy.wide_names, plain.wide_names);
+  ASSERT_EQ(copy.items.size(), 1u);
+  EXPECT_EQ(copy.items[0].id, 17);
+  ASSERT_EQ(copy.nested_variable.size(), 1u);
+  EXPECT_EQ(copy.nested_variable[0].name, "nested");
 }
 
 TEST(RegionXcdr, CRegionAccessAndConstraints)
@@ -446,6 +473,40 @@ TEST(RegionXcdr, NestedBoundedConstraintsLimitBorrowedStorage)
   EXPECT_EQ(1u, view->nested().values().capacity());
   EXPECT_THROW(view->nested().name().assign("abc"), std::length_error);
   xcdr::destroy_message(ts.get(), view);
+}
+
+TEST(RegionXcdr, RegionLayoutBoundednessRequiresEveryVariableField)
+{
+  using NestedView = rosidl_typesupport_xcdr_cpp_tests::msg::views::RegionNestedBounded;
+  auto base = xcdr::get_message_type_support_handle<NestedView>();
+  auto bounded = [](const rosidl_message_type_support_t * support) {
+      bool result = false;
+      EXPECT_EQ(RCUTILS_RET_OK, xcdr::region_layout_is_bounded(support, &result));
+      return result;
+    };
+  EXPECT_FALSE(bounded(base));
+  NestedView::Constraints limits;
+  rosidl_typesupport_xcdr_c__constraints_t wrapped{};
+  wrapped.type_specific = &limits;
+  auto partial = xcdr::create_constrained_message_type_support(base, &wrapped);
+  ASSERT_NE(nullptr, partial);
+  EXPECT_FALSE(bounded(partial.get()));
+  limits.items.size = 2;
+  auto complete = xcdr::create_constrained_message_type_support(base, &wrapped);
+  ASSERT_NE(nullptr, complete);
+  EXPECT_TRUE(bounded(complete.get()));
+
+  auto nested_base = xcdr::get_message_type_support_handle<VariableView>();
+  VariableView::Constraints nested_limits;
+  wrapped.type_specific = &nested_limits;
+  auto nested_partial = xcdr::create_constrained_message_type_support(nested_base, &wrapped);
+  ASSERT_NE(nullptr, nested_partial);
+  EXPECT_FALSE(bounded(nested_partial.get()));
+  nested_limits.nested_variable.element.name.size = 8;
+  nested_limits.nested_variable.element.data.size = 4;
+  auto nested_complete = xcdr::create_constrained_message_type_support(nested_base, &wrapped);
+  ASSERT_NE(nullptr, nested_complete);
+  EXPECT_TRUE(bounded(nested_complete.get()));
 }
 
 TEST(RegionXcdr, CastsWideStringsInNestedMessages)
